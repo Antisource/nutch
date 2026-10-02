@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<configuration>
+  <property>
+    <name>http.agent.name</name>
+    <value>training-custody-test-bot</value>
+  </property>
+  <property>
+    <name>http.agent.url</name>
+    <value>https://github.com/Antisource/nutch</value>
+  </property>
+  <property>
+    <name>fetcher.store.warc</name>
+    <value>true</value>
+  </property>
+  <property>
+    <name>warc.export.operator</name>
+    <value>training-custody-lab</value>
+  </property>
+  <property>
+    <name>warc.export.publisher</name>
+    <value>training-custody-lab</value>
+  </property>
+  <property>
+    <name>warc.export.software</name>
+    <value>Apache Nutch, Common Crawl fork (Antisource/nutch, branch feat/tee-hadoop-cluster)</value>
+  </property>
+  <property>
+    <name>warc.export.description</name>
+    <value>10-URL test crawl on a 2-node Hadoop cluster in GCP Intel TDX Confidential VMs</value>
+  </property>
+  <property>
+    <name>warc.export.isPartOf</name>
+    <value>TRAINING-CUSTODY-TEST-001</value>
+  </property>
+</configuration>
