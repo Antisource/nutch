@@ -23,6 +23,9 @@ resolved, which instructions turned out to be wrong, and why the key decisions w
 10. **Never run `hdfs namenode -format` twice.** It erases HDFS.
 11. **Do not touch folders you did not create** (for example unknown `entry…` folders under
     `/sys/kernel/config/tsm/report/`).
+12. **Label every time with its source and zone.** VM clocks are UTC; tools on the laptop print local time
+    (India Standard Time, UTC+5:30). Convert before writing "UTC".
+13. **Keep test artefacts in a named folder**, not `/tmp`, which is cleared when a VM restarts.
 
 ## 2. Mistake log
 
@@ -45,6 +48,10 @@ resolved, which instructions turned out to be wrong, and why the key decisions w
 | 15 | configfs | Two unknown `entry…` folders under the master's report directory | Dated 27 September, root-owned, provider `tdx_guest`: they predate this work, probably from an earlier exercise (inference) | Left alone; `quote.sh` uses its own `req-…` folder name and removes it | Rule 11 |
 | 16 | Crawl | The crawl left the seed domains and fetched `www.zyte.com` | No domain restriction in the configuration | Recorded as a finding | Add a URL filter and hash it into the manifest |
 | 17 | WARC | `WARC-IP-Address` is `0.0.0.0` in the record read | Not investigated | Recorded | Investigate the fetcher's WARC writer |
+| 18 | Documentation | The laptop check was recorded as "about 17:07 UTC"; the tool had printed the laptop's local time (India, UTC+5:30), so the correct time is about 11:37 UTC | A local timestamp was read as UTC | Corrected, and every time in every document was audited against its source | Rule 12 |
+| 19 | go-tdx-guest | `check -get_collateral -check_crl` stopped with `flag -get_collateral=-check_crl invalid` | The flags take explicit values; the tool read the second flag as the first one's value | `-get_collateral=true -check_crl=true` | Read the tool's own error; do not copy flag syntax from an example blindly |
+| 20 | Cloud Shell | `xxd: command not found` | Cloud Shell does not have `xxd` (the VMs do) | Used `od -An -v -tx1 -j <offset> -N <length>`, checked against a known REPORTDATA match | Check a tool exists before building a procedure on it |
+| 21 | Evidence | A file size (3355 bytes) retyped from a screenshot did not match the screen (3395) | Retyping | The screenshot value was used | Rule 6 |
 
 ## 3. Corrections to earlier working instructions
 
@@ -60,6 +67,9 @@ Some guidance given during the work turned out wrong or too strong. Corrected he
 | "Probably Ant finished quickly" (explaining the blank screen) | The build never ran (no log file); see mistake 13 |
 | Wording that a `MATCH` showed a genuine TDX statement | A `MATCH` shows only that the quote's 64 bytes equal the manifest's hash. Genuineness needs the signature check, still pending |
 | The README for the scripts said changing any output file breaks the match | Changing the manifest breaks the match with the quote; changing a listed output file makes its hash differ from the recorded value |
+| The laptop signature check was recorded as 17:07 UTC | It was the laptop's local time (IST); the correct time is about 11:37 UTC |
+| `check -get_collateral -check_crl` (flags without values) | The flags need explicit values: `-get_collateral=true -check_crl=true` |
+| Measurements can be extracted in Cloud Shell with `xxd` | Cloud Shell lacks `xxd`; `od` works and was validated against a known REPORTDATA match |
 | The first `make-manifest.sh` always reproduced run 1's manifest | It does not: run 1's manifests were assembled by hand with a different layout |
 
 ## 4. Decision log
@@ -83,6 +93,9 @@ Some guidance given during the work turned out wrong or too strong. Corrected he
 | No rebuild for run 2 | Build inputs unchanged and the job hash identical, giving a stronger comparison |
 | Practice sites as seeds | Built for crawling tests; their `robots.txt` returned 404 (no published restrictions) |
 | `-DskipTests` on the helper libraries | Saved time. Not what the upstream README says |
+| Tamper tests on the master's run 2 manifest and quote only | The tests check mechanisms (a hash binding, a signature) that behave the same on any node. The worker was not repeated |
+| Tampered copies kept in named folders, original files untouched | Evidence for the record; `/tmp` is cleared on restart |
+| Tampered quote kept outside the repository | Evidence, not code |
 
 ## 5. Checklist for repeating the work
 
@@ -97,7 +110,8 @@ Some guidance given during the work turned out wrong or too strong. Corrected he
 9. Copy the WARC folders out of HDFS; hash them; count record types; list URLs; check `hostname:` lines.
 10. Build a manifest per node, make a quote per node, check `MATCH`, hash the evidence files.
 11. Copy evidence to Cloud Shell (VMs can be stopped); re-hash; compare by shell.
-12. Verify the quote signatures on a machine with no Google credentials; extract MRTD and RTMRs.
+12. Verify the quote signatures on a machine with no Google credentials (`check -inform bin`, then with `-get_collateral=true -check_crl=true`); extract MRTD and RTMRs and count the distinct values per register.
+13. Run the tamper tests on a copy of a manifest and on a copy of a quote; keep the logs and the tampered copies.
 
 ## 6. Security hygiene
 
@@ -109,13 +123,14 @@ Some guidance given during the work turned out wrong or too strong. Corrected he
 
 ## 7. Open items
 
-| Item | Why it matters |
+| Item | State |
 |---|---|
-| Verify quote signatures (go-tdx-guest `check`, off the cloud) | Until then the quotes are not shown to be genuine |
-| Compare MRTD and RTMR values between the nodes and runs | Shows whether the kernel difference is visible in measurements |
-| Record the one-byte tamper test output | Currently reported done but not captured |
-| Restrict the crawl to the seed domains | The crawl fetched an external site |
-| Investigate `WARC-IP-Address: 0.0.0.0` | Server address is not captured in the record read |
-| Write the limitations and challenges table; assess a better TEE for CCBot | Mentor deliverable, not yet written |
-| Capture run 2 file sizes | Missing from the run 2 record |
-| Larger worker disk | About 5.4 GB usable by HDFS limits scale |
+| Verify quote signatures off the cloud | **Done** for all four quotes (basic and strict check); see [quote-verification.md](quote-verification.md) |
+| Compare MRTD and RTMR values between the nodes and runs | **Done.** MRTD identical; RTMR0 to RTMR2 differ between nodes. Not judged against a reference value |
+| Record the one-byte tamper test | **Done** on run 2's master manifest and quote. Not repeated on the worker |
+| Restrict the crawl to the seed domains | Open: the crawl fetched an external site in both runs |
+| Investigate `WARC-IP-Address: 0.0.0.0` | Open: the server address is not captured in the record read |
+| Compare MRTD with a published reference, replay the boot event log, validate offsets against Intel's specification | Open |
+| Write the limitations and challenges table; assess a better TEE for CCBot | Open: mentor deliverable, not yet written |
+| Capture run 2 file sizes | Open |
+| Larger worker disk | Open: about 5.4 GB usable by HDFS limits scale |

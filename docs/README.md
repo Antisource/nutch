@@ -4,8 +4,9 @@ This folder documents a two-run experiment: run Common Crawl's Nutch fork ("CCBo
 two-node Hadoop cluster whose nodes are Intel TDX Confidential VMs on Google Cloud, crawl at most
 10 URLs, collect the WARC output, and bind a manifest of each run to hardware attestation quotes.
 
-Everything here was written from terminal output captured during the work (times are UTC,
-2 and 3 October 2026). Where something was not observed, the text says so.
+Everything here was written from terminal output captured during the work (2 and 3 October 2026).
+Times are UTC. Timestamps printed by tools on the operator's laptop use India Standard Time (UTC+5:30) and are
+converted where cited. Where something was not observed, the text says so.
 
 ## Documents
 
@@ -15,6 +16,7 @@ Everything here was written from terminal output captured during the work (times
 | [run-1-pilot.md](run-1-pilot.md) | Run 1: hand-typed commands, full timeline, results and evidence |
 | [run-2-scripted.md](run-2-scripted.md) | Run 2: the same crawl driven by the committed scripts |
 | [comparison-run1-run2.md](comparison-run1-run2.md) | What was identical, what differed, and what that does and does not show |
+| [quote-verification.md](quote-verification.md) | Signature checks, measurement registers and tamper tests on the four quotes |
 | [guide-pitfalls-and-lessons.md](guide-pitfalls-and-lessons.md) | Mistakes made, corrections, decisions taken, and a checklist for repeating the work |
 
 ## Repository map: what was added and why
@@ -47,6 +49,8 @@ branch `feat/tee-hadoop-cluster` of the fork `Antisource/nutch`.
 | `~/evidence/` | Run 1: manifests, quotes, WARC output, crawl log, HDFS listing |
 | `~/evidence-run2/` | Run 2: manifests, quotes, WARC output, crawl log |
 | `~/evidence-all.tar.gz` | Bundle of both folders, with its SHA-256 saved in `evidence-all.sha256` |
+| `~/evidence-run2/measurements.txt`, `~/evidence-run2/tamper-test/` | Measurement values, and the manifest tamper-test log and tampered copy. Added after the first bundle was made |
+| Laptop folder `tdx-evidence\tamper-test` (outside the repository) | The tampered quote and the `check` logs |
 
 Full hash values live in the manifests. These documents quote only the first 12 hex characters
 of a hash, because values retyped by hand were unreliable (see the pitfalls guide).
@@ -60,7 +64,7 @@ of a hash, because values retyped by hand were unreliable (see the pitfalls guid
 | Specify the VM configuration for Hadoop | [cluster-configuration.md](cluster-configuration.md) |
 | Crawl 10 URLs and see the WARC output | Done twice: 8 pages + 2 redirect records = 10 fetch attempts each time |
 | Update the limitations table and answer the better-TEE question | **Not yet written.** Observations so far are in the comparison and lessons documents |
-| Reference exercises: signature check, measurement comparison | **Not yet done** |
+| Reference exercises: signature check, measurement comparison | Done: see [quote-verification.md](quote-verification.md) (four signatures verified, measurements compared, two tamper tests recorded). The measurements cannot be judged against a reference value |
 
 ## Glossary
 
@@ -80,7 +84,9 @@ of a hash, because values retyped by hand were unreliable (see the pitfalls guid
 
 ## Conventions
 
-- Times are UTC. The VM clock is supplied by the host and is not proven by a quote.
+- Times are UTC. The VMs run in UTC, so their log, `ls` and `date` times are UTC; manifests use `date -u`.
+  Tools run on the operator's laptop print India Standard Time (UTC+5:30); subtract 5 h 30 min.
+- The VM clock is supplied by the host and is not proven by a quote.
 - A hash comparison done by eye is not evidence. Comparisons in this work were done by the shell
   (`[ "$a" = "$b" ] && echo SAME`).
 - Shell prompts identify the machine: `cloudshell`, `tdx-lab` (master), `tdx-lab-worker`, or the
