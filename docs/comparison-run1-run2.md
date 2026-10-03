@@ -126,4 +126,4 @@ diff <(grep 'hadoop/etc' master/attest-run2/manifest-master.txt) \
 1. Done: all four quotes verified with go-tdx-guest's `check` on a machine with no Google credentials.
 2. Done: MRTD and RTMR values extracted and compared (see [quote-verification.md](quote-verification.md)).
 3. Add a URL filter to keep the crawl inside the seed domains, and put the filter file's hash into the manifest.
-4. Write the limitations table and the better-TEE assessment, using current vendor documentation.
+4. Done: the limitations table and better-TEE assessment are in [limitations-and-trust.md](limitations-and-trust.md); its "Next experiments" list holds the remaining ideas.

@@ -131,6 +131,7 @@ Some guidance given during the work turned out wrong or too strong. Corrected he
 | Restrict the crawl to the seed domains | Open: the crawl fetched an external site in both runs |
 | Investigate `WARC-IP-Address: 0.0.0.0` | Open: the server address is not captured in the record read |
 | Compare MRTD with a published reference, replay the boot event log, validate offsets against Intel's specification | Open |
-| Write the limitations and challenges table; assess a better TEE for CCBot | Open: mentor deliverable, not yet written |
+| Write the limitations and challenges table; assess a better TEE for CCBot | **Done:** see [limitations-and-trust.md](limitations-and-trust.md). Spot-check its sources before citing |
+| Experiments proposed by the limitations analysis (RTMR3 extension, MRTD against Google's endorsement, `gceprovenance`, Hadoop wire encryption, non-TDX baseline, WARC fixes, maintenance restart, signed evidence bundle) | Open: listed under "Next experiments" in [limitations-and-trust.md](limitations-and-trust.md) |
 | Capture run 2 file sizes | Open |
 | Larger worker disk | Open: about 5.4 GB usable by HDFS limits scale |
