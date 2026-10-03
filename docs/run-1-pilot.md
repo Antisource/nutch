@@ -17,6 +17,8 @@ Environment details are in [cluster-configuration.md](cluster-configuration.md).
 
 ## 2. Timeline (UTC, 2 October 2026)
 
+Times come from the VMs' clocks (login banners, `date -u`, Hadoop logs, file times). The VMs run in UTC.
+
 | Time | Event |
 |---|---|
 | 09:47 | First SSH into the master `tdx-lab` |
@@ -92,7 +94,8 @@ specification) a 48-byte header precedes a 584-byte body, and REPORTDATA starts 
 body, so 48 + 520 = 568.
 
 The tamper test (change one byte, re-check) and the copy of the files to Cloud Shell were reported done
-by the operator; their output was not captured here.
+by the operator; their output was not captured here. Tamper tests were later done and recorded on run 2's
+manifest and quote: see [quote-verification.md](quote-verification.md).
 
 ## 5. Results
 
@@ -174,14 +177,15 @@ and were left alone.
 3. **Nothing restricts the crawl to the seed sites.** It followed a link out to `zyte.com`.
 4. **The WARC's provenance claims are self-reported.** Labels, hostname, digests and dates are written by the crawler.
 5. **A matching binding shows consistency only.** It shows the quote's 64 bytes equal the manifest's hash. It does not
-   show the quote is genuine until its signature is checked, nor that the manifest is true.
+   show the quote is genuine until its signature is checked, nor that the manifest is true. The signatures were
+   checked afterwards and all four verified (see [quote-verification.md](quote-verification.md)).
 6. **The two nodes boot different kernels** (`-1067` and `-1069`) despite the same VM type and image family.
 7. **The worker's disk is small** (about 5.4 GB usable by HDFS).
 
-## 7. Not done in run 1
+## 7. Not done in run 1 at the time
 
-- Signature verification of the quotes (go-tdx-guest `check`).
-- Extraction and comparison of MRTD and RTMR values between the two nodes.
-- Any check that the pages came from the real websites (a TEE does not authenticate the network).
+- Signature verification of the quotes, and extraction and comparison of MRTD and RTMR values. Both were done
+  afterwards for all four quotes: see [quote-verification.md](quote-verification.md).
+- Any check that the pages came from the real websites (a TEE does not authenticate the network). Still not done.
 
 Mistakes and workarounds from this run are in [guide-pitfalls-and-lessons.md](guide-pitfalls-and-lessons.md).

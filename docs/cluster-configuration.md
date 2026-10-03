@@ -1,7 +1,7 @@
 # Cluster configuration
 
 This is the "specify the configuration of VMs for Hadoop" deliverable. Values come from command
-output captured during the work. Items marked *assumption* or *not captured* were not observed.
+output captured during the work. Times are UTC (the VMs run in UTC). Items marked *assumption* or *not captured* were not observed.
 
 ## 1. Nodes
 
@@ -14,6 +14,7 @@ output captured during the work. Items marked *assumption* or *not captured* wer
 | OS | Ubuntu 22.04.5 LTS | Ubuntu 22.04.5 LTS |
 | Kernel | `6.8.0-1067-gcp` | `6.8.0-1069-gcp` |
 | Boot disk | about 48 GB (`df` showed 49G, 44G free after installs) | about 9.6 GB (`df` showed 9.6G; 6.6G free after the Java install) |
+| Last boot (`uptime -s`, UTC, read on 3 October) | 2026-09-22 18:49:27 | 2026-10-02 10:24:12 |
 | Internal IP | `10.128.0.2` (alias `hadoop-master`) | `10.128.0.5` (alias `hadoop-worker`) |
 | Hadoop roles | NameNode, ResourceManager, job submission | DataNode, NodeManager |
 | Java | OpenJDK 11.0.32.1 | OpenJDK 11.0.32.1 |

@@ -1,6 +1,6 @@
 # Run 2 (scripted): repeat of the 10-URL crawl using the committed scripts
 
-Date: 3 October 2026 (UTC). Run 2 repeats run 1 on the same cluster, but every crawl and
+Date: 3 October 2026. All times are UTC, taken from the VM clocks. Run 2 repeats run 1 on the same cluster, but every crawl and
 attestation step goes through scripts committed to this repository: `ops/run-crawl.sh`,
 `attest/make-manifest.sh`, `attest/quote.sh`, `attest/verify-binding.sh`.
 
@@ -142,6 +142,8 @@ A bundle of both runs was written as `~/evidence-all.tar.gz`.
 
 Details are in [guide-pitfalls-and-lessons.md](guide-pitfalls-and-lessons.md).
 
-## 8. Not done in run 2
+## 8. Not done in run 2 at the time
 
-Signature verification of the quotes, MRTD and RTMR comparison, and any check that the pages came from the real sites.
+Signature verification of the quotes and the MRTD and RTMR comparison were done afterwards for all four quotes of both
+runs: see [quote-verification.md](quote-verification.md). A one-byte tamper test was also done on run 2's master manifest
+and quote. Still not done: any check that the pages came from the real sites.

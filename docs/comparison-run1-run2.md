@@ -66,10 +66,10 @@ same crawler, same seeds, same cap.
 | Claim | Supported? |
 |---|---|
 | The 64 bytes inside each quote equal the SHA-512 of its manifest | **Yes**, checked by the shell for all four quotes |
-| Changing a manifest breaks that match | **Yes by construction**, since the quote holds a hash of its exact bytes. The one-byte tamper test was reported done in the hello-world exercise but its output was not captured |
-| Each quote is a genuine Intel-signed statement from a TDX Trust Domain | **Not yet shown.** The signature has not been verified (go-tdx-guest `check` is pending) |
+| Changing a manifest breaks that match | **Yes, tested.** One changed byte in run 2's master manifest gave `MISMATCH` (exit code 2) against the original quote. See [quote-verification.md](quote-verification.md). Not repeated on the worker |
+| Each quote is a genuine Intel-signed statement from a TDX Trust Domain | **Yes, for all four quotes.** go-tdx-guest `check` verified each one, also with certificate data and revocation checks. A one-bit change to a quote makes its signature fail |
 | The manifest lines are true | **No.** They are text written by a script on the VM. A quote vouches for a hash, not for the author's honesty |
-| The boot measurements (MRTD, RTMRs) are the expected ones | **Not examined.** Without a reference value for Google's virtual firmware they cannot be judged |
+| The boot measurements (MRTD, RTMRs) are the expected ones | **Examined, not judged.** MRTD is identical on all four quotes; RTMR0 to RTMR2 differ between the nodes. Without a reference value for the cloud's virtual firmware they cannot be judged |
 | The pages came from the real websites | **No.** A TEE protects computation, not the network path. The WARC digests and headers are written by the crawler |
 | The recorded time is correct | **No.** The clock is supplied by the host |
 | The crawl stayed within the seed sites | **No, and it did not.** It fetched `www.zyte.com` in both runs |
@@ -78,9 +78,10 @@ same crawler, same seeds, same cap.
 
 These feed the limitations and challenges table (still to be written):
 
-1. Both nodes run different kernels (`6.8.0-1067-gcp` and `6.8.0-1069-gcp`) from the same image family. A verifier
-   cannot assume a single expected measurement for a cluster. Whether the kernel difference shows in MRTD or RTMR values
-   is untested.
+1. Both nodes run different kernels (`6.8.0-1067-gcp` and `6.8.0-1069-gcp`) from the same image family. RTMR0, RTMR1 and RTMR2
+   differ between the nodes while MRTD is identical, so a verifier cannot assume a single expected measurement for a
+   cluster. The kernel difference may explain part of it, but naming the differing boot events needs the boot event log,
+   which was not examined. Neither VM rebooted between the runs, so equal values across runs are expected.
 2. Hadoop traffic between nodes crosses a network the host controls, and `default-allow-internal` opens every port
    between instances.
 3. The helper libraries are built from moving snapshots, so their commit ids must be recorded or builds drift.
@@ -122,7 +123,7 @@ diff <(grep 'hadoop/etc' master/attest-run2/manifest-master.txt) \
 
 ## 8. Next steps for the evidence
 
-1. Verify both runs' four quotes with go-tdx-guest's `check` tool on a machine with no Google credentials.
-2. Extract MRTD and RTMR values from the quotes and compare nodes and runs.
+1. Done: all four quotes verified with go-tdx-guest's `check` on a machine with no Google credentials.
+2. Done: MRTD and RTMR values extracted and compared (see [quote-verification.md](quote-verification.md)).
 3. Add a URL filter to keep the crawl inside the seed domains, and put the filter file's hash into the manifest.
 4. Write the limitations table and the better-TEE assessment, using current vendor documentation.
