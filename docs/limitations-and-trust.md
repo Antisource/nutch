@@ -1,0 +1,266 @@
+# Limitations and trust analysis: Hadoop and CCBot (Nutch) in Intel TDX Confidential VMs on Google Cloud
+
+**Scope.** This document updates the original 14-row "limitations and challenges" table. It covers running a multi-node Apache Hadoop cluster with Common Crawl's Nutch-based crawler (CCBot, branch `cc`) inside Intel TDX Confidential VMs (CVMs) on Google Cloud (GCP). Every original row was checked against primary sources and against first-party evidence from two functional runs (R1 to R7). Rows are grouped by theme and keep their original numbers. New rows start at 15. Sources were checked on 3 October 2026. Cloud documentation changes often, so "last updated" dates are given where they matter. This is a feasibility and trust assessment, not a security certification.
+
+## Feasibility verdict
+
+Running Hadoop and the Common Crawl Nutch crawler inside GCP Intel TDX CVMs **works functionally**. In its current form it **does not support the most important trust claim**: that a specific, unmodified crawler produced a specific WARC output from genuine web content.
+
+- **What works (shown in our runs).**
+  - A 2-node Hadoop 3.4.3 cluster ran Nutch `cc` on two `c3-standard-4` TDX CVMs with no failed tasks.
+  - TDX quotes bound to a manifest hash were verified off-cloud in two ways: with the root certificate built into the tool, and with Intel collateral and revocation lists downloaded.
+  - A one-byte manifest change and a one-bit quote change were both detected.
+- **What does not work yet.**
+  - The quotes do not measure the JVM, Hadoop or the crawler (RTMR3 was zero).
+  - The manifest in REPORTDATA was written by guest software, so it is self-asserted.
+  - Inter-node traffic was unencrypted.
+  - Nothing proves that fetched bytes came from the named server.
+  - The clock is not attested.
+  - No reference values for RTMR0 to RTMR2 were available.
+- **What is unknown.**
+  - Overhead at scale: no non-TDX baseline was run, and no published Hadoop or Spark benchmark on TDX was found.
+  - What happens to measurements across host-maintenance terminations and updates.
+  - Why RTMR0 differs between two nodes of the same machine type.
+
+**What would make it feasible (for the claim "this code produced this output"):**
+1. Measure the JDK, Hadoop, `.job` file and configuration into RTMR3.
+2. Pin MRTD to Google-signed launch endorsements, and derive RTMR0 to RTMR2 from a reproducible image by replaying the event log.
+3. Enable Hadoop RPC and data-transfer encryption with authentication, with keys released only to attested nodes.
+4. Sign outputs with a key bound to the quote.
+5. Scope the content claim to "the crawler received these bytes over TLS from host X", not "X really serves these bytes".
+
+If any of these cannot be done on GCP, that claim becomes "not feasible with TDX alone" (inference).
+
+## Evidence legend (first-party, "our runs")
+
+| Code | What it shows | Repo documents |
+|---|---|---|
+| R1 | 2 TDX CVMs (`c3-standard-4`, 16 GB, Ubuntu 22.04.5, kernels 6.8.0-1067-gcp and 6.8.0-1069-gcp, `onHostMaintenance=TERMINATE`, us-central1-a). Hadoop 3.4.3, OpenJDK 11, replication 1. 10 fetch attempts; identical outputs in two runs; about 10 to 11 minutes each; no failed tasks; no baseline. | run-1-pilot.md, run-2-scripted.md, comparison-run1-run2.md, cluster-configuration.md |
+| R2 | configfs-tsm quotes with REPORTDATA = SHA-512(manifest). All 4 verified with go-tdx-guest `check` on a laptop with no Google credentials. Basic run: embedded Intel root (warning printed). Strict run (`-get_collateral=true -check_crl=true`): passed. Tamper tests: exit code 2. `gceprovenance` not run. | quote-verification.md §1, §5 |
+| R3 | MRTD identical on all quotes. RTMR0–2 stable per node, different between nodes. RTMR3 zero. No reboot between runs. No reference values available. | quote-verification.md §3, §4 |
+| R4 | `default-allow-internal` (all ports). No wire encryption, Kerberos or HDFS encryption. Daemons started by hand. | cluster-configuration.md §2, §4 |
+| R5 | WARC metadata written by the crawler, unsigned. `WARC-IP-Address` 0.0.0.0. An off-seed link was followed. robots.txt not stored (both 404). | run-1-pilot.md §5, comparison-run1-run2.md §5 |
+| R6 | Two unrelated root-owned report entries (27 September) under `/sys/kernel/config/tsm/report`. | run-1-pilot.md §5.3, guide-pitfalls-and-lessons.md mistake 15 |
+| R7 | Clock is host-provided. Worker disk about 9.6 GB (about 5.4 GB for HDFS). Helper libraries from moving snapshots; public-suffix list unversioned (hashes recorded). No live migration. Evidence copied in plaintext; logs on ordinary disks. | cluster-configuration.md §1, §3, comparison-run1-run2.md §5 |
+
+**Change markers:** Kept, Updated, Corrected, Merged, Removed. The severity of new rows is marked "(author judgement)".
+
+## Updated limitations tables
+
+### A. Guest TCB and guest trust
+
+| # | Challenge | Severity | Mitigation (low to high effort) | Change | Evidence from our runs | Sources |
+|---|---|---|---|---|---|---|
+| 1 | Large guest TCB: kernel + JVM + Hadoop + crawler trusted | High | Low: remove unused packages and services. Medium: minimal hardened image, least privilege. High: measure userspace into RTMR3 (row 23) | Corrected: GCP measured boot stops at kernel+cmdline [1] | RTMR3 zero. our runs [quote-verification.md] | [Google: RTMR contents](https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/measurement-register-contents#:~:text=The%20kernel%2C%20and%20command%20line%20passed%20to%20the%20kernel); [arXiv 2501.11558v1](https://arxiv.org/html/2501.11558v1#:~:text=TDX%20increases%20the%20trust%20boundaries%20to%20guest%20OS) |
+| 2 | Compromised guest root | High | Harden the guest, isolate tenants, protect credentials; put the smallest high-value step in a separate enclave | Updated: now sourced [2] | One root context per VM. our runs [cluster-configuration.md] | [kernel.org TDX](https://docs.kernel.org/arch/x86/tdx.html#:~:text=protect%20confidential%20guest%20VMs%20from%20the%20host%20and%20physical%20attacks); [Heckler](https://arxiv.org/html/2404.03387#:~:text=we%20bypass%20the%20authentication%20in%20OpenSSH%20and%20sudo) |
+| 16 | A quote does not identify which program requested it | High (author judgement) | Low: root-only configfs, one entry per requester. Medium: bind the requester's hash into REPORTDATA and RTMR3. High: a single attestation agent | Kept (verified) [3] | Unrelated report entries found. our runs [run-1-pilot.md §5.3] | [configfs-tsm ABI](https://www.kernel.org/doc/Documentation/ABI/testing/configfs-tsm#:~:text=it%20can%20prevent%20conflicts%20by%20creating%20a%20report%20instance%20per%20requesting%20context) |
+| 23 | The quote does not cover JVM, Hadoop or crawler code; the manifest is self-asserted | High (author judgement) | Medium: extend RTMR3 with hashes of JDK, Hadoop, `.job`, configs. High: IMA, read-only root | New [4] | RTMR3 zero; manifest built in the guest. our runs [quote-verification.md] | [Google: RTMR3](https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/measurement-register-contents#:~:text=Additional%20event%20logs%20measurement%20passed%20from%20the%20userspace) |
+| 20 | Supply chain: moving snapshots; unversioned public-suffix list | Medium (author judgement) | Low: pin commits and hashes (done). Medium: vendor all inputs. High: reproducible builds | Kept | `.job` byte-identical across runs. our runs [comparison-run1-run2.md §5] | Inference from our runs |
+
+### B. Attestation, measurements and verifiers
+
+| # | Challenge | Severity | Mitigation (low to high effort) | Change | Evidence from our runs | Sources |
+|---|---|---|---|---|---|---|
+| 15 | No RTMR0–2 reference values; MRTD not checked against Google's endorsement | High (author judgement) | Low: fetch the launch endorsement for the observed MRTD. Medium: replay the CCEL log. High: own reproducible image with published RTMRs | Corrected: MRTD references exist; none published for RTMRs [5] | MRTD identical; RTMRs differ between nodes. our runs [quote-verification.md §3] | [Google: launch endorsement](https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/verify-firmware#:~:text=A%20launch%20endorsement%20contains%20precomputed%20and%20signed%20measurements) |
+| 6 | Measurements change on legitimate upgrades | High operational risk | Low: store the event log with every quote. Medium: A/B allowlists, signed release metadata. High: staged policy rollovers | Updated: which registers change and why [6] | Kernels differ (1067 vs 1069) and RTMRs differ (the link is inference). our runs [cluster-configuration.md] | [Google: new machine per launch](https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/measurement-register-contents#:~:text=Every%20Compute%20Engine%20VM%20instance%20launch%20is%20treated%20as%20a%20new%20machine); [kernel.org: TEE_TCB_SVN_2](https://docs.kernel.org/arch/x86/tdx.html#:~:text=The%20main%20exception%20is%20the%20TEE_TCB_SVN_2%20field) |
+| 5 | Attestation infrastructure outage | Medium–high | Low: cache collateral with expiry. Medium: redundant verifiers, bounded credential lifetime. Always: do not fail open | Updated: dependencies named [7] | Basic check offline; strict check needed Intel. our runs [quote-verification.md §5] | [Google: best-effort bucket](https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/verify-firmware#:~:text=This%20Cloud%20Storage%20bucket%20is%20only%20hosted%20in%20one%20region) |
+| 22 | The verification tool carries its own trust anchor | Medium (author judgement) | Low: always use strict mode. Medium: pin the root hash; build the tool from a pinned commit | Updated: earlier claims corrected [8] | Embedded-root warning; strict run passed. our runs [quote-verification.md §5] | [Google: embedded Intel root](https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/tdx-provenance#:~:text=Verify%20the%20authenticity%20of%20the%20Intel%20TDX%20quote%20by%20using%20the%20embedded%20Intel%20root%20certificate) |
+| 21 | Dependence on the provider's firmware, host registry and attestation service | Medium (author judgement) | Low: verify with Intel collateral (done). Medium: add `gceprovenance`. High: a second independent verifier | Updated [9] | `gceprovenance` not run. our runs [quote-verification.md] | [Google: gceprovenance scope](https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/tdx-provenance#:~:text=The%20gceprovenance%20tool%20performs%20a%20basic%20quote%20authenticity%20check,use%20the%20check%20CLI%20tool) |
+| 14 | Lock-in to one vendor TEE | Medium | Keep the policy interface abstract (evidence in, claims out); test a second verifier | Updated: multi-TEE verifiers are partial [10] | Only TDX tested. our runs | [Intel Trust Authority: SEV-SNP preview](https://docs.trustauthority.intel.com/main/articles/articles/ita/whats-new.html#:~:text=AMD%20SEV%2DSNP%20attestation%20remains%20a%20preview%20feature) |
+
+### C. Cluster, network and performance
+
+| # | Challenge | Severity | Mitigation (low to high effort) | Change | Evidence from our runs | Sources |
+|---|---|---|---|---|---|---|
+| 3 | Shared I/O memory controlled by the hypervisor | High | Low: no secrets in shared buffers; validate input. Medium: TLS everywhere and Hadoop wire encryption (HDFS encryption covers data at rest only) | Updated: sourced; mitigation corrected [11] | RPC, shuffle and HTTP in plaintext. our runs [cluster-configuration.md §4] | [kernel.org: shared mappings](https://docs.kernel.org/arch/x86/tdx.html#:~:text=Shared%20mapping%20content%20is%20entirely%20controlled%20by%20the%20hypervisor) (snippet only) |
+| 17 | No encryption or mutual attestation between nodes | High (author judgement) | Low: firewall limited to Hadoop ports. Medium: `hadoop.rpc.protection=privacy`, `dfs.encrypt.data.transfer=true`, HTTPS, Kerberos. High: keys only for attested nodes | Kept [12] | `default-allow-internal`; no Kerberos. our runs [cluster-configuration.md §2, §4] | [Hadoop SecureMode](https://hadoop.apache.org/docs/stable/hadoop-project-dist/hadoop-common/SecureMode.html#:~:text=Setting%20hadoop.rpc.protection%20to%20privacy) (snippet only) |
+| 4 | HDFS and shuffle I/O overhead | Medium–high | Low: guest kernel with TDX halt fixes; size SWIOTLB. Medium: TDX vs non-TDX benchmark, CPU per GB. High: tune batching and buffers | Updated: Google documents the overhead [13] | Functional only; no baseline. our runs [comparison-run1-run2.md] | [Google: bandwidth and latency](https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/supported-configurations?tab=intel-tdx#:~:text=Confidential%20VM%20instances%20might%20experience%20lower%20network%20bandwidth%20and%20higher%20latency); [halt fixes](https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/supported-configurations?tab=intel-tdx#:~:text=Guest%20images%20without%20the%20TDX%20halt%20fixes) |
+| 13 | No public benchmark of full Hadoop on TDX | Medium evidence risk | Run a representative PoC with a non-TDX baseline before committing to capacity or cost | Updated: still none found [14] | Two functional runs. our runs | None found; see [14] |
+
+### D. Host, availability and platform
+
+| # | Challenge | Severity | Mitigation (low to high effort) | Change | Evidence from our runs | Sources |
+|---|---|---|---|---|---|---|
+| 8 | Denial of service by the host | Fundamental | Low: watch maintenance-event metadata; checkpoint. Medium: HA across zones and administrative domains | Updated: sourced [15] | TERMINATE policy; replication 1. our runs [cluster-configuration.md] | [arXiv 2602.11434](https://arxiv.org/html/2602.11434#:~:text=Availability%20is%20not%20included%20in%20the%20security%20objectives); [Google: no live migration](https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/troubleshoot-live-migration#:~:text=All%20other%20Confidential%20VM%20types%20don%27t%20support%20live%20migration) |
+| 19 | The clock is provided by the host | Medium–high (author judgement) | Low: record several external time sources. Medium: external signed timestamps (not researched) | Kept; no source found either way (unverified) | WARC dates come from the VM clock. our runs [cluster-configuration.md §1] | None found (unverified) |
+| 24 | GCP TDX restrictions: no kdump, reservations or sole-tenant nodes; Balanced PD only; CPUID limits; up to 192 vCPU | Medium (author judgement) | Plan without reservations; test on the exact machine type | New [16] | Small worker disk. our runs [cluster-configuration.md §3] | [Google: 192 vCPUs](https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/supported-configurations?tab=intel-tdx#:~:text=Intel%20TDX%20supports%20up%20to%20192%20vCPUs) |
+
+### E. Data at rest, logs and evidence handling
+
+| # | Challenge | Severity | Mitigation (low to high effort) | Change | Evidence from our runs | Sources |
+|---|---|---|---|---|---|---|
+| 9 | Logs leak plaintext | High | Low: no record dumps; redaction. Medium: encrypt sensitive logs in the guest. Guest console logs can also leave the TD (Google's SEV-SNP list recommends console logs instead of kdump; its TDX list only says kdump is unsupported) | Kept; no TEE-specific primary guidance found (unverified) [17] | Logs on ordinary disks. our runs | [Google: kdump unsupported on TDX](https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/supported-configurations?tab=intel-tdx#:~:text=those%20CPUID%20values.-,VM%20instances%20don%27t%20support%20kdump) |
+| 10 | Crash and core dumps leak memory | High | Disable JVM heap dumps and user core dumps, or encrypt them; kernel kdump is not available on GCP TDX | Corrected: the remaining risk is user-space dumps (inference) [17] | Not tested | Same link as row 9 |
+| 11 | Backups separate data from the TEE | High | Medium: encrypt before persistence; keys in a separate KMS. High: attestation-gated key release; attested restore tests | Kept; Hadoop encryption zones and GCP disk options not re-verified (unverified) | No HDFS encryption. our runs | Not verified in this pass |
+| 26 | Evidence and outputs leave the TD in plaintext and unsigned | High (author judgement) | Low: sign the evidence bundle in the TD with a quote-bound key. Medium: encrypt to the recipient before export | New | Copied in plaintext to Cloud Shell and a laptop. our runs | Inference from our runs |
+
+### F. Authenticity of crawled content
+
+| # | Challenge | Severity | Mitigation (low to high effort) | Change | Evidence from our runs | Sources |
+|---|---|---|---|---|---|---|
+| 18 | A TEE does not authenticate crawled web content | Fundamental for content claims (author judgement) | Low: record the real IP, TLS certificate chain and robots.txt (including 404s); domain filters. Medium: hash payloads into the attested manifest. High: TLS-oracle proofs for selected pages | Kept [18] | IP 0.0.0.0; off-seed link; no robots.txt records. our runs [run-1-pilot.md §5] | [WARC 1.1](https://iipc.github.io/warc-specifications/specifications/warc-format/warc-1.1-annotated/#:~:text=A%20WARC%2DIP%2DAddress%20field%20should%20be%20used%20to%20record%20the%20network%20IP%20address%20from%20which%20the%20response%20material%20was%20received) (snippet only); [TLSNotary FAQ](https://tlsnotary.org/docs/faq/#:~:text=TLS%20does%20not%20have%20a%20mechanism%20to%20enable%20the%20server%20to) (snippet only) |
+
+### G. TEE vulnerabilities, side channels and physical attacks
+
+| # | Challenge | Severity | Mitigation (low to high effort) | Change | Evidence from our runs | Sources |
+|---|---|---|---|---|---|---|
+| 7 | Side channels | Threat-dependent | Constant-time crypto; no secret-dependent access patterns; isolate sensitive tenants; follow advisories | Updated: attacks sourced; lost footnote 19 partly restored [19] | Not tested | [TDXRay](https://tdxray.cpusec.org/#:~:text=Intel%27s%20own%20threat%20model%20explicitly%20excludes%20microarchitectural%20side%20channels) |
+| 12 | TEE vulnerabilities and firmware lifecycle | High | Low: check TCB status in every verification. Medium: minimum TDX module version and SVN in policy. High: re-attest after TCB recovery | Updated: CVE and fix versions sourced [20] | Strict check passed; TCB level not recorded (open). our runs | [arXiv 2602.11434: CVE](https://arxiv.org/html/2602.11434#:~:text=Migratable%20TD%20can%20become%20debuggable%20during%20migration) |
+| 25 | Physical memory-bus attacks can forge quotes that pass verification | Threat-dependent (author judgement) | Rely on provider physical security; add provenance binding (row 21); limit what one quote unlocks | New [21] | Not testable | [TEE.fail](https://tee.fail/#:~:text=at%20the%20highest%20trust%20level%20of%20UpToDate); [Intel bulletin: physical attacks out of scope](https://www.intel.com/content/www/us/en/security-center/announcement/intel-security-announcement-2025-10-28-001.html#:~:text=does%20not%20change%20Intel%E2%80%99s%20previous%20out%20of%20scope%20statement) (page text seen in search; fragment untested) |
+
+All original rows 1 to 14 are present: 1, 2 (A); 5, 6, 14 (B); 3, 4, 13 (C); 8 (D); 9, 10, 11 (E); 7, 12 (G). None were removed or merged.
+
+### Notes
+
+[1] Google maps MRTD to the TDVF firmware, RTMR[0] to "TDVF configuration (TD Hand-Off Block, ACPI, Secure boot configuration)", RTMR[1] to "TD loader (GRUB/shim)", RTMR[2] to "The kernel, and command line passed to the kernel", and RTMR[3] to user-defined data (page opened and re-checked on 3 October 2026; last updated 2026-08-26). Another Google page (Confidential VM token claims, snippet only) describes `rtmr1` as the guest OS bootloader and kernel and `rtmr2` as the initramfs and kernel command line, and Intel's TDVF design guide (snippet only) describes RTMR[1] as the OS loader and RTMR[2] as the OS components such as kernel and initrd. The exact split between RTMR1 and RTMR2 therefore differs between sources and may depend on the image. Hardening shrinks the TCB but does not make it attested. The original row's implication that measured boot covers the JVM and Hadoop was too strong.
+
+[2] The kernel documentation says TDX protects "confidential guest VMs from the host and physical attacks" (page opened; docs version 7.3.0-rc5). The guest OS and its root user are therefore inside the trust boundary. Bruno Casella's study "A performance analysis of VM-based Trusted Execution Environments for Confidential Federated Learning" (arXiv 2501.11558, 20 January 2025; federated learning, not Hadoop) says "TDX increases the trust boundaries to guest OS, all the applications, and VM admins". It also finds that VM-based TEEs "introduce a limited overhead (at most 1.5x)". Heckler showed that a malicious hypervisor could reach guest root: "on AMD SEV-SNP and Intel TDX, we bypass the authentication in OpenSSH and sudo" (arXiv 2404.03387, author's version of the USENIX Security 2024 paper). Whether the GCP 6.8 guest kernels carry the Heckler fixes was not checked.
+
+[3] The configfs-tsm ABI says `generation` "increments each time @inblob or any option is written", and that userspace "can prevent conflicts by creating a report instance per requesting context" (page opened; plain-text file, so fragment support varies by browser). This gives conflict detection, not caller identity. Any root process can get a quote over any REPORTDATA (matches R6).
+
+[4] Google: "Users can extend the RTMR[3] register with user space measurements" ([Confidential VM attestation](https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/attestation#:~:text=Users%20can%20extend%20the%20RTMR%5B3%5D%20register%20with%20user%20space%20measurements); snippet only). With RTMR3 at zero, the only link from the quote to the crawler is a hash that any root process could have computed. This is the largest gap between what was demonstrated and what is claimed (inference).
+
+[5] Google-signed launch endorsements are looked up by the MRTD at "offset b8h (for TDX Module 1.5)". They are stored in a bucket "only hosted in one region, us-west1", described as "a best-effort backup established for transparency purposes" (page opened). The TDX endorsement depends on "The amount of RAM in GiB provided to the VM", which is consistent with identical MRTDs on two 16 GB nodes (inference). No Google page publishing expected RTMR values was found. Google's community blog "Beyond Confidential" (18 November 2025, page opened 3 October 2026) lists reference values for some claims, for example `td_attributes` 0x10000000 (debug disabled, migration not allowed), but shows `mr_td` and `rtmrs[4]` only as `#HASH`, describing the RTMRs as values "that can be used to validate the measured boot event log". They have to be derived by replaying the CCEL log at `/sys/firmware/acpi/tables/data/CCEL` (attestation-overview; snippet only). The earlier claim that "no MRTD reference exists" was too strong.
+
+[6] RTMR1 and RTMR2 cover GRUB/shim and the kernel plus command line, so kernel updates change them. The different kernels on master and worker plausibly explain the different RTMR2 values (inference). The RTMR0 difference is unexplained. Google: "Every Compute Engine VM instance launch is treated as a new machine, booted with the latest virtual firmware version" (vTPM section, page opened). MRTD may therefore change after a TERMINATE and restart (inference for TDX). After a host TDX module runtime update, "TEE_TCB_SVN_2 ... changes" while "TEE_TCB_SVN reflects the TCB at TD launch time" (kernel.org, page opened). Google's release notes (14 July 2025, snippet only) add that remote attestation is not supported on SLES 15 SP7 and Ubuntu 25.04 guest images, so an operating-system upgrade can also break attestation. Our VMs run Ubuntu 22.04.
+
+[7] The dependencies are:
+- Intel collateral and CRLs. Intel: "The Verifier compares evidence in the quote with the verification collateral it collects from the provisioning certification services" ([Intel TCB Recovery](https://www.intel.com/content/www/us/en/developer/articles/technical/software-security-guidance/best-practices/trusted-computing-base-recovery.html#:~:text=The%20Verifier%20compares%20evidence%20in%20the%20quote%20with%20the%20verification%20collateral); snippet only).
+- Google's host-registry JSON in Cloud Storage (tdx-provenance, page opened).
+- The best-effort endorsement bucket [5].
+
+The basic check needs none of these, but it skips revocation. "Do not fail open" therefore means: deny access when collateral cannot be fetched, rather than falling back to the basic check (author judgement).
+
+[8] Google's provenance page verifies quotes "by using the embedded Intel root certificate" (page opened; last updated 2026-09-30). Two earlier claims are corrected and must not reappear. First, verification did not rely on an "offline" root only: the basic run used the built-in root, and the strict run downloaded Intel collateral and CRLs, and both passed. Second, `check` was not compared with `gceprovenance`, because `gceprovenance` was not run.
+
+[9] Google says `gceprovenance` "performs a basic quote authenticity check by verifying the quote's signature and the embedded certificate chain". For "complete TCB evaluation, certificate revocation list (CRL) checks, or RTMR verification" it points to `check` (page opened). What `gceprovenance` adds is host provenance (the PPID from the PCK certificate matched against Google's host registry) and instance binding (the SHA-384 of project number, zone and instance ID matched against `MR_OWNER`). The two tools complement each other.
+
+[10] Intel Trust Authority's change log (dated 2026-09-28) says "AMD SEV-SNP attestation remains a preview feature, available only on the Intel Trust Authority Pilot environment" (page opened). An older concept page (02/06/2025) lists only SGX and TDX, so the two pages are not in sync. Google's Confidential Space overview lists "Google Cloud Attestation: Supports AMD SEV and Intel TDX VM instances" and "Intel Trust Authority: Supports Intel TDX VM instances" (page opened). IETF RATS, Trustee and KBS were not researched.
+
+[11] The kernel documentation says "Shared mapping content is entirely controlled by the hypervisor" and "TDX uses SWIOTLB for most DMA allocations" (snippet only, because the opened copy was cut off before that section). Intel's guest-hardening specification says data in shared memory "must be protected where possible using application-level security mechanisms, such as encryption and authentication" (snippet only). HDFS encryption at rest does not protect shuffle or RPC traffic in flight, so the mitigation now names wire encryption.
+
+[12] Hadoop SecureMode: "Setting hadoop.rpc.protection to privacy in core-site.xml activates data encryption"; set "dfs.encrypt.data.transfer to true" for DataNode transfer (snippet only; the snippet labelled `stable` as 3.3.5 and `current` as 3.5.0). The 3.4.0 page cited in the previous draft was not opened, and the cluster ran 3.4.3. Privileged-port DataNode authentication assumes "the attacker won't be able to get root privileges on DataNode hosts" (r3.3.4, snippet only). In a TEE setting the host operator is the attacker, so SASL data-transfer protection is the better fit (inference).
+
+[13] Google's Intel TDX limitations (page opened; tabbed page, so fragments may not scroll if the tab is hidden):
+- "Confidential VM instances might experience lower network bandwidth and higher latency compared to non-Confidential VM instances."
+- "Guest images without the TDX halt fixes might experience extended halt durations, resulting in performance degradation."
+- CPUID "might return limited or no CPU architecture details", which may affect JVM tuning (inference).
+
+Whether the Ubuntu 6.8.0-106x-gcp kernels carry the halt fixes was not checked.
+
+[14] One search for Hadoop or Spark benchmarks on TDX found none. It returned only general CVM studies:
+- Misono et al., "Confidential VMs Explained: An Empirical Analysis of AMD SEV-SNP and Intel TDX" (SIGMETRICS 2025, TUM PDF), reports "up to 431% increase in execution time (NPB benchmark "ua" on a TD)", and links part of it to HLT overhead. It also reports up "to 60% performance drop for heavy network processing benchmarks (iperf TCP)", the closest available proxy for Hadoop shuffle traffic (snippet only).
+- Kuvaiskii et al. (Gramine-TDX, CCS '24, ACM DL abstract) report "1-25% average overhead for CPU- and memory-intensive applications". They add that "Performance on network- and FS-intensive applications can drop to 6% of the native application's" (a library OS, not a stock guest).
+
+These results do not transfer to Hadoop. One search does not prove that no benchmark exists.
+
+[15] The Google/Intel review (arXiv 2602.11434 v1, Feb 2026) says: "Availability is not included in the security objectives because a host VMM can simply deny the Intel TDX Module and TDs the platform resources required for operation". This arXiv HTML appears to be converted from the PDF; no LaTeXML ids were found, so text fragments are used. Google's live-migration page (page opened, 2026-09-24) says non-migratable CVMs "must set their onHostMaintenance policy to TERMINATE". It lists a notice period of "7 days" for Intel TDX on `c3-standard-*`, `c3-standard-*-lssd` and `c4-standard-*` ([table](https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/troubleshoot-live-migration#:~:text=host%20maintenance%20event%20notification%20period)). That page suggests sole-tenant nodes, but the supported-configurations page says TDX "VM instances can't be provisioned on sole-tenant node groups". The two Google pages conflict, and the TDX-specific restriction is the more specific statement.
+
+[16] Google's TDX limitations (page opened) include:
+- "Only Balanced Persistent Disk volumes that use the NVMe interface are supported".
+- "Confidential VM instances with Intel TDX don't support reservations".
+- "VM instances don't support kdump." (Intel TDX list). The advice "Instead, use the guest console logs" appears in the AMD SEV-SNP list in the page text checked on 3 October 2026, not in the TDX list. The fragment uses a prefix because the same kdump line also appears under SEV-SNP.
+
+The page lists `c3-standard-*` (Sapphire Rapids) and `c4-standard-*` (Granite Rapids) for TDX, both in us-central1-a. On GA status, the release notes say "Support for Intel TDX on c3-standard-* machine types is now released to General Availability" ([release notes](https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/release-notes#:~:text=Support%20for%20Intel%20TDX%20on%20c3%2Dstandard%2D%2A%20machine%20types%20is%20now%20released%20to%20General%20Availability); snippet only), and they list `c3-standard-*-lssd` as Preview. The GA status of TDX on `c4` was not verified.
+
+[17] No primary Google, Intel or Microsoft guidance on logging or core dumps inside CVMs was found. Guest console logs go to the serial console, which the host can read, so treat the console as a plaintext channel (inference). JVM heap dumps and `hs_err` files are not affected by the lack of kdump (inference; not tested).
+
+[18] The WARC 1.1 IP field is only a hint, and our runs did not even fill it. TLSNotary: "TLS does not have a mechanism to enable the server to "sign" the data" (snippet only). A 2023 project update said proofs were practical only for "data volumes in the low kB range" (snippet only; may be out of date). DECO (arXiv 1909.00938) makes the same point about TLS (PDF snippet only). Signed HTTP Exchanges and verifiable web archiving were not researched. Common Crawl (pages opened):
+- "CCBot is a Nutch-based web crawler that makes use of the Apache Hadoop project" ([FAQ](https://commoncrawl.org/faq#:~:text=is%20a%20Nutch%2Dbased%20web%20crawler%20that%20makes%20use%20of%20the%20Apache%20Hadoop%20project)).
+- It is "checking first the robots.txt" ([FAQ](https://commoncrawl.org/faq#:~:text=checking%20first%20the%20robots.txt)).
+- It identifies as `CCBot/2.0 (https://commoncrawl.org/faq/)`.
+- "we are aware of crawlers falsely identifying themselves as CCBot" ([CCBot](https://commoncrawl.org/ccbot#:~:text=we%20are%20aware%20of%20crawlers%20falsely%20identifying%20themselves%20as%20CCBot)).
+- "CCBot is now run on dedicated IP address ranges with reverse DNS" ([CCBot](https://commoncrawl.org/ccbot#:~:text=CCBot%20is%20now%20run%20on%20dedicated%20IP%20address%20ranges%20with%20reverse%20DNS)).
+
+A crawl from GCP VMs uses none of these IP ranges, so sites may serve it different content (inference). FAQ answers may be collapsed, which can break fragments.
+
+[19] TDXRay is by Hornetz, Yavarzadeh et al. (CISPA/Google; IEEE S&P 2026). It runs "entirely in software on the host machine". It affected Sapphire, Emerald and Granite Rapids; the benchmark results were reported on "Intel Xeon 6736P (Granite Rapids) · TDX Module v2.0". Its FAQ says "Intel's own threat model explicitly excludes microarchitectural side channels". The authors also say they "notified Intel and major vendors ... including Apple, Anthropic, Google, Microsoft, Meta, and OpenAI — in November 2025".
+
+There is a conflict over the Intel advisory number. The TDXRay FAQ calls it INTEL-SA-01271. Intel's Security Bulletins index lists the TDXRay notice as "TDXRay | 2026-04-02-001 | April 2, 2026", while Intel's own INTEL-SA-01271 page (page text seen on 3 October 2026) is the "Intel® Gaudi® Software Installer Advisory" (CVE-2024-45067, May 2025), unrelated to TDX. The bulletin index page lists TDXRay as 2026-04-02-001; the bulletin page itself was not opened. Cite the bulletin 2026-04-02-001, not the FAQ's number.
+
+GCP `c3-standard` uses Sapphire Rapids. The 2026 Google/Intel review also left "attacks that leak memory access patterns of TDs" out of scope ([arXiv 2602.11434](https://arxiv.org/html/2602.11434#:~:text=attacks%20that%20leak%20memory%20access%20patterns%20of%20TDs%20were%20also%20outside%20the%20scope)). For the lost footnote 19, AMD's TDXRay bulletin "recommends software developers employ existing best practices, including constant-time algorithms, and avoiding secret-dependent data accesses where appropriate" ([AMD-SB-3044](https://www.amd.com/en/resources/product-security/bulletin/amd-sb-3044.html#:~:text=AMD%20recommends%20software%20developers%20employ%20existing%20best%20practices); severity "N/A - Informational"). The same bulletin says "AMD believes that all side-channel techniques demonstrated in the paper fall within the category of already known, documented, and out-of-scope behaviors" of the SEV-SNP threat model. That is the closest match found; the original source remains unknown. WeSee targets SEV-SNP, not TDX (search title only).
+
+[20] The 2026 report found "one vulnerability that enables a VMM to fully compromise a TD": CVE-2025-30513, score 7.9. All findings were "remediated in versions 1.5.24/1.5.25 & 2.0.14 of the Intel TDX Module onwards (versions depend on the specific Intel platform)" ([fix versions](https://arxiv.org/html/2602.11434#:~:text=remediated%20in%20versions%201.5.24,2.0.14%20of%20the%20Intel%20TDX%20Module%20onwards)). Fixes shipped in "IPU 2026.1 or other product sustaining releases between September and December 2025", followed by TCB Recovery after the "February 10, 2026 public disclosure". Intel's advisory INTEL-SA-01397 (2026.1 IPU, TDX module, severity HIGH, 02/10/2026) lists "4th Gen Intel® Xeon® Scalable processor · 1.5.20 and earlier" as affected (page opened 3 October 2026; CVE-2025-30513 is rated 7.9 under CVSS 3.1 and 8.4 under CVSS 4.0). Google's report says all findings are remediated from 1.5.24/1.5.25, and Intel's text says CVE-2025-32007 affects versions before 1.5.24, so the status of 1.5.21 to 1.5.23 is not stated clearly in either source (check Intel's TDX module release notes). The report text above was verified verbatim in the arXiv PDF on 3 October 2026; the arXiv HTML view was not opened, so the text fragments may not resolve. That is Sapphire Rapids, which `c3-standard` uses. The advisory also covers transient-execution leakage (CVE-2025-27572). The CVE affects migratable TDs, and GCP TDX VMs do not live-migrate, so direct exposure is probably low (inference). The lesson is that the TDX module is patchable software. The 2023 TDX 1.0 review "covered 81 potential attack vectors, and resulted in 10 confirmed security issues and five defense-in-depth changes over a period of nine months" ([Google Cloud blog, 24 April 2023](https://cloud.google.com/blog/products/identity-security/rsa-google-intel-confidential-computing-more-secure#:~:text=The%20review%20covered%2081%20potential%20attack%20vectors)).
+
+[21] TEE.fail (IEEE S&P 2026) built a DDR5 interposer "using only off the shelf electronic equipment" and extracted "in some cases secret attestation keys from fully updated machines in trusted status". Its forged TDX quote verifies "at the highest trust level of UpToDate" (page opened). The attack needs physical access. A valid UpToDate quote is therefore necessary but not sufficient, and provider provenance and physical security become part of the trust argument (inference). Intel's bulletin INTEL-2025-10-28-001 "TEE.fail" (page text seen 3 October 2026) says the research "does not change Intel's previous out of scope statement for these types of physical attacks" and names 4th and 5th Gen Xeon Scalable and Xeon 6 platforms with DDR5. Google lists `c3-standard` as Intel Sapphire Rapids, which is 4th Gen (inference). A later paper, DDRop (snippet only, not opened), claims end-to-end attacks on an up-to-date TDX platform, including forcing a TD into debug mode and spoofing attestation reports.
+
+## Severe trust issues (ranked)
+
+1. **Application code is not attested (rows 23, 16).** The quote proves that some TD signed some REPORTDATA. It does not prove which program computed it.
+2. **Content authenticity is out of reach of any TEE (row 18).** A perfect TD still cannot prove that fetched bytes are what the origin really serves, and the current WARCs lack even the IP and robots.txt records.
+3. **Inter-node traffic is plaintext and unauthenticated (rows 17, 3).** The host can read and alter shuffle, RPC and block traffic.
+4. **No RTMR0–2 reference values, and MRTD not yet checked against Google's endorsement (rows 15, 6).** A verifier cannot tell a good boot chain from a bad one.
+5. **TEE vulnerabilities and physical attacks (rows 12, 25, 7).** Forged UpToDate quotes are possible with physical access, and side channels are excluded from Intel's threat model.
+6. **Host-controlled time (row 19).** Dates are claims made by the host, not attested facts.
+7. **Evidence and logs leave the TD unprotected (rows 26, 9).** Once exported in plaintext, the TEE guarantees are gone.
+
+## Better TEE options for CCBot
+
+| Option | Trust anchor | What is attested | TCB size | Multi-node Hadoop/JVM fit | Networking for a crawler | Maturity (as verified) | Main caveat |
+|---|---|---|---|---|---|---|---|
+| Intel TDX CVM on GCP (current) | Intel plus Google firmware endorsements | MRTD, RTMR0–2; RTMR3 optional | Large (whole guest) | Good: ran unmodified (R1) | Full, via shared buffers | `c3-standard-*` GA (snippet only); `c4` listed | Userspace not measured by default; no kdump, reservations or live migration |
+| AMD SEV-SNP CVM on GCP | AMD VCEK chain plus Google endorsements | Launch MEASUREMENT; vTPM for later stages | Large | Good, by analogy (inference) | Full | N2D Milan only; zones include us-central1-a ([page opened](https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/supported-configurations?tab=amd-sev-snp#:~:text=AMD%20SEV%2DSNP%20is%20supported%20in%20the%20following%20zones)) | 1-hour maintenance notice; post-launch boot measurements software-attested |
+| Google Confidential Space | AMD SEV or Intel TDX plus Google image and attestation | Container image and launch policy | Medium | Weak for clusters; suits one container (inference) | Normal VM (inference) | Operator "has no access to the data" ([page opened](https://docs.cloud.google.com/confidential-computing/confidential-space/docs/confidential-space-overview#:~:text=The%20workload%20operator%20has%20no%20access%20to%20the%20data)); "must use AMD SEV, Intel TDX" | Trust in Google's image and verifier; good for a sealing or signing step |
+| AWS Nitro Enclaves | AWS Nitro hypervisor and NSM | Enclave image measurements | Small enclave; AWS fully trusted | Poor | None: "no external network connectivity, and no persistent storage" ([AWS](https://docs.aws.amazon.com/enclaves/latest/user/nitro-enclave-concepts.html#:~:text=An%20enclave%20has%20no%20external%20network%20connectivity%2C%20and%20no%20persistent%20storage); snippet only) | Mature | The untrusted parent carries all traffic; no CPU-vendor root |
+| Intel SGX with Gramine or Occlum | Intel SGX DCAP | MRENCLAVE and MRSIGNER | Smallest | Poor to medium (heavy JVM porting) | Host-mediated | GCP SGX not verified; absent from GCP's Confidential VM list (inference) | Side channels; porting; prior SGX MapReduce work not re-verified |
+| Azure CVMs (SEV-SNP, Intel TDX) | AMD or Intel plus Microsoft attestation | Hardware report plus vTPM (paravisor detail unverified) | Large | Good, by analogy (inference) | Full | TDX "generally available in West US, West US 3 and West Europe" ([Microsoft](https://techcommunity.microsoft.com/blog/azureconfidentialcomputingblog/announcing-general-availability-of-azure-intel%C2%AE-tdx-confidential-vms/4495693#:~:text=are%20now%20generally%20available%20in%20West%20US); snippet only); SEV-SNP DCasv5 GA (snippet only) | Limited TDX regions; Azure Attestation not verified |
+| Constellation (Edgeless) | CVM plus Constellation images | Node images, cluster attestation | Large | Designed for clusters | Encrypted pod network | "no longer actively maintained"; archived 22 Jan 2026 ([GitHub](https://github.com/edgelesssys/constellation#:~:text=Constellation%20is%20no%20longer%20actively%20maintained%20by%20Edgeless%20Systems); snippet only) | Do not adopt |
+| Contrast (successor) | SEV-SNP or TDX via Kata micro-VMs | Per-pod policy | Medium | Possible as Kubernetes pods (inference) | Pod network plus mesh | "supports bare-metal setups based on AMD SEV-SNP and Intel TDX" ([docs](https://docs.edgeless.systems/contrast#:~:text=Contrast%20supports%20bare%2Dmetal%20setups%20based%20on%20AMD%20SEV%2DSNP%20and%20Intel%20TDX%20hardware); snippet only); GKE only "future support" ([blog, Oct 2025](https://www.edgeless.systems/blog/from-constellation-to-contrast#:~:text=with%20future%20support%20for%20EKS%20and%20GKE); snippet only) | Not usable on GCP CVMs as verified |
+| Confidential Containers / Kata with Trustee | CVM plus Trustee KBS | KBS-checked evidence | Medium | Possible (inference) | Pod network | Not researched (unverified) | Unverified |
+| Intel Trust Authority (verifier, not a TEE) | Intel-operated service | TDX and SGX; SEV-SNP preview [10] | n/a | Works with any TDX CVM | n/a | TDX supported for Confidential Space [10] | Moves trust to Intel; still an online dependency |
+
+**Recommendation.** Keep VM-level TDX for the Hadoop and crawler workload. GCP or Azure TDX can be chosen later. Spend effort on the attestation gaps rather than on switching TEE. Process-level TEEs fit a networked multi-node JVM crawler poorly. Constellation is unmaintained, and Contrast does not yet run on GCP CVMs (inference). The best near-term design is: TDX CVMs with userspace measured into RTMR3; attested, encrypted Hadoop channels; and a small attested signing step (possibly in Confidential Space) that signs the hashes of the WARCs and manifest with a key released only after an independent verifier approves (Intel Trust Authority, or a self-run go-tdx-guest with Intel collateral) (inference). Add TLS-oracle proofs only for the pages where provenance matters.
+
+**What would change this recommendation.**
+- A published Hadoop-on-TDX benchmark showing prohibitive I/O overhead.
+- Contrast supporting GKE.
+- The crawl data becoming confidential. For public web data, integrity matters more than confidentiality, which lowers the weight of row 7 (author judgement).
+
+## Next experiments
+
+1. Extend RTMR3 with hashes of the JDK, Hadoop, `.job`, configs and seeds before starting the daemons; verify by replaying the event log.
+2. Check the observed MRTD against Google's launch endorsement; replay CCEL on both nodes to explain the RTMR0 difference.
+3. Run `gceprovenance` and strict `check` on the same quotes; record TCB status and TDX module version.
+4. Enable `hadoop.rpc.protection=privacy`, `dfs.encrypt.data.transfer=true`, HTTPS and Kerberos or SASL; restrict the firewall to Hadoop ports.
+5. Repeat the crawl on non-TDX `c3-standard-4` with the same image; compare wall time, CPU per GB and throughput.
+6. Fix the WARC gaps: real IP, stored robots.txt responses, a domain filter, payload hashes in the attested manifest.
+7. Simulate host maintenance and compare MRTD and RTMRs after restart.
+8. Sign the evidence bundle inside the TD before export.
+9. Read `td_attributes` (offset 168) and `tee_tcb_svn` (offset 48) from the four quotes. Compare `td_attributes` with Google's reference value 0x10000000 (debug off, migration off) and record the TDX module security version.
+
+## Verification status
+
+| Source | Status | Used for |
+|---|---|---|
+| Google: tdx-provenance (2026-09-30), verify-firmware, measurement-register-contents (2026-08-26), troubleshoot-live-migration (2026-09-24) | page opened | rows 1, 5, 6, 8, 15, 21, 22, 23 |
+| Google: supported-configurations | page opened (tabbed; fragment stability uncertain) | rows 4, 9, 10, 24 |
+| Google: attestation-overview, attestation, release notes | snippet only | rows 15, 23, 24 |
+| Google: Confidential Space overview and security pages; 2023 TDX review blog | page opened | options table, rows 12, 14 |
+| arXiv 2602.11434 v1, 2404.03387, 2501.11558v1 (HTML; no LaTeXML ids found, text fragments used) | page opened | rows 1, 2, 7, 8, 12 |
+| kernel.org TDX (7.3.0-rc5) and configfs-tsm ABI | page opened (SWIOTLB sentence snippet only) | rows 2, 3, 6, 16 |
+| Intel guest hardening spec; Intel TCB Recovery; AMD-SB-3044 | snippet only | rows 3, 5, 7 |
+| Intel INTEL-SA-01397 | page opened (3 October 2026) | rows 12, note 20 |
+| Intel INTEL-SA-01271 (Gaudi installer advisory, see note 19); Intel bulletin 2025-10-28-001 (TEE.fail) | page text seen in search results | rows 7, 25 |
+| Intel bulletin 2026-04-02-001 (TDXRay) | listed on Intel's bulletin index; bulletin page not opened | row 7 |
+| arXiv 2602.11434: text checked in the PDF (3 October 2026); HTML view not opened | PDF opened | rows 7, 8, 12 |
+| Google community blog "Beyond Confidential" (18 November 2025) | page opened | rows 6, 12, 15 |
+| Intel Trust Authority pages; TDXRay site; TEE.fail site; Common Crawl CCBot and FAQ | page opened | rows 7, 14, 18, 25 |
+| Hadoop SecureMode; WARC 1.1; TLSNotary; DECO; TUM and Gramine-TDX PDFs | snippet only | rows 3, 13, 17, 18 |
+| AWS Nitro concepts page; Constellation GitHub and documentation (archived 22 January 2026) | page text seen in search results (3 October 2026) | options table |
+| Edgeless Contrast; Microsoft Azure posts | snippet only | options table |
+| Hadoop transparent encryption; GCP disk encryption; trusted guest time | unverified | rows 11, 19 |
+| gce-tcb-verifier issue 73; Gramine performance page; Nitro "nitro-enclave.html"; Hadoop r3.4.0 page | not opened; not cited | — |
+| Items marked "(inference)" or "(author judgement)" | inference | throughout |
+
+## Open questions and not researched
+
+- Why RTMR0 (and possibly RTMR1) differs between the nodes.
+- Whether the GCP 6.8 kernels include the TDX halt fixes and the Heckler mitigations.
+- The TCB level of the hosts used, and whether they are at the 1.5.24/1.5.25 fix level or later.
+- Trusted time for TDX guests; time-stamping options for WARC dates.
+- Hadoop encryption zones and KMS; GCP CVM disk-encryption options.
+- Hadoop, Spark or MapReduce benchmarks on TDX or SEV-SNP (only one search was run).
+- SGX MapReduce systems (VC3, M2R, Opaque, Occlum/BigDL PPML, Gramine); whether GCP offers SGX.
+- Microsoft Azure Attestation, and the paravisor's place in the TCB.
+- Confidential Containers with Trustee, IETF RATS, Signed HTTP Exchanges.
+- The original source of footnote 19.
