@@ -746,6 +746,7 @@ that you can never erase. So the final value depends on every event, in order. (
 - **RTMR0, RTMR1 and RTMR2** were identical **within a node** across both runs but **different between the two nodes**. The nodes
   run different kernels (`6.8.0-1067-gcp` and `6.8.0-1069-gcp`), which may explain part of the difference; the RTMR0 difference is unexplained.
 - **RTMR3** was all zeros: no software had added anything. That means **nothing in the quote identifies Java, Hadoop or our crawler.**
+- **`td_attributes`** (offset 168) was all zeros in all four quotes: the debug and migration flags are off. **`tee_tcb_svn`** (offset 48) began `0f 01 0a`: TDX module minor SVN 15, which Intel's release notes map to module 1.5.34, a version newer than the one Google's security assessment says fixed its findings.
 - Neither VM rebooted between the runs (boot times checked with `uptime -s`), so equal values across runs are expected and say
   nothing about the crawl.
 - We had **no reference values**: nothing told us what the "correct" numbers should be.

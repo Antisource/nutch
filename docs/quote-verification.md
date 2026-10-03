@@ -149,7 +149,24 @@ was written to `check-tampered.log` in the laptop's `tdx-evidence\tamper-test` f
 So neither the manifest nor the quote can be edited unnoticed. This does not address whether the manifest was truthful when written.
 These tests supersede the earlier hello-world tamper test, whose output was not captured.
 
-## 6. Not done
+## 6. Platform and TD configuration fields
+
+Read on 3 October 2026 in Cloud Shell with `od` (offsets as in section 2). A first attempt used a wrong path for one worker quote, so the two worker quotes were read again with `ls -l` confirming both files are 8000 bytes.
+
+| Field | Offset | Value in all four quotes |
+|---|---|---|
+| `td_attributes` | 168 | `0000000000000000` |
+| `tee_tcb_svn` | 48 | `0f010a00000000000000000000000000` |
+
+**`tee_tcb_svn`.** Intel's TDX module ABI specification defines byte 0 as the TDX module minor SVN, byte 1 as the major SVN, and byte 2 as the microcode SVN at the time the module was loaded. Ours decode to minor SVN `0x0F` (15), major SVN `0x01`, microcode SVN `0x0A` (10).
+
+Intel's TDX module release notes list these minor SVNs: `0x0C` for 1.5.20, `0x0D` for 1.5.24 and 1.5.25, `0x0E` for 1.5.28, and `0x0F` for 1.5.34 (build date 2026-03-30, described there as the latest publicly available 1.5 release at the time of checking). So the four TDs were launched on a TDX module at or above the 1.5.34 level, higher than the 1.5.24 level at which Google's security assessment (arXiv 2602.11434) says all its findings are remediated. This relies on the SVN-to-version table, so it is an inference. The field reflects the TCB at the time the TD was launched. Both nodes show identical values, consistent with the same host generation.
+
+**`td_attributes`.** All 64 bits are zero, so the debug flag, the migratable flag and the performance-monitoring flag are all clear. The vulnerability CVE-2025-30513 only affects migratable TDs, so these VMs are not exposed to it.
+
+Google's community blog (18 November 2025) gives `0x10000000` as its reference value, described as debugging disabled, EPT-violation conversion to #VE disabled, and migration not allowed. Ours lacks that one extra bit (the "disable EPT violation conversion to #VE" setting). Why they differ was not investigated; it may reflect the guest image or the VM configuration, and the blog's table is an example. The security-relevant flags (debug, migration) are off in both.
+
+## 7. Not done
 
 - Comparison against any published reference value for MRTD or the RTMRs.
 - Replay of the boot event log to explain the RTMR differences.
