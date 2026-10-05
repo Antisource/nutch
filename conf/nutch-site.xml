@@ -32,4 +32,12 @@
     <name>warc.export.isPartOf</name>
     <value>TRAINING-CUSTODY-TEST-001</value>
   </property>
+  <property>
+    <name>plugin.includes</name>
+    <value>protocol-okhttp|urlfilter-regex|parse-(html|tika)|index-(basic|anchor)|indexer-solr|scoring-opic|urlnormalizer-(pass|regex|basic)</value>
+  </property>
+  <property>
+    <name>store.ip.address</name>
+    <value>true</value>
+  </property>
 </configuration>
