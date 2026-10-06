@@ -18,6 +18,10 @@ Times are UTC.
 | 010 | Measure at run time now; lock the image down later | Accepted |
 | 011 | Use the existing VMs, protected by snapshots; no extra test VM | Accepted |
 | 012 | Documentation as we go; README and first-principles guide last | Accepted |
+| 013 | WireGuard mesh: addressing and tooling | Accepted |
+| 014 | Host firewall and hosts-file names instead of per-daemon binding | Accepted |
+| 015 | Map the nodes' internal names to the mesh | Accepted |
+| 016 | Refusal test without a third VM | Accepted |
 
 ---
 
@@ -109,3 +113,34 @@ Times are UTC.
 - **Date:** 6 October 2026. **Status:** accepted.
 - **Decision:** write a milestone report when each milestone closes; update the living documents (limitations table, cluster configuration, quote verification, pitfalls, comparison) as facts change; keep this log. Leave `README.md` and `guide-first-principles.md` until the end of the technical work, because they summarise everything.
 - **Consequences:** the README's file list lags until the end.
+
+## ADR-013: WireGuard mesh: addressing and tooling
+
+- **Date:** 6 October 2026. **Status:** accepted.
+- **Context:** node-to-node traffic crossed the cloud network in plaintext.
+- **Decision:** a two-node WireGuard mesh: master `10.10.0.1/24`, worker `10.10.0.2/24`, UDP 51820, one static peer each, keepalive 25 s. Tools from Ubuntu's signed archive (`wireguard-tools`, no recommended extras). Keys generated on each node; only public keys leave it; the interface starts at boot.
+- **Why:** the kernel already includes WireGuard; it is small and simple; Google's internal-traffic rule already lets the UDP through.
+- **Consequences:** one extra package on the VMs (outside the measured folders); static keys on the boot disk (root only); peer admission by attestation is a later milestone (the mesh's keys are not tied to quotes).
+
+## ADR-014: Host firewall and hosts-file names instead of per-daemon binding
+
+- **Date:** 6 October 2026. **Status:** accepted.
+- **Context:** the master's RPC daemons bind through the name `hadoop-master`, but the NameNode web page and all of the worker's daemons listen on all addresses. Binding each daemon needs configuration differences between nodes.
+- **Options:** (a) per-daemon bind settings in Hadoop's configuration files; (b) point the names at the mesh in `/etc/hosts` and close the ordinary interface with a host firewall.
+- **Decision:** (b). The firewall accepts loopback, established connections, `wg0`, UDP 51820, SSH, ping and the metadata server, counts and drops the Hadoop ports on other interfaces, and drops everything else. A self-undo timer protects the first application.
+- **Why:** Hadoop's configuration files stay identical on both nodes, so the measured configuration does not change; no restart-order subtleties; the counted rule gives evidence.
+- **Consequences:** the wildcard listeners remain and depend on the firewall; the rules are not saved across reboot (the script is safe to re-run); the firewall and hosts file are not in the measured set. Per-daemon bind settings remain an optional second layer.
+
+## ADR-015: Map the nodes' internal names to the mesh
+
+- **Date:** 6 October 2026. **Status:** accepted.
+- **Context:** after the hosts change the worker's NodeManager registered under Google's internal DNS name, which resolves to the ordinary address that the firewall blocks.
+- **Decision:** add the two nodes' internal names (long and short) to `/etc/hosts` on both nodes, pointing at the mesh addresses; restart Hadoop; verify with a real job.
+- **Consequences:** any name Hadoop might use for a node must resolve to its mesh address; check `yarn node -list` and run a small job after any network change.
+
+## ADR-016: Refusal test without a third VM
+
+- **Date:** 6 October 2026. **Status:** accepted.
+- **Context:** the handoff asks for a job submitted from a third machine outside the mesh to be refused. We preferred not to create another VM (ADR-011).
+- **Decision:** test over the ordinary network path between the two existing nodes, in both directions, with port probes and one real job submission aimed at the ordinary address, and read the firewall's counted drop rule before and after.
+- **Consequences:** it shows that traffic arriving over the ordinary network is refused; it does not test a separate machine, IPv6, or a firewall that is absent after a reboot.
