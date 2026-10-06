@@ -49,9 +49,9 @@ gcloud compute instances create tdx-lab-worker \
 | Node-to-node reachability | Ping both ways, 3 of 3 replies, 0% loss, round trip about 0.1 to 0.8 ms |
 
 Hadoop ports were reachable only because `default-allow-internal` opens all ports between
-instances. No firewall rule was added, and no Hadoop port was opened to the internet.
+instances. No Google firewall rule was added, and no Hadoop port was opened to the internet. (Host firewalls and a WireGuard mesh were added on 6 October 2026; see section 10.)
 Hadoop traffic between the nodes crosses a network the cloud host controls (see the limitations in
-[comparison-run1-run2.md](comparison-run1-run2.md)).
+[run-comparison.md](run-comparison.md)).
 
 Host aliases were added to `/etc/hosts` on both nodes:
 
@@ -191,3 +191,24 @@ Notes:
 - The Hadoop tree (`~/hadoop`) is owned by the lab user. Its only changing folder is `logs/`; HDFS data lives in `~/hadoop-data`.
 - A reboot zeroes RTMR3. After any reboot, the measurement scripts must be run again (milestone-1-code-measurement.md §7).
 - The master's HDFS now also holds `crawl-run3`, `crawl-run4`, `seeds-run3` and `seeds-run4`.
+
+## 10. Network after Milestone 2 (6 October 2026)
+
+| Item | Master `tdx-lab` | Worker `tdx-lab-worker` |
+|---|---|---|
+| Ordinary address | `10.128.0.2` | `10.128.0.5` |
+| Mesh interface `wg0` | `10.10.0.1/24`, UDP 51820 | `10.10.0.2/24`, UDP 51820 |
+| Mesh files | `/etc/wireguard/` (private key mode 600, root; `wg0.conf` mode 600) | same |
+| Package added | `wireguard-tools` (Ubuntu archive, no recommended extras) | same |
+| `/etc/hosts` (Hadoop lines) | `10.10.0.1 hadoop-master`, `10.10.0.2 hadoop-worker`, and the two nodes' internal names mapped to `10.10.0.1` and `10.10.0.2` | same four lines |
+| `/etc/hosts` backups | `/etc/hosts.before-mesh`, `/etc/hosts.before-names` | same |
+| Host firewall (inbound) | accept loopback, established, `wg0`, UDP 51820, SSH, ping, metadata server; counted drop of the Hadoop ports; policy drop. Backup of the old rules `/root/iptables-before-mesh` | same |
+| Hadoop sockets | ResourceManager and NameNode RPC on `10.10.0.1`; NameNode web page on all addresses | all daemons on all addresses |
+
+Notes:
+
+- Hadoop's configuration files are unchanged (the names in them resolve to the mesh). They are still identical on both nodes.
+- The firewall rules are **not saved across a reboot**; `wg0` is enabled at boot. After a reboot, re-run the scripts in `ops/mesh/` (they are safe to re-run: the hosts step detects existing lines), then start the daemons in the order of section 5.
+- Hadoop's node names matter: the worker must register under `hadoop-worker`. After any network change, check `yarn node -list` and run a small job.
+- Undo (by hand): copy `/etc/hosts.before-names` and `/etc/hosts.before-mesh` back, `sudo iptables-restore < /root/iptables-before-mesh`, `sudo wg-quick down wg0`.
+- Scripts: `ops/mesh/`; report: [milestone-2-wireguard-mesh.md](milestone-2-wireguard-mesh.md).
