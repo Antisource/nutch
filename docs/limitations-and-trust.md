@@ -56,21 +56,44 @@ This update leaves the 3 October analysis in place and records what the next two
 | 16 | Unchanged. The two old `entry...` report folders vanished after the first reboot (kept in memory) | milestone-1 §7 |
 
 
+## Update, 6 October 2026 (after Milestone 2)
+
+Details: [milestone-2-wireguard-mesh.md](milestone-2-wireguard-mesh.md), [decisions.md](decisions.md) (ADR-013 to ADR-016).
+
+- **Now shown.**
+  - Node-to-node Hadoop traffic (HDFS, YARN, shuffle) travels through a WireGuard tunnel: a job and a 27-application crawl ran over it, and about 3.9 GB crossed it.
+  - A host firewall refuses Hadoop ports on the ordinary network: seven ports were dropped in both directions, a job submission to the ordinary address was refused, and the drop counters rose from 0 to 48 across two test runs (0 during normal work).
+  - okhttp was seen in 22 of the worker's task logs for run 5.
+- **Still not shown.**
+  - No test from a real third machine, no IPv6 rules, and no packet capture.
+  - The worker's daemons still listen on all addresses and depend on a firewall that is not saved across reboot.
+  - Peers are authenticated by static keys, not by attestation quotes, and the private keys sit on the boot disk.
+  - Hadoop's own wire encryption and Kerberos are not enabled; the mesh and firewall configuration are not in the measured set.
+
+| Row | What changed | Where |
+|---|---|---|
+| 3, 17 | Inter-node traffic is now encrypted by the tunnel and the ordinary interface is closed to Hadoop ports. The mitigation is a different mechanism from the one listed (Hadoop's `rpc.protection`); no mutual attestation yet. See new rows 35 and 36 | milestone-2 §5 to §7 |
+| 18 | Unchanged. Run 5's addresses vary for an external site (`www.zyte.com` was served from a pool of addresses) | milestone-2 §7 |
+
+
 ## Evidence legend (first-party, "our runs")
 
 | Code | What it shows | Repo documents |
 |---|---|---|
-| R1 | 2 TDX CVMs (`c3-standard-4`, 16 GB, Ubuntu 22.04.5, kernels 6.8.0-1067-gcp and 6.8.0-1069-gcp, `onHostMaintenance=TERMINATE`, us-central1-a). Hadoop 3.4.3, OpenJDK 11, replication 1. 10 fetch attempts; identical outputs in two runs; about 10 to 11 minutes each; no failed tasks; no baseline. | run-1-pilot.md, run-2-scripted.md, comparison-run1-run2.md, cluster-configuration.md |
+| R1 | 2 TDX CVMs (`c3-standard-4`, 16 GB, Ubuntu 22.04.5, kernels 6.8.0-1067-gcp and 6.8.0-1069-gcp, `onHostMaintenance=TERMINATE`, us-central1-a). Hadoop 3.4.3, OpenJDK 11, replication 1. 10 fetch attempts; identical outputs in two runs; about 10 to 11 minutes each; no failed tasks; no baseline. | run-1-pilot.md, run-2-scripted.md, run-comparison.md, cluster-configuration.md |
 | R2 | configfs-tsm quotes with REPORTDATA = SHA-512(manifest). All 4 verified with go-tdx-guest `check` on a laptop with no Google credentials. Basic run: embedded Intel root (warning printed). Strict run (`-get_collateral=true -check_crl=true`): passed. Tamper tests: exit code 2. `gceprovenance` not run. | quote-verification.md §1, §5 |
 | R3 | MRTD identical on all quotes. RTMR0–2 stable per node, different between nodes. RTMR3 zero. No reboot between runs. No reference values available. | quote-verification.md §3, §4 |
 | R4 | `default-allow-internal` (all ports). No wire encryption, Kerberos or HDFS encryption. Daemons started by hand. | cluster-configuration.md §2, §4 |
-| R5 | WARC metadata written by the crawler, unsigned. `WARC-IP-Address` 0.0.0.0. An off-seed link was followed. robots.txt not stored (both 404). | run-1-pilot.md §5, comparison-run1-run2.md §5 |
+| R5 | WARC metadata written by the crawler, unsigned. `WARC-IP-Address` 0.0.0.0. An off-seed link was followed. robots.txt not stored (both 404). | run-1-pilot.md §5, run-comparison.md §5 |
 | R6 | Two unrelated root-owned report entries (27 September) under `/sys/kernel/config/tsm/report`. | run-1-pilot.md §5.3, guide-pitfalls-and-lessons.md mistake 15 |
-| R7 | Clock is host-provided. Worker disk about 9.6 GB (about 5.4 GB for HDFS). Helper libraries from moving snapshots; public-suffix list unversioned (hashes recorded). No live migration. Evidence copied in plaintext; logs on ordinary disks. | cluster-configuration.md §1, §3, comparison-run1-run2.md §5 |
+| R7 | Clock is host-provided. Worker disk about 9.6 GB (about 5.4 GB for HDFS). Helper libraries from moving snapshots; public-suffix list unversioned (hashes recorded). No live migration. Evidence copied in plaintext; logs on ordinary disks. | cluster-configuration.md §1, §3, run-comparison.md §5 |
 | R8 | Run 3 (okhttp client, `store.ip.address`): real `WARC-IP-Address` in 8 page records and 2 diagnostics records; same 8 URLs as run 2; no errors. Run 3 is not byte-comparable with runs 1 and 2 | milestone-0-clean-baseline.md |
 | R9 | Kernel 6.17.0-1022-gcp on both nodes; RTMR3 extended (master 10 events, worker 5); quotes verified with the strict flags; replay matches on the laptop; boot-log replay reproduces RTMR0 to RTMR2 on 6.8 and 6.17 boots | milestone-1-code-measurement.md §4, §9 |
 | R10 | Boot values change with first-boot partition growth (4 GiB to 50 GiB, confirmed in the cloud-init log), GRUB configuration and saved state. Master vs worker: 13 of 105 events differ by position | milestone-1-code-measurement.md §5 |
 | R11 | Run 4 on the measured master matched run 3 (same pages, same URL and address pairs); all ten digests unchanged after the crawl (twice). The worker's NodeManager exited after the master was down about 23 minutes | milestone-1-code-measurement.md §10, §11 |
+| R12 | The WireGuard mesh is up (ping 3 of 3 both ways, handshakes, counters). Hadoop runs over it after a hosts-file change and a host firewall; a Pi job finished in 19.3 s. A node-name problem (the NodeManager registered under a name that resolves to the blocked address) was found and fixed | milestone-2-wireguard-mesh.md §5, §6 |
+| R13 | Run 5 over the mesh: same 8 URLs as run 3, no errors found, 28 YARN applications, 3,915.2 MB sent by the master through the tunnel, Hadoop-port drop rule at 0 afterwards, 22 worker task logs list okhttp | milestone-2-wireguard-mesh.md §7 |
+| R14 | Refusal test: all 7 Hadoop ports tried over the ordinary network were dropped and open over the mesh; a job submission to the ordinary address was refused (exit 255); drop counters 0 to 24, then 24 to 48 | milestone-2-wireguard-mesh.md §7 |
 
 **Change markers:** Kept, Updated, Corrected, Merged, Removed. The severity of new rows is marked "(author judgement)".
 
@@ -84,7 +107,7 @@ This update leaves the 3 October analysis in place and records what the next two
 | 2 | Compromised guest root | High | Harden the guest, isolate tenants, protect credentials; put the smallest high-value step in a separate enclave | Updated: now sourced [2] | One root context per VM. our runs [cluster-configuration.md] | [kernel.org TDX](https://docs.kernel.org/arch/x86/tdx.html#:~:text=protect%20confidential%20guest%20VMs%20from%20the%20host%20and%20physical%20attacks); [Heckler](https://arxiv.org/html/2404.03387#:~:text=we%20bypass%20the%20authentication%20in%20OpenSSH%20and%20sudo) |
 | 16 | A quote does not identify which program requested it | High (author judgement) | Low: root-only configfs, one entry per requester. Medium: bind the requester's hash into REPORTDATA and RTMR3. High: a single attestation agent | Kept (verified) [3] | Unrelated report entries found. our runs [run-1-pilot.md §5.3] | [configfs-tsm ABI](https://www.kernel.org/doc/Documentation/ABI/testing/configfs-tsm#:~:text=it%20can%20prevent%20conflicts%20by%20creating%20a%20report%20instance%20per%20requesting%20context) |
 | 23 | The quote does not cover JVM, Hadoop or crawler code; the manifest is self-asserted | High (author judgement) | Medium: extend RTMR3 with hashes of JDK, Hadoop, `.job`, configs. High: IMA, read-only root | New [4] | RTMR3 zero; manifest built in the guest. our runs [quote-verification.md] | [Google: RTMR3](https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/measurement-register-contents#:~:text=Additional%20event%20logs%20measurement%20passed%20from%20the%20userspace) |
-| 20 | Supply chain: moving snapshots; unversioned public-suffix list | Medium (author judgement) | Low: pin commits and hashes (done). Medium: vendor all inputs. High: reproducible builds | Kept | `.job` byte-identical across runs. our runs [comparison-run1-run2.md §5] | Inference from our runs |
+| 20 | Supply chain: moving snapshots; unversioned public-suffix list | Medium (author judgement) | Low: pin commits and hashes (done). Medium: vendor all inputs. High: reproducible builds | Kept | `.job` byte-identical across runs. our runs [run-comparison.md §5] | Inference from our runs |
 | 27 | Software is measured after boot and before use; nothing prevents a change in between | High (author judgement) | Low: re-hash after the run (done). Medium: measure at launch from a boot service. High: read-only verified root, no login | New | `check-unchanged.sh` printed ALL-UNCHANGED twice after run 4: a point-in-time check. our runs [milestone-1-code-measurement.md §10] | Inference from our runs |
 | 28 | The root filesystem and its tools are not covered by any boot measurement we saw | High (author judgement) | High: read-only root with an integrity hash on the kernel command line, or measure the root's hash at boot | New (inference) | The kernel command line seen began `root=PARTUUID=...`; its end was not read, so an integrity parameter cannot be ruled out. our runs [milestone-1-code-measurement.md §8] | Inference from our runs |
 | 29 | The measured stack is lost at every reboot; the 6.17 kernel is a one-time boot and the nodes return to 6.8 | Medium | Low: rerun the scripts after each boot. Medium: a boot-time service. High: a measured image | New | RTMR3 resets at boot; saved GRUB entries still name 6.8 kernels. our runs [milestone-1-code-measurement.md §7] | Inference from our runs |
@@ -109,9 +132,13 @@ This update leaves the 3 October analysis in place and records what the next two
 |---|---|---|---|---|---|---|
 | 3 | Shared I/O memory controlled by the hypervisor | High | Low: no secrets in shared buffers; validate input. Medium: TLS everywhere and Hadoop wire encryption (HDFS encryption covers data at rest only) | Updated: sourced; mitigation corrected [11] | RPC, shuffle and HTTP in plaintext. our runs [cluster-configuration.md §4] | [kernel.org: shared mappings](https://docs.kernel.org/arch/x86/tdx.html#:~:text=Shared%20mapping%20content%20is%20entirely%20controlled%20by%20the%20hypervisor) (snippet only) |
 | 17 | No encryption or mutual attestation between nodes | High (author judgement) | Low: firewall limited to Hadoop ports. Medium: `hadoop.rpc.protection=privacy`, `dfs.encrypt.data.transfer=true`, HTTPS, Kerberos. High: keys only for attested nodes | Kept [12] | `default-allow-internal`; no Kerberos. our runs [cluster-configuration.md §2, §4] | [Hadoop SecureMode](https://hadoop.apache.org/docs/stable/hadoop-project-dist/hadoop-common/SecureMode.html#:~:text=Setting%20hadoop.rpc.protection%20to%20privacy) (snippet only) |
-| 4 | HDFS and shuffle I/O overhead | Medium–high | Low: guest kernel with TDX halt fixes; size SWIOTLB. Medium: TDX vs non-TDX benchmark, CPU per GB. High: tune batching and buffers | Updated: Google documents the overhead [13] | Functional only; no baseline. our runs [comparison-run1-run2.md] | [Google: bandwidth and latency](https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/supported-configurations?tab=intel-tdx#:~:text=Confidential%20VM%20instances%20might%20experience%20lower%20network%20bandwidth%20and%20higher%20latency); [halt fixes](https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/supported-configurations?tab=intel-tdx#:~:text=Guest%20images%20without%20the%20TDX%20halt%20fixes) |
+| 4 | HDFS and shuffle I/O overhead | Medium–high | Low: guest kernel with TDX halt fixes; size SWIOTLB. Medium: TDX vs non-TDX benchmark, CPU per GB. High: tune batching and buffers | Updated: Google documents the overhead [13] | Functional only; no baseline. our runs [run-comparison.md] | [Google: bandwidth and latency](https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/supported-configurations?tab=intel-tdx#:~:text=Confidential%20VM%20instances%20might%20experience%20lower%20network%20bandwidth%20and%20higher%20latency); [halt fixes](https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/supported-configurations?tab=intel-tdx#:~:text=Guest%20images%20without%20the%20TDX%20halt%20fixes) |
 | 13 | No public benchmark of full Hadoop on TDX | Medium evidence risk | Run a representative PoC with a non-TDX baseline before committing to capacity or cost | Updated: still none found [14] | Two functional runs. our runs | None found; see [14] |
 | 33 | Hadoop daemons started by hand do not recover from outages | Low–medium (availability) | Low: check `jps` on the worker after any master outage. Medium: supervised services | New | The worker's NodeManager retried the ResourceManager until 17:29:08 and shut down; the master's ResourceManager had been down about 23 minutes. our runs [milestone-1-code-measurement.md §11] | NodeManager log |
+| 35 | The worker's daemons and the NameNode web page listen on all addresses, and a host firewall that is not saved across reboot is the only thing closing them | Medium–high (author judgement) | Low: re-run the script after every reboot. Medium: per-daemon bind settings. High: persistent rules in the image | New | `ss` listings after the firewall still show `0.0.0.0`; the drop rule stayed at 0 in normal work. our runs [milestone-2-wireguard-mesh.md §6, §8] | Inference from our runs |
+| 36 | Mesh peers are authenticated by static keys, not by attestation; the private keys are on the boot disk | High (author judgement) | Medium: generate keys in the guest at boot and bind the public key into REPORTDATA or RTMR3. High: admit a peer only after verifying its quote | New | Keys are root-only (mode 600) and not bound to any quote. our runs [milestone-2-wireguard-mesh.md §5, §8] | Inference from our runs |
+| 37 | The job file reaches the worker through HDFS staging for every application | Medium (author judgement) | Check the job file's digest at load on the worker; put the staging folder under the signed file layer | New | 28 applications; about 3.9 GB sent by the master in run 5; the 134 MB job file is uploaded each time. our runs [milestone-2-wireguard-mesh.md §7] | Inference from our runs |
+| 38 | A node can register under a name that resolves to a closed network after an unrelated change; the firewall then blocks Hadoop's own traffic | Low–medium (operational) | Check `yarn node -list` and run a small job after any network change | New | Observed on 6 October and fixed by mapping the names. our runs [milestone-2-wireguard-mesh.md §6] | Inference from our runs |
 
 ### D. Host, availability and platform
 
@@ -234,6 +261,8 @@ GCP `c3-standard` uses Sapphire Rapids. The 2026 Google/Intel review also left "
 **Update, 6 October 2026.** Issue 1 is partly addressed: the quotes now cover the measured stack (rows 1, 23), but nothing locks it between measuring and running (rows 27, 28). Issue 4 is partly addressed: the firmware log replays to RTMR0 to RTMR2, but there are still no reference values and MRTD has not been checked (row 15). Issues 2, 3, 5, 6 and 7 are unchanged. Inter-node traffic (issue 3) is the next milestone.
 
 
+**Update, 6 October 2026 (Milestone 2).** Issue 3 is partly addressed: traffic between the nodes goes through an encrypted tunnel and the ordinary interface is closed to Hadoop ports (rows 3, 17), but peers are not admitted by attestation (row 36) and the closing depends on a firewall that is not persistent (row 35). The other issues are unchanged.
+
 ## Better TEE options for CCBot
 
 | Option | Trust anchor | What is attested | TCB size | Multi-node Hadoop/JVM fit | Networking for a crawler | Maturity (as verified) | Main caveat |
@@ -261,7 +290,7 @@ GCP `c3-standard` uses Sapphire Rapids. The 2026 Google/Intel review also left "
 1. Extend RTMR3 with hashes of the JDK, Hadoop, `.job`, configs and seeds before starting the daemons; verify by replaying the event log. **Done 5 to 6 October 2026** (Milestone 1): master 10 events, worker 5; quotes verified off-cloud and replayed. On the worker it was done before the daemons started; on the master the daemons were already running; both were before the crawl. See [milestone-1-code-measurement.md](milestone-1-code-measurement.md).
 2. Check the observed MRTD against Google's launch endorsement; replay CCEL on both nodes to explain the RTMR0 difference. **Partly done:** CCEL replayed on both nodes on 6.8 and 6.17 boots (RTMR0 to RTMR2 reproduced). The MRTD check is not done, and one RTMR0 event (`Boot0002`) is not decoded.
 3. Run `gceprovenance` and strict `check` on the same quotes; record TCB status and TDX module version.
-4. Enable `hadoop.rpc.protection=privacy`, `dfs.encrypt.data.transfer=true`, HTTPS and Kerberos or SASL; restrict the firewall to Hadoop ports.
+4. Enable `hadoop.rpc.protection=privacy`, `dfs.encrypt.data.transfer=true`, HTTPS and Kerberos or SASL; restrict the firewall to Hadoop ports. **Partly done 6 October 2026** by a different mechanism: a WireGuard mesh plus a host firewall (milestone-2-wireguard-mesh.md). Hadoop's own encryption and authentication are not enabled.
 5. Repeat the crawl on non-TDX `c3-standard-4` with the same image; compare wall time, CPU per GB and throughput.
 6. Fix the WARC gaps: real IP, stored robots.txt responses, a domain filter, payload hashes in the attested manifest. **Partly done:** the real IP is recorded since run 3; the rest is open.
 7. Simulate host maintenance and compare MRTD and RTMRs after restart.
