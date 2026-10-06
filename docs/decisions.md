@@ -22,6 +22,9 @@ Times are UTC.
 | 014 | Host firewall and hosts-file names instead of per-daemon binding | Accepted |
 | 015 | Map the nodes' internal names to the mesh | Accepted |
 | 016 | Refusal test without a third VM | Accepted |
+| 017 | Replace the implementation behind `hdfs://` with the wrapper (Option B) | Accepted (mentor) |
+| 018 | The storage audit is the proof that the wrapper was used | Accepted |
+| 019 | Build and test in scratch folders; commit exactly what ran | Accepted |
 
 ---
 
@@ -144,3 +147,26 @@ Times are UTC.
 - **Context:** the handoff asks for a job submitted from a third machine outside the mesh to be refused. We preferred not to create another VM (ADR-011).
 - **Decision:** test over the ordinary network path between the two existing nodes, in both directions, with port probes and one real job submission aimed at the ordinary address, and read the firewall's counted drop rule before and after.
 - **Consequences:** it shows that traffic arriving over the ordinary network is refused; it does not test a separate machine, IPv6, or a firewall that is absent after a reboot.
+
+## ADR-017: Replace the implementation behind hdfs:// with the wrapper (Option B)
+
+- **Date:** 6 October 2026. **Status:** accepted by the mentor; supersedes the author's earlier recommendation of Option A.
+- **Context:** the handoff words the wrapper as a class registered under a custom scheme such as `attested://`. Three ways were weighed: A (a new scheme, with path translation), B (replace the implementation behind `hdfs://`), and a hybrid (A with a hidden storage root and an inventory).
+- **Decision:** B, with three conditions from the mentor. (1) Swap both lookups, `fs.hdfs.impl` and `fs.AbstractFileSystem.hdfs.impl`; the second needs its own small adapter class, following the pattern Hadoop uses for its built-in file systems (`DelegateToFileSystem`, as S3A does). (2) Inside the wrapper, construct the real HDFS client class directly, never through a lookup by scheme, which would find the wrapper again and loop. (3) Keep the audit: list all of storage before and after a crawl and compare with the wrapper's log (ADR-018).
+- **Why:** no path translation (Option A needs a translation layer; Hadoop's `ChRootedFileSystem`, the closest example, overrides 60 methods, and a scheme swap is a known rough edge of `FilterFileSystem`, whose own comment says other things break); every `hdfs://` request in a configured program is covered, including the six places where Nutch asks for the default file system.
+- **Consequences:** the wrapper fails open, because a program without the two settings silently uses plain HDFS. Paths no longer show whether the wrapper was used, so the audit is the proof. The NodeManager, the daemons and the crawl script's two `hadoop fs` commands are not covered. The Option A prototype was never committed.
+
+## ADR-018: The storage audit is the proof that the wrapper was used
+
+- **Date:** 6 October 2026. **Status:** accepted.
+- **Context:** with ADR-017 the paths look the same whether or not the wrapper handled a request.
+- **Decision:** every JVM that loads the wrapper writes a local log line for each request that changes storage, and for opens, before forwarding it; the wrapper refuses to start if it cannot write the log. After a crawl, `audit_compare.py` checks that every difference between a listing of all of HDFS taken before and one taken after is explained by a log line (a path created, renamed, deleted, appended or changed), that moved files keep their size, and that every required host wrote a start-up line. No allow-list is used unless a stated reason exists.
+- **Why:** it is the only check that does not depend on the wrapper's own claims; it was tested with planted faults.
+- **Consequences:** it shows that no change that remains in storage came from outside the wrapper; it does not show reads, same-size edits, or files created and deleted between the two listings. The logs and listings are plain files on the provider's machines; the final design replaces them with signed records.
+
+## ADR-019: Build and test in scratch folders; commit exactly what ran
+
+- **Date:** 6 October 2026. **Status:** accepted.
+- **Context:** the measured tree and the job of run 5 must stay reproducible, and code should enter the repository only after it has run on the cluster.
+- **Decision:** unpack new files into a scratch folder on the master and test there; build the job in a scratch clone and compare it with the measured job entry by entry; commit only files whose fingerprints equal those recorded when they ran, and check them from a fresh clone.
+- **Consequences:** the job of run 6 is not the measured job, so the measurement chain must be redone after a reboot. A clean clone builds a different job from the measured one because of an untracked file, `conf/effective_tld_names.dat`, which was copied into the clone.
