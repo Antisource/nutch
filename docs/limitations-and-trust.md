@@ -31,6 +31,31 @@ Running Hadoop and the Common Crawl Nutch crawler inside GCP Intel TDX CVMs **wo
 
 If any of these cannot be done on GCP, that claim becomes "not feasible with TDX alone" (inference).
 
+## Update, 6 October 2026 (after Milestones 0 and 1)
+
+This update leaves the 3 October analysis in place and records what the next two milestones changed. Details: [milestone-0-clean-baseline.md](milestone-0-clean-baseline.md), [milestone-1-code-measurement.md](milestone-1-code-measurement.md), [decisions.md](decisions.md).
+
+- **Now shown.**
+  - RTMR3 carries a measured stack on both nodes (master 10 events, worker 5): JDK, JDK settings, CA fingerprint list, Hadoop code and config, and on the master the job, deploy folder, driver and seeds.
+  - Four RTMR3 quotes were verified off-cloud with the strict flags, and the log replay reproduces the register on two machines.
+  - The firmware's boot log replays to RTMR0, RTMR1 and RTMR2 exactly, on the old and new kernels.
+  - A crawl ran on the measured stack and its output matched the earlier run; every measured digest was unchanged afterwards.
+  - The WARC now records real server addresses (run 3 onward).
+- **Still not shown.**
+  - Nothing locks the stack between measuring and running, and the root filesystem is not covered by a boot measurement we saw.
+  - No known-good reference (reproducible build) and no MRTD check against Google's endorsement.
+  - Inter-node traffic is still plaintext (Milestone 2 is next), and TLS checking is off pending a decision.
+  - The clock and the evidence copies are as before.
+
+| Row | What changed | Where |
+|---|---|---|
+| 1, 23 | The quote now covers the measured JDK, Hadoop, job, config, driver and seeds (master), and JDK and Hadoop (worker). The manifest is still self-asserted, but the measurement is hardware-signed | milestone-1 §6, §9 |
+| 15 | The firmware log replays to RTMR0 to RTMR2 on both nodes. No published reference values; MRTD not yet checked | milestone-1 §4 |
+| 6 | Registers change with GRUB configuration and state and with first-boot partition growth, not only with kernel updates | milestone-1 §5, new row 32 |
+| 18 | `WARC-IP-Address` is now recorded. Origin authenticity is still not proved. A teammate's receipt code addresses part of it (relayed), see new row 34 | milestone-0 §3, ADR-002 |
+| 16 | Unchanged. The two old `entry...` report folders vanished after the first reboot (kept in memory) | milestone-1 §7 |
+
+
 ## Evidence legend (first-party, "our runs")
 
 | Code | What it shows | Repo documents |
@@ -42,6 +67,10 @@ If any of these cannot be done on GCP, that claim becomes "not feasible with TDX
 | R5 | WARC metadata written by the crawler, unsigned. `WARC-IP-Address` 0.0.0.0. An off-seed link was followed. robots.txt not stored (both 404). | run-1-pilot.md §5, comparison-run1-run2.md §5 |
 | R6 | Two unrelated root-owned report entries (27 September) under `/sys/kernel/config/tsm/report`. | run-1-pilot.md §5.3, guide-pitfalls-and-lessons.md mistake 15 |
 | R7 | Clock is host-provided. Worker disk about 9.6 GB (about 5.4 GB for HDFS). Helper libraries from moving snapshots; public-suffix list unversioned (hashes recorded). No live migration. Evidence copied in plaintext; logs on ordinary disks. | cluster-configuration.md §1, §3, comparison-run1-run2.md §5 |
+| R8 | Run 3 (okhttp client, `store.ip.address`): real `WARC-IP-Address` in 8 page records and 2 diagnostics records; same 8 URLs as run 2; no errors. Run 3 is not byte-comparable with runs 1 and 2 | milestone-0-clean-baseline.md |
+| R9 | Kernel 6.17.0-1022-gcp on both nodes; RTMR3 extended (master 10 events, worker 5); quotes verified with the strict flags; replay matches on the laptop; boot-log replay reproduces RTMR0 to RTMR2 on 6.8 and 6.17 boots | milestone-1-code-measurement.md §4, §9 |
+| R10 | Boot values change with first-boot partition growth (4 GiB to 50 GiB, confirmed in the cloud-init log), GRUB configuration and saved state. Master vs worker: 13 of 105 events differ by position | milestone-1-code-measurement.md §5 |
+| R11 | Run 4 on the measured master matched run 3 (same pages, same URL and address pairs); all ten digests unchanged after the crawl (twice). The worker's NodeManager exited after the master was down about 23 minutes | milestone-1-code-measurement.md §10, §11 |
 
 **Change markers:** Kept, Updated, Corrected, Merged, Removed. The severity of new rows is marked "(author judgement)".
 
@@ -56,6 +85,11 @@ If any of these cannot be done on GCP, that claim becomes "not feasible with TDX
 | 16 | A quote does not identify which program requested it | High (author judgement) | Low: root-only configfs, one entry per requester. Medium: bind the requester's hash into REPORTDATA and RTMR3. High: a single attestation agent | Kept (verified) [3] | Unrelated report entries found. our runs [run-1-pilot.md §5.3] | [configfs-tsm ABI](https://www.kernel.org/doc/Documentation/ABI/testing/configfs-tsm#:~:text=it%20can%20prevent%20conflicts%20by%20creating%20a%20report%20instance%20per%20requesting%20context) |
 | 23 | The quote does not cover JVM, Hadoop or crawler code; the manifest is self-asserted | High (author judgement) | Medium: extend RTMR3 with hashes of JDK, Hadoop, `.job`, configs. High: IMA, read-only root | New [4] | RTMR3 zero; manifest built in the guest. our runs [quote-verification.md] | [Google: RTMR3](https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/measurement-register-contents#:~:text=Additional%20event%20logs%20measurement%20passed%20from%20the%20userspace) |
 | 20 | Supply chain: moving snapshots; unversioned public-suffix list | Medium (author judgement) | Low: pin commits and hashes (done). Medium: vendor all inputs. High: reproducible builds | Kept | `.job` byte-identical across runs. our runs [comparison-run1-run2.md §5] | Inference from our runs |
+| 27 | Software is measured after boot and before use; nothing prevents a change in between | High (author judgement) | Low: re-hash after the run (done). Medium: measure at launch from a boot service. High: read-only verified root, no login | New | `check-unchanged.sh` printed ALL-UNCHANGED twice after run 4: a point-in-time check. our runs [milestone-1-code-measurement.md §10] | Inference from our runs |
+| 28 | The root filesystem and its tools are not covered by any boot measurement we saw | High (author judgement) | High: read-only root with an integrity hash on the kernel command line, or measure the root's hash at boot | New (inference) | The kernel command line seen began `root=PARTUUID=...`; its end was not read, so an integrity parameter cannot be ruled out. our runs [milestone-1-code-measurement.md §8] | Inference from our runs |
+| 29 | The measured stack is lost at every reboot; the 6.17 kernel is a one-time boot and the nodes return to 6.8 | Medium | Low: rerun the scripts after each boot. Medium: a boot-time service. High: a measured image | New | RTMR3 resets at boot; saved GRUB entries still name 6.8 kernels. our runs [milestone-1-code-measurement.md §7] | Inference from our runs |
+| 30 | The JDK start-up cache differs per node; JDK settings and the CA store live outside the JDK folder | Low–medium (author judgement) | Measure settings and the CA list separately (done). Build one image so all nodes share one cache | New | One of 345 JDK files differs; 26 symlinks point into `/etc`. our runs [milestone-1-code-measurement.md §6] | Inference from our runs |
+| 31 | The cluster runs Hadoop 3.4.3, but the design's hook points were read from Hadoop 3.4.1 source | Low (to verify) | Re-read the hook points in 3.4.3 before building the file wrapper | New | Handoff line 153 vs `hadoop version`. our runs | Handoff |
 
 ### B. Attestation, measurements and verifiers
 
@@ -67,6 +101,7 @@ If any of these cannot be done on GCP, that claim becomes "not feasible with TDX
 | 22 | The verification tool carries its own trust anchor | Medium (author judgement) | Low: always use strict mode. Medium: pin the root hash; build the tool from a pinned commit | Updated: earlier claims corrected [8] | Embedded-root warning; strict run passed. our runs [quote-verification.md §5] | [Google: embedded Intel root](https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/tdx-provenance#:~:text=Verify%20the%20authenticity%20of%20the%20Intel%20TDX%20quote%20by%20using%20the%20embedded%20Intel%20root%20certificate) |
 | 21 | Dependence on the provider's firmware, host registry and attestation service | Medium (author judgement) | Low: verify with Intel collateral (done). Medium: add `gceprovenance`. High: a second independent verifier | Updated [9] | `gceprovenance` not run. our runs [quote-verification.md] | [Google: gceprovenance scope](https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/tdx-provenance#:~:text=The%20gceprovenance%20tool%20performs%20a%20basic%20quote%20authenticity%20check,use%20the%20check%20CLI%20tool) |
 | 14 | Lock-in to one vendor TEE | Medium | Keep the policy interface abstract (evidence in, claims out); test a second verifier | Updated: multi-TEE verifiers are partial [10] | Only TDX tested. our runs | [Intel Trust Authority: SEV-SNP preview](https://docs.trustauthority.intel.com/main/articles/articles/ita/whats-new.html#:~:text=AMD%20SEV%2DSNP%20attestation%20remains%20a%20preview%20feature) |
+| 32 | Boot measurements depend on first-boot partition growth, bootloader configuration and saved state | Medium (author judgement) | Low: replay the log and judge events, not totals. Medium: build the image with its final disk layout | New | The partition-table event changed from a 4 GiB to a 50 GiB layout after the first boot; RTMR2 changed with GRUB; RTMR1 was equal on the second 6.8 boot and the 6.17 boot. our runs [milestone-1-code-measurement.md §5] | Inference from our runs; cloud-init log |
 
 ### C. Cluster, network and performance
 
@@ -76,6 +111,7 @@ If any of these cannot be done on GCP, that claim becomes "not feasible with TDX
 | 17 | No encryption or mutual attestation between nodes | High (author judgement) | Low: firewall limited to Hadoop ports. Medium: `hadoop.rpc.protection=privacy`, `dfs.encrypt.data.transfer=true`, HTTPS, Kerberos. High: keys only for attested nodes | Kept [12] | `default-allow-internal`; no Kerberos. our runs [cluster-configuration.md §2, §4] | [Hadoop SecureMode](https://hadoop.apache.org/docs/stable/hadoop-project-dist/hadoop-common/SecureMode.html#:~:text=Setting%20hadoop.rpc.protection%20to%20privacy) (snippet only) |
 | 4 | HDFS and shuffle I/O overhead | Medium–high | Low: guest kernel with TDX halt fixes; size SWIOTLB. Medium: TDX vs non-TDX benchmark, CPU per GB. High: tune batching and buffers | Updated: Google documents the overhead [13] | Functional only; no baseline. our runs [comparison-run1-run2.md] | [Google: bandwidth and latency](https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/supported-configurations?tab=intel-tdx#:~:text=Confidential%20VM%20instances%20might%20experience%20lower%20network%20bandwidth%20and%20higher%20latency); [halt fixes](https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/supported-configurations?tab=intel-tdx#:~:text=Guest%20images%20without%20the%20TDX%20halt%20fixes) |
 | 13 | No public benchmark of full Hadoop on TDX | Medium evidence risk | Run a representative PoC with a non-TDX baseline before committing to capacity or cost | Updated: still none found [14] | Two functional runs. our runs | None found; see [14] |
+| 33 | Hadoop daemons started by hand do not recover from outages | Low–medium (availability) | Low: check `jps` on the worker after any master outage. Medium: supervised services | New | The worker's NodeManager retried the ResourceManager until 17:29:08 and shut down; the master's ResourceManager had been down about 23 minutes. our runs [milestone-1-code-measurement.md §11] | NodeManager log |
 
 ### D. Host, availability and platform
 
@@ -99,6 +135,7 @@ If any of these cannot be done on GCP, that claim becomes "not feasible with TDX
 | # | Challenge | Severity | Mitigation (low to high effort) | Change | Evidence from our runs | Sources |
 |---|---|---|---|---|---|---|
 | 18 | A TEE does not authenticate crawled web content | Fundamental for content claims (author judgement) | Low: record the real IP, TLS certificate chain and robots.txt (including 404s); domain filters. Medium: hash payloads into the attested manifest. High: TLS-oracle proofs for selected pages | Kept [18] | IP 0.0.0.0; off-seed link; no robots.txt records. our runs [run-1-pilot.md §5] | [WARC 1.1](https://iipc.github.io/warc-specifications/specifications/warc-format/warc-1.1-annotated/#:~:text=A%20WARC%2DIP%2DAddress%20field%20should%20be%20used%20to%20record%20the%20network%20IP%20address%20from%20which%20the%20response%20material%20was%20received) (snippet only); [TLSNotary FAQ](https://tlsnotary.org/docs/faq/#:~:text=TLS%20does%20not%20have%20a%20mechanism%20to%20enable%20the%20server%20to) (snippet only) |
+| 34 | With CCBot's certificate checking off, pages that fail validation can still be archived | Medium–high (author judgement) | Decide whether records without a source receipt are dropped, labelled or rejected; or turn CCBot's checking on | New (the teammate's receipt behaviour is relayed, not tested by us) | Runs 3 and 4 used the default (off). our runs [decisions.md ADR-002] | Teammate's description |
 
 ### G. TEE vulnerabilities, side channels and physical attacks
 
@@ -194,6 +231,9 @@ GCP `c3-standard` uses Sapphire Rapids. The 2026 Google/Intel review also left "
 6. **Host-controlled time (row 19).** Dates are claims made by the host, not attested facts.
 7. **Evidence and logs leave the TD unprotected (rows 26, 9).** Once exported in plaintext, the TEE guarantees are gone.
 
+**Update, 6 October 2026.** Issue 1 is partly addressed: the quotes now cover the measured stack (rows 1, 23), but nothing locks it between measuring and running (rows 27, 28). Issue 4 is partly addressed: the firmware log replays to RTMR0 to RTMR2, but there are still no reference values and MRTD has not been checked (row 15). Issues 2, 3, 5, 6 and 7 are unchanged. Inter-node traffic (issue 3) is the next milestone.
+
+
 ## Better TEE options for CCBot
 
 | Option | Trust anchor | What is attested | TCB size | Multi-node Hadoop/JVM fit | Networking for a crawler | Maturity (as verified) | Main caveat |
@@ -218,12 +258,12 @@ GCP `c3-standard` uses Sapphire Rapids. The 2026 Google/Intel review also left "
 
 ## Next experiments
 
-1. Extend RTMR3 with hashes of the JDK, Hadoop, `.job`, configs and seeds before starting the daemons; verify by replaying the event log.
-2. Check the observed MRTD against Google's launch endorsement; replay CCEL on both nodes to explain the RTMR0 difference.
+1. Extend RTMR3 with hashes of the JDK, Hadoop, `.job`, configs and seeds before starting the daemons; verify by replaying the event log. **Done 5 to 6 October 2026** (Milestone 1): master 10 events, worker 5; quotes verified off-cloud and replayed. On the worker it was done before the daemons started; on the master the daemons were already running; both were before the crawl. See [milestone-1-code-measurement.md](milestone-1-code-measurement.md).
+2. Check the observed MRTD against Google's launch endorsement; replay CCEL on both nodes to explain the RTMR0 difference. **Partly done:** CCEL replayed on both nodes on 6.8 and 6.17 boots (RTMR0 to RTMR2 reproduced). The MRTD check is not done, and one RTMR0 event (`Boot0002`) is not decoded.
 3. Run `gceprovenance` and strict `check` on the same quotes; record TCB status and TDX module version.
 4. Enable `hadoop.rpc.protection=privacy`, `dfs.encrypt.data.transfer=true`, HTTPS and Kerberos or SASL; restrict the firewall to Hadoop ports.
 5. Repeat the crawl on non-TDX `c3-standard-4` with the same image; compare wall time, CPU per GB and throughput.
-6. Fix the WARC gaps: real IP, stored robots.txt responses, a domain filter, payload hashes in the attested manifest.
+6. Fix the WARC gaps: real IP, stored robots.txt responses, a domain filter, payload hashes in the attested manifest. **Partly done:** the real IP is recorded since run 3; the rest is open.
 7. Simulate host maintenance and compare MRTD and RTMRs after restart.
 8. Sign the evidence bundle inside the TD before export.
 9. Done on 3 October 2026 (see [quote-verification.md](quote-verification.md) section 6): `td_attributes` is all zeros and `tee_tcb_svn` shows minor SVN 0x0F in all four quotes. Still open: why `td_attributes` differs from Google's example value 0x10000000, and recording the TCB status string the verifier reports.
@@ -251,11 +291,13 @@ GCP `c3-standard` uses Sapphire Rapids. The 2026 Google/Intel review also left "
 | Edgeless Contrast; Microsoft Azure posts | snippet only | options table |
 | Hadoop transparent encryption; GCP disk encryption; trusted guest time | unverified | rows 11, 19 |
 | gce-tcb-verifier issue 73; Gramine performance page; Nitro "nitro-enclave.html"; Hadoop r3.4.0 page | not opened; not cited | — |
+| kernel.org ABI `sysfs-devices-virtual-misc-tdx_guest`; Ubuntu archive package lists (noble-updates, jammy-updates) and the 6.17.0-1022-gcp packages | page and package lists opened (5 October 2026) | rows 1, 23, 29; milestone-1 §7 |
+| A teammate's description of their source-receipt code | relayed in conversation; not tested by us | row 34, ADR-002 |
 | Items marked "(inference)" or "(author judgement)" | inference | throughout |
 
 ## Open questions and not researched
 
-- Why RTMR0 (and possibly RTMR1) differs between the nodes.
+- Why RTMR0 (and possibly RTMR1) differs between the nodes. Updated 6 October: the RTMR1 and RTMR2 differences are explained (partition growth, kernel, GRUB); one RTMR0 event, `Boot0002`, is not decoded.
 - Whether the GCP 6.8 kernels include the TDX halt fixes and the Heckler mitigations.
 - Why `td_attributes` is all zeros while Google's example value is 0x10000000; and the TCB status string the verifier reported (not recorded).
 - Trusted time for TDX guests; time-stamping options for WARC dates.
