@@ -4,7 +4,24 @@ Run 1 ([run-1-pilot.md](run-1-pilot.md)) used hand-typed commands on 2 October 2
 ([run-2-scripted.md](run-2-scripted.md)) used the committed scripts on 3 October 2026. Same cluster,
 same crawler, same seeds, same cap.
 
-Runs 3 and 4 (5 October 2026) are compared with run 2 in section 9. This file was renamed from comparison-run1-run2.md on 6 October 2026.
+Runs 3 and 4 (5 October 2026) are compared with run 2 in section 9, run 5 (6 October, over the WireGuard mesh) in section 9.1 and run 6 (6 October, through the hdfs:// wrapper) in section 9.2. This file was renamed from comparison-run1-run2.md on 6 October 2026.
+
+## Contents
+
+- [1. Side by side](#1-side-by-side)
+  - [Inputs](#inputs)
+  - [Process](#process)
+  - [Outputs](#outputs)
+- [2. What this shows](#2-what-this-shows)
+- [3. What differs, and why that is expected](#3-what-differs-and-why-that-is-expected)
+- [4. What the evidence shows, and what it does not](#4-what-the-evidence-shows-and-what-it-does-not)
+- [5. Observations that affect the trust discussion](#5-observations-that-affect-the-trust-discussion)
+- [6. Limits of this comparison](#6-limits-of-this-comparison)
+- [7. How the comparison was done](#7-how-the-comparison-was-done)
+- [8. Next steps for the evidence](#8-next-steps-for-the-evidence)
+- [9. Runs 3 and 4 (added 6 October 2026)](#9-runs-3-and-4-added-6-october-2026)
+  - [9.1 Run 5 over the mesh (added 6 October 2026)](#91-run-5-over-the-mesh-added-6-october-2026)
+  - [9.2 Run 6 through the hdfs:// wrapper (added 6 October 2026)](#92-run-6-through-the-hdfs-wrapper-added-6-october-2026)
 
 ## 1. Side by side
 
@@ -172,3 +189,33 @@ Run 5 repeats run 3's crawl after the WireGuard mesh and host firewall were adde
 | Evidence | `evidence-run3.tar.gz` | `evidence-run5.tar.gz` |
 
 What it shows: moving the nodes' traffic onto the mesh and closing the ordinary interface did not change which pages were fetched. What it does not show: the same limits as sections 6 and 9; and the changed address of one external site is a property of that site (it is served from a pool of addresses).
+
+### 9.2 Run 6 through the hdfs:// wrapper (added 6 October 2026)
+
+Run 6 repeats the crawl of run 5 with every HDFS request of the Nutch jobs going through the wrapper ([milestone-3-hdfs-wrapper.md](milestone-3-hdfs-wrapper.md)).
+
+| Item | Run 5 | Run 6 |
+|---|---|---|
+| Date and duration | 6 Oct, about 08:17 to 08:27 | 6 Oct, first segment 13:42, finished 13:52:41 |
+| HDFS access of the crawl's programs | the plain HDFS client | through `AttestedHdfsFileSystem` and `AttestedHdfs` (both lookups) |
+| Driver | `ops/run-crawl.sh` | `ops/run-crawl-attested.sh` (the same plus three `-D` settings) |
+| Job file | `bbd30ad90d357ca1`, 1029 entries | `ddc415a5d87c9e6b`, 1033 entries; the four extra entries are the wrapper's classes, nothing else differs (nested jars compared by content) |
+| Pages fetched | 8 | the same 8 URLs (`SAME-PAGES`) |
+| WARC files | 18 | 18 |
+| `WARC-IP-Address` | `toscrape` pages `35.211.122.109`; `www.zyte.com` `216.150.16.1` | the same pairs |
+| Page content (payload fingerprints) | | 7 of 8 identical; `www.zyte.com` differs |
+| Crawl database (total, unfetched, fetched, redirects) | 257, 247, 8, 2 | 259, 249, 8, 2 |
+| Plugin lines in the master's log | okhttp 19, old 0 | okhttp 19, old 0 |
+| Worker task logs | 22 list okhttp, 0 the old plugin | 22 and 0 |
+| HDFS byte counters in job reports | 27 read and 27 written lines; largest read 32,527 | 27 and 27; largest read 32,533 |
+| YARN applications | 27 (numbers 0002 to 0028) | 27 (0029 to 0055) |
+| Storage audit | | `AUDIT-CLEAN`: 187 added, 0 removed, 0 changed, all explained by the wrapper's log |
+| Evidence | `evidence-run5.tar.gz` | `evidence-run6.tar.gz`, `evidence-run6-audit.tar.gz` |
+
+**The one different page.** `www.zyte.com` has a different content fingerprint, and the crawl database has two more discovered URLs.
+
+- Runs 3, 4 and 5 (no wrapper) have identical fingerprints for that page (`sha1:SOKCP57…`) and identical crawl databases; run 6 is the first to differ.
+- The page shows why. Its deployment identifier changed from `dpl_Aw3cvvrezTgDVzNUPQtGSiZL7Jng` (fetched 08:24:52) to `dpl_6K3MMTWXqBLaBfG2FGJjgYif2oA4` (fetched 13:50:01), with new stylesheet file names. The live site at 14:37 serves the newer identifier.
+- The new page has two more links that are not build assets (`/mcp/`, `/skills-and-plugins/`), which matches the two extra URLs in count; they were not traced individually.
+
+What it shows: routing the crawl's storage requests through the wrapper did not change what the crawler fetched or how it counted it; the one difference comes from the website. What it does not show: a contemporaneous unwrapped run was not done, so the explanation rests on the control runs and the page's own evidence; and the same limits as sections 6 and 9 apply.
