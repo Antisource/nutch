@@ -212,3 +212,25 @@ Notes:
 - Hadoop's node names matter: the worker must register under `hadoop-worker`. After any network change, check `yarn node -list` and run a small job.
 - Undo (by hand): copy `/etc/hosts.before-names` and `/etc/hosts.before-mesh` back, `sudo iptables-restore < /root/iptables-before-mesh`, `sudo wg-quick down wg0`.
 - Scripts: `ops/mesh/`; report: [milestone-2-wireguard-mesh.md](milestone-2-wireguard-mesh.md).
+
+## 11. Storage wrapper after Milestone 3 (6 October 2026)
+
+| Item | Value |
+|---|---|
+| Settings that put the wrapper in place (job configuration, passed as `-D` options by `ops/run-crawl-attested.sh`) | `fs.hdfs.impl=org.apache.nutch.attested.AttestedHdfsFileSystem`, `fs.AbstractFileSystem.hdfs.impl=org.apache.nutch.attested.AttestedHdfs`, `attested.audit.dir=/tmp/attested-audit` |
+| Where the classes live | inside the Nutch job file (`org/apache/nutch/attested/`); no change to Hadoop's own folders or configuration |
+| Hadoop's configuration files | unchanged; still identical on both nodes |
+| Audit logs | `/tmp/attested-audit/<host>-<pid>-<start>.tsv` on each node, one per JVM; old logs are moved aside by `audit.sh rotate` to `/tmp/attested-audit-old/<time>/` |
+| Not covered by the wrapper | the NameNode, DataNode, ResourceManager and NodeManager daemons (the NodeManager reads the job file through plain HDFS), and the crawl script's two `hadoop fs` commands |
+| Build location for run 6 | a scratch clone, `~/m3-build` (not measured); the measured tree `~/ccbot-work/nutch-cc` and its job (`bbd30ad90d357ca1`) were left untouched. Run 6's job is `ddc415a5d87c9e6b` |
+| Known difference of the measured tree | one untracked file, `conf/effective_tld_names.dat`, which is packed into the job; it was copied into the scratch clone |
+
+How a wrapped crawl is run (every step is a script in `ops/attested/`, `ops/run-crawl-attested.sh`):
+
+1. On each node: `audit.sh rotate`. On the master: put the seeds into HDFS, then `audit.sh snapshot <file>` (the "before" listing).
+2. On the master, in tmux, from the build clone: `ops/run-crawl-attested.sh <seeds> <crawl-folder>`.
+3. When it finishes: `audit.sh snapshot <file>` (the "after" listing); on the worker, check the task logs before any daemon restart.
+4. In Cloud Shell: copy both listings and both nodes' log folders, then `audit_compare.py before after logs --require-hosts tdx-lab,tdx-lab-worker`. The result is `AUDIT-CLEAN` or a list of unexplained changes.
+
+Undo: run the original `ops/run-crawl.sh` (no wrapper); remove `/tmp/attested-audit` and `/tmp/attested-audit-old` on each node.
+Report: [milestone-3-hdfs-wrapper.md](milestone-3-hdfs-wrapper.md).
