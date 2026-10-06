@@ -127,6 +127,8 @@ Health after start-up (2 October 2026, about 11:35 UTC):
 
 Daemons survived a dropped SSH session and a day of idle time (both were still running on 3 October).
 
+**After a reboot or an outage (observed 5 October).** Daemons do not restart by themselves. The order that worked: on the master, `hdfs --daemon start namenode` then `yarn --daemon start resourcemanager`; on the worker, `hdfs --daemon start datanode` then `yarn --daemon start nodemanager`. Never repeat `hdfs namenode -format`. After the NameNode starts, HDFS stays in safe mode for up to a minute or two until the DataNode reports; do not force it off. If the master's ResourceManager is down for roughly 20 minutes or more, the worker's NodeManager gives up and exits (its log shows retries, then `SHUTDOWN_MSG`), so check `jps` on the worker and start it again.
+
 ## 6. Why two VMs
 
 - The mentor chose two VMs for authenticity and to ease later scaling.
@@ -166,3 +168,26 @@ unsuccessful fetches and robots.txt), `fetcher.store.robotstxt=false`, `fetcher.
 - The creation command, the firewall source ranges, and the master's disk-size decision were not captured.
 - The memory settings were not tuned; no task failed, so no tuning data exists.
 - Disk headroom on the worker is small (about 5.4 GB for HDFS). Larger crawls need a larger disk.
+
+## 9. Changes since the first two runs (5 and 6 October 2026)
+
+| Item | Master `tdx-lab` | Worker `tdx-lab-worker` |
+|---|---|---|
+| Kernel now running | `6.17.0-1022-gcp` since 2026-10-05 17:15:31 (one-time boot) | `6.17.0-1022-gcp` since 2026-10-05 18:47:47 (one-time boot) |
+| Kernel after the next reboot | `6.8.0-1067-gcp` (pinned) | `6.8.0-1069-gcp` (pinned) |
+| Added packages | `linux-image-6.17.0-1022-gcp`, `linux-modules-6.17.0-1022-gcp` (from Ubuntu 24.04's archive, checksums verified) | same |
+| GRUB | `/etc/default/grub.d/zz-saved-default.cfg` (`GRUB_DEFAULT=saved`); saved entry names the old kernel; backup in `/root/grub-backup-1005` | same file; backup in `/root/grub-backup-20261005184601` |
+| Boot disk snapshot | `tdx-lab-pre-kernel-1005` (50 GB disk, about 6.0 GB stored) | `tdx-lab-worker-pre-kernel-1005` (10 GB disk, about 2.35 GB stored) |
+| Secure Boot | off | off |
+| Boot method | UEFI, no initramfs (`GRUB_FORCE_PARTUUID`); kernel needs the disk and ext4 drivers built in | same |
+| Measurement files | `/sys/devices/virtual/misc/tdx_guest/measurements/` (`mrtd`, `rtmr0` to `rtmr3`, ...) exists on 6.17 only | same |
+| Boot event log | `/sys/firmware/acpi/tables/data/CCEL` (root-only, 262,144 bytes) | same |
+| Scripts | measurement and replay scripts in the home folder; committed under `attest/measure/` | `worker-kernel-prep.sh`, `worker-post-boot.sh` and helpers in the home folder; committed under `attest/measure/` and `ops/` |
+| Measured stack | 10 events in `~/rtmr3-events.tsv`; per-folder manifests in `~/measured` | 5 events; manifests in `~/measured` |
+
+Notes:
+
+- The `/sys/kernel/config/tsm/report` folder is in memory. After the master's first reboot it was empty: the two old `entry...` folders from 27 September were gone.
+- The Hadoop tree (`~/hadoop`) is owned by the lab user. Its only changing folder is `logs/`; HDFS data lives in `~/hadoop-data`.
+- A reboot zeroes RTMR3. After any reboot, the measurement scripts must be run again (milestone-1-code-measurement.md §7).
+- The master's HDFS now also holds `crawl-run3`, `crawl-run4`, `seeds-run3` and `seeds-run4`.

@@ -169,5 +169,33 @@ Google's community blog (18 November 2025) gives `0x10000000` as its reference v
 ## 7. Not done
 
 - Comparison against any published reference value for MRTD or the RTMRs.
-- Replay of the boot event log to explain the RTMR differences.
+- Replay of the boot event log to explain the RTMR differences. **Done on 5 October 2026:** see section 8 and [milestone-1-code-measurement.md](milestone-1-code-measurement.md).
 - Independent validation of the offsets against Intel's specification.
+
+## 8. RTMR3 and the quotes from the 6.17 boots (5 and 6 October 2026)
+
+Four quotes carrying our measurements were produced and verified on the laptop with `check -inform bin -get_collateral=true -check_crl=true` (result `TDX Quote verified successfully`, with three warnings that the embedded Intel root certificate was used, as in section 1).
+
+| Quote | Node | Events in the RTMR3 log | RTMR3 in the quote (12 hex) | Replay and REPORTDATA |
+|---|---|---|---|---|
+| `evidence-m1c` | master | 2 (`test-marker`, `nutch-job`) | `a4a1b7833ecf` | `MATCH`, REPORTDATA `YES` |
+| `evidence-m1d` | master | 10 | `38a7e9661385` | `MATCH`, `YES`; replayed on the laptop too |
+| `evidence-run4` (taken after the crawl) | master | 10 | `38a7e9661385` | `MATCH`, `YES` |
+| `evidence-worker-m1` | worker | 5 | `928c8193b9cd` | `MATCH`, `YES`; replayed on the laptop too |
+
+How it was checked:
+
+- RTMR3 sits at quote offset 520 (section 2). The replay script starts at 48 zero bytes, applies `SHA-384(register + digest)` for each log line, and compares the result with the quote.
+- The quote was requested with the event log as its input, so REPORTDATA must equal the log's SHA-512. The script checks that too, which also confirms the offset 568.
+- Each extension was also checked as it happened: after writing the digest, the register was read back and had to equal `SHA-384(before + digest)`.
+
+Boot registers on the 6.17 boots, replayed from the firmware's log (first 12 hex; all three registers matched on both nodes):
+
+| Node | Events | RTMR0 | RTMR1 | RTMR2 |
+|---|---|---|---|---|
+| Master | 110 | `036d0bf4b669` | `05718f1d5381` | `37e9c325474a` |
+| Worker | 108 | `5e276dcf6867` | `b8837821022e` | `e1ecda0d3f2e` |
+
+Compared with the 6.8 boots in section 3, RTMR0 is unchanged on both nodes, and RTMR1 and RTMR2 have changed (partition growth on first boot, GRUB configuration and kernel); see milestone-1 section 5. Section 4's statement that the registers agree across runs "within each node" holds only while a node does not reboot or change its boot configuration.
+
+What this does not show: that the measured files were the ones that ran, that the digests match an independently built reference, or anything about MRTD (it was not printed for these quotes). `td_attributes` and the TCB SVN of section 6 were not re-read from the 6.17 quotes.
