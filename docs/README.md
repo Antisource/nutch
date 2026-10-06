@@ -15,7 +15,7 @@ converted where cited. Where something was not observed, the text says so.
 | [cluster-configuration.md](cluster-configuration.md) | How the VMs, network, Hadoop and the crawl were configured, and why two VMs |
 | [run-1-pilot.md](run-1-pilot.md) | Run 1: hand-typed commands, full timeline, results and evidence |
 | [run-2-scripted.md](run-2-scripted.md) | Run 2: the same crawl driven by the committed scripts |
-| [comparison-run1-run2.md](comparison-run1-run2.md) | What was identical, what differed, and what that does and does not show |
+| [run-comparison.md](run-comparison.md) | What was identical, what differed, and what that does and does not show |
 | [quote-verification.md](quote-verification.md) | Signature checks, measurement registers and tamper tests on the four quotes |
 | [limitations-and-trust.md](limitations-and-trust.md) | Updated limitations and challenges table, ranked trust issues, better-TEE comparison, next experiments |
 | [guide-first-principles.md](guide-first-principles.md) | Beginner's master guide: every concept from first principles, and every step of the experiment from first login to last commit |

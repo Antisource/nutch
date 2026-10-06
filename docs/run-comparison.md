@@ -1,10 +1,10 @@
-# Comparison of run 1 and run 2
+# Comparison of the runs
 
 Run 1 ([run-1-pilot.md](run-1-pilot.md)) used hand-typed commands on 2 October 2026. Run 2
 ([run-2-scripted.md](run-2-scripted.md)) used the committed scripts on 3 October 2026. Same cluster,
 same crawler, same seeds, same cap.
 
-Runs 3 and 4 (5 October 2026) are compared with run 2 in section 9. The file name still says "run1-run2"; it can be renamed when the documents are finalised.
+Runs 3 and 4 (5 October 2026) are compared with run 2 in section 9. This file was renamed from comparison-run1-run2.md on 6 October 2026.
 
 ## 1. Side by side
 
@@ -154,3 +154,21 @@ What it does not show:
 - `JOB-IDENTICAL` cannot be repeated between run 3 and earlier runs, because the configuration is inside the job file.
 - The same two practice sites plus one external site, one operator, one cluster: the same limits as section 6.
 - That okhttp ran inside the worker's tasks (see milestone 0, section 4).
+
+### 9.1 Run 5 over the mesh (added 6 October 2026)
+
+Run 5 repeats run 3's crawl after the WireGuard mesh and host firewall were added ([milestone-2-wireguard-mesh.md](milestone-2-wireguard-mesh.md)).
+
+| Item | Run 3 | Run 5 |
+|---|---|---|
+| Date and duration | 5 Oct, 09:52 to 10:03 | 6 Oct, about 08:17 to 08:27 |
+| Node-to-node traffic | ordinary network | through the WireGuard tunnel (master sent 3,915.2 MB during the crawl) |
+| Job file | the run 3 build | the same file (no rebuild) |
+| Pages fetched | 8 | the same 8 URLs (`SAME-PAGES`) |
+| `WARC-IP-Address` | `toscrape` pages `35.211.122.109`; `www.zyte.com` `216.150.1.193` | `toscrape` pages the same; `www.zyte.com` `216.150.16.1` |
+| WARC files | 18 | 18 |
+| Plugin lines in the master's log | okhttp 19, old 0 | okhttp 19, old 0 |
+| Worker task logs | gone by the time they were checked | not deleted: 22 list okhttp, 0 list the old plugin |
+| Evidence | `evidence-run3.tar.gz` | `evidence-run5.tar.gz` |
+
+What it shows: moving the nodes' traffic onto the mesh and closing the ordinary interface did not change which pages were fetched. What it does not show: the same limits as sections 6 and 9; and the changed address of one external site is a property of that site (it is served from a pool of addresses).

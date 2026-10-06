@@ -3,7 +3,7 @@
 Date: 2 October 2026 (UTC). Run 1 was done with **hand-typed commands**, before the scripts in
 `attest/` and `ops/` existed. Those scripts re-implement the same steps. They did not produce run 1's
 evidence, and their output differs in field order and wording. See
-[comparison-run1-run2.md](comparison-run1-run2.md).
+[run-comparison.md](run-comparison.md).
 
 This file supersedes the earlier short version committed as `2aadecd86`; the old text stays in git history.
 
