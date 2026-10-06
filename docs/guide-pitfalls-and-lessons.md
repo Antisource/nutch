@@ -52,6 +52,18 @@ resolved, which instructions turned out to be wrong, and why the key decisions w
 | 19 | go-tdx-guest | `check -get_collateral -check_crl` stopped with `flag -get_collateral=-check_crl invalid` | The flags take explicit values; the tool read the second flag as the first one's value | `-get_collateral=true -check_crl=true` | Read the tool's own error; do not copy flag syntax from an example blindly |
 | 20 | Cloud Shell | `xxd: command not found` | Cloud Shell does not have `xxd` (the VMs do) | Used `od -An -v -tx1 -j <offset> -N <length>`, checked against a known REPORTDATA match | Check a tool exists before building a procedure on it |
 | 21 | Evidence | A file size (3355 bytes) retyped from a screenshot did not match the screen (3395) | Retyping | The screenshot value was used | Rule 6 |
+| 22 | Master | A first check of `conf/nutch-site.xml` printed `protocol-http`; every later check of the same file printed `protocol-okhttp` | Not established (the reflog showed one pull that morning) | The shell confirmed the working file equal to the commit before the build | Compare by shell (`git diff --quiet`, a byte comparison) before building |
+| 23 | Evidence | Commit ids and hashes in text copied from terminals differed from the originals by single characters (for example `594b992e3` and `594b9928c`) | Retyping and display glitches | Compared by the shell instead | Rule 6: never compare by eye |
+| 24 | Master | `unzip` was not installed; three `grep -c` counts printed 0, which looks like an answer | The count of empty input is 0 | Used Python's `zipfile`; no package was installed on a VM we plan to measure | Check that a tool exists first (as mistake 20) |
+| 25 | Cloud Shell | `gcloud compute scp` with sources on two machines failed: "All sources must refer to the same remote" | One remote per command | Two commands | Copy from one machine at a time |
+| 26 | Cloud Shell | A command containing `<paste-id-here>` ran literally and gave `syntax error near unexpected token` | A placeholder was not replaced | Re-ran with a real id | Say which parts are placeholders; avoid angle brackets in commands |
+| 27 | Cloud Shell | The first `ccel_replay.py` stopped with `KeyError: 65535` | The log's unused tail is `0xFF` fill, and the script assumed zeros | The script now recognises the end marker and stops with a parse error on anything else | Test a parser on the real data's edges, and make it say where it fails |
+| 28 | Cloud Shell | The first event comparison reported 39 differing events | It compared by position, so one inserted event shifts every later one | Read the list by content | State the limits of a positional diff; prefer a sequence-aware one |
+| 29 | Evidence | A long script pasted into Cloud Shell looked truncated, and one script (`gpt_diff.py`) was never created | Copying from a terminal drops or garbles lines | A fingerprint check after each paste; the script was later proved identical from the evidence bundle | Always check a pasted file's fingerprint |
+| 30 | Package install | A malformed checksum line was silently skipped by `sha256sum -c` | Without `--strict`, improperly formatted lines are ignored | `sha256sum --strict -c` in the prep script (found in testing) | Use `--strict` |
+| 31 | Master | One reboot command led to two reboots: the journal shows a manual `sudo reboot` 21 seconds after an SSH login | The reboot line was run again after reconnecting | Harmless; no evidence belongs to the extra boot | Keep reboot commands in their own block; check `last -x` after a surprise |
+| 32 | Worker | After the master's ResourceManager was down about 23 minutes, the worker's NodeManager had exited | Hadoop's NodeManager gives up reconnecting; the daemons are not supervised | Started it by hand | Run `jps` on the worker after any master outage |
+| 33 | Laptop and git | Scripts copied through Windows risk CRLF line endings, which break shell scripts on Linux | Windows git and editors | `.gitattributes` with `eol=lf` for `attest/` and `ops/`; a fresh clone matched the tested fingerprints | Verify committed files from a clean clone |
 
 ## 3. Corrections to earlier working instructions
 
@@ -71,8 +83,14 @@ Some guidance given during the work turned out wrong or too strong. Corrected he
 | `check -get_collateral -check_crl` (flags without values) | The flags need explicit values: `-get_collateral=true -check_crl=true` |
 | Measurements can be extracted in Cloud Shell with `xxd` | Cloud Shell lacks `xxd`; `od` works and was validated against a known REPORTDATA match |
 | The first `make-manifest.sh` always reproduced run 1's manifest | It does not: run 1's manifests were assembled by hand with a different layout |
+| Registers are stable per node, so equal values across runs say nothing about the crawl | Still true, but stable only while the node does not reboot or change its boot configuration. They changed after our GRUB changes and after the first boot's partition growth ([milestone-1-code-measurement.md](milestone-1-code-measurement.md) section 5) |
+| The firmware's boot log ends in zero fill | It ends in `0xFF` fill (mistake 27) |
+| The two old `entry...` folders under the report directory are leftovers to leave alone | They are in memory and were gone after the master's first reboot |
+| Quotes carry no code measurement (RTMR3 zero) | True for runs 1 to 3 only. From 5 October the master and worker quotes carry measured stacks in RTMR3 |
 
 ## 4. Decision log
+
+Decisions from 5 October 2026 onward are kept in [decisions.md](decisions.md). This table covers runs 1 and 2.
 
 | Decision | Reason |
 |---|---|
@@ -112,6 +130,10 @@ Some guidance given during the work turned out wrong or too strong. Corrected he
 11. Copy evidence to Cloud Shell (VMs can be stopped); re-hash; compare by shell.
 12. Verify the quote signatures on a machine with no Google credentials (`check -inform bin`, then with `-get_collateral=true -check_crl=true`); extract MRTD and RTMRs and count the distinct values per register.
 13. Run the tamper tests on a copy of a manifest and on a copy of a quote; keep the logs and the tampered copies.
+14. For a configuration change, rebuild: `conf/` is packed into the job file. Check the new job file's contents (a Python one-liner with `zipfile` is enough) and keep the old job hash.
+15. Before touching the kernel: snapshot each boot disk, back up GRUB, pin the running kernel with a `grub.d` file and `grub-set-default`, and prove the pin with one reboot. Then install the packages (checksums verified) and request one boot with `grub-reboot`. Keep the reboot command in its own block.
+16. After the boot: check the `measurements` folder, run the measurement script, request a quote with the log as input, and verify the signature off-cloud and the replay on two machines.
+17. Run the crawl, then recompute every measured digest and compare. After any master outage, check the worker's daemons with `jps`.
 
 ## 6. Security hygiene
 
@@ -120,6 +142,8 @@ Some guidance given during the work turned out wrong or too strong. Corrected he
 - Do not put personal data or secrets in `nutch-site.xml`: its values are written into WARC files and committed.
 - Remove stray SSH keys created on a VM by a mistaken command.
 - Treat unknown folders under `/sys/kernel/config/tsm/report/` as someone else's.
+- The repository is public: commit scripts only, and keep quotes, boot logs, manifests and WARC files out of it.
+- Do not install extra packages on a VM you plan to measure; use the tools already there (Python's `zipfile` instead of `unzip`).
 
 ## 7. Open items
 
@@ -129,9 +153,10 @@ Some guidance given during the work turned out wrong or too strong. Corrected he
 | Compare MRTD and RTMR values between the nodes and runs | **Done.** MRTD identical; RTMR0 to RTMR2 differ between nodes. Not judged against a reference value |
 | Record the one-byte tamper test | **Done** on run 2's master manifest and quote. Not repeated on the worker |
 | Restrict the crawl to the seed domains | Open: the crawl fetched an external site in both runs |
-| Investigate `WARC-IP-Address: 0.0.0.0` | Open: the server address is not captured in the record read |
-| Compare MRTD with a published reference, replay the boot event log, validate offsets against Intel's specification | Open |
+| Investigate `WARC-IP-Address: 0.0.0.0` | **Done in run 3:** `store.ip.address` was not set; with it on, real addresses are recorded ([milestone-0-clean-baseline.md](milestone-0-clean-baseline.md)) |
+| Compare MRTD with a published reference, replay the boot event log, validate offsets against Intel's specification | Partly done: the boot log is replayed ([milestone-1-code-measurement.md](milestone-1-code-measurement.md) section 4). The MRTD reference and the offset validation are open |
 | Write the limitations and challenges table; assess a better TEE for CCBot | **Done:** see [limitations-and-trust.md](limitations-and-trust.md). Spot-check its sources before citing |
 | Experiments proposed by the limitations analysis (RTMR3 extension, MRTD against Google's endorsement, `gceprovenance`, Hadoop wire encryption, non-TDX baseline, WARC fixes, maintenance restart, signed evidence bundle) | Open: listed under "Next experiments" in [limitations-and-trust.md](limitations-and-trust.md) |
 | Capture run 2 file sizes | Open |
+| RTMR3 extension and measurement of the stack | **Done** 5 to 6 October for both nodes ([milestone-1-code-measurement.md](milestone-1-code-measurement.md)) |
 | Larger worker disk | Open: about 5.4 GB usable by HDFS limits scale |

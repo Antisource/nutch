@@ -4,6 +4,8 @@ Run 1 ([run-1-pilot.md](run-1-pilot.md)) used hand-typed commands on 2 October 2
 ([run-2-scripted.md](run-2-scripted.md)) used the committed scripts on 3 October 2026. Same cluster,
 same crawler, same seeds, same cap.
 
+Runs 3 and 4 (5 October 2026) are compared with run 2 in section 9. The file name still says "run1-run2"; it can be renamed when the documents are finalised.
+
 ## 1. Side by side
 
 ### Inputs
@@ -127,3 +129,28 @@ diff <(grep 'hadoop/etc' master/attest-run2/manifest-master.txt) \
 2. Done: MRTD and RTMR values extracted and compared (see [quote-verification.md](quote-verification.md)).
 3. Add a URL filter to keep the crawl inside the seed domains, and put the filter file's hash into the manifest.
 4. Done: the limitations table and better-TEE assessment are in [limitations-and-trust.md](limitations-and-trust.md); its "Next experiments" list holds the remaining ideas.
+
+## 9. Runs 3 and 4 (added 6 October 2026)
+
+Run 3 is the clean baseline of [milestone-0-clean-baseline.md](milestone-0-clean-baseline.md); run 4 is the crawl on the measured stack of [milestone-1-code-measurement.md](milestone-1-code-measurement.md).
+
+| Item | Run 2 | Run 3 | Run 4 |
+|---|---|---|---|
+| Date and duration | 3 Oct, about 10 minutes | 5 Oct, 09:52 to 10:03 | 5 Oct, 17:56 to 18:07 |
+| HTTP client plugin (master's crawl log, 19 jobs) | `protocol-http` in 19, okhttp in 0 | okhttp in 19, `protocol-http` in 0 | same configuration and job as run 3; the log was not re-counted |
+| `store.ip.address` | not set | true | true |
+| Job file | SHA-256 `88161b64126a` | rebuilt, SHA-256 `bbd30ad90d35` | the run 3 file (no rebuild; its SHA-384 `f993fd407ab5` is in the master's measured log) |
+| `WARC-IP-Address` | `0.0.0.0` | real: 8 page records and 2 diagnostics records | real: the same eight URL and address pairs as run 3 |
+| Pages fetched | 8 | the same 8 URLs (`SAME-PAGES`) | the same 8 URLs (`SAME-PAGES`) |
+| Kernel during the run | master 6.8.0-1067, worker 6.8.0-1069 | same | master 6.17.0-1022, worker 6.8.0-1069 |
+| Measured stack | none | none | master: 10 events in RTMR3 before the crawl; all ten digests unchanged afterwards |
+| WARC files | 9 | 18 (9 `.warc.gz` and 9 `.cdx.gz`) | 18 |
+| Evidence | `evidence-run2` | `evidence-run3.tar.gz` | `evidence-run4.tar.gz` |
+
+What this shows: the two configuration fixes changed the client and filled in the server addresses without changing which pages were fetched, and a measured stack on a newer kernel produced the same page list and addresses.
+
+What it does not show:
+- The comparison is by URL and address, not by page content or WARC bytes.
+- `JOB-IDENTICAL` cannot be repeated between run 3 and earlier runs, because the configuration is inside the job file.
+- The same two practice sites plus one external site, one operator, one cluster: the same limits as section 6.
+- That okhttp ran inside the worker's tasks (see milestone 0, section 4).
