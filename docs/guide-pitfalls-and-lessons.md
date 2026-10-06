@@ -64,6 +64,11 @@ resolved, which instructions turned out to be wrong, and why the key decisions w
 | 31 | Master | One reboot command led to two reboots: the journal shows a manual `sudo reboot` 21 seconds after an SSH login | The reboot line was run again after reconnecting | Harmless; no evidence belongs to the extra boot | Keep reboot commands in their own block; check `last -x` after a surprise |
 | 32 | Worker | After the master's ResourceManager was down about 23 minutes, the worker's NodeManager had exited | Hadoop's NodeManager gives up reconnecting; the daemons are not supervised | Started it by hand | Run `jps` on the worker after any master outage |
 | 33 | Laptop and git | Scripts copied through Windows risk CRLF line endings, which break shell scripts on Linux | Windows git and editors | `.gitattributes` with `eol=lf` for `attest/` and `ops/`; a fresh clone matched the tested fingerprints | Verify committed files from a clean clone |
+| 34 | Cloud Shell | `rm -rf /tmp/chk` while standing in `/tmp/chk` gave `Unable to read current working directory` (twice during the work: also with the `m1-inv` folder) | The folder being deleted was the current directory | `cd ~` first, then re-ran | Never delete the folder you are in |
+| 35 | Nodes | After the hosts file pointed the Hadoop names at the mesh, the worker's NodeManager registered under Google's internal name, which resolves to the ordinary address the new firewall drops | The node named itself by reverse lookup; the old `/etc/hosts` alias had hidden this | Found by reading `yarn node -list`; mapped the internal names to the mesh; verified with a real job | After any network change, check the node names and run a small job |
+| 36 | Scripts | `hdfs` and `yarn` would not be found by a command run over `gcloud compute ssh --command` | A non-interactive SSH command does not read `~/.bashrc`, where the paths are set | The scripts set `HADOOP_HOME`, `JAVA_HOME` and `PATH` themselves (found in testing) | Set the environment explicitly in remote scripts |
+| 37 | PowerShell | `Get-ChildItem -Filter` given two patterns failed with `Cannot convert System.Object[]` | `-Filter` takes one string | The listing failed; the copy and verification that followed worked | Use one `-Filter` per command, or pass an array of wildcard paths |
+| 38 | Evidence | Re-running the refusal test changed the drop counters (24 to 48) | Counters are cumulative | Both runs recorded | Note the counter baseline when repeating a test |
 
 ## 3. Corrections to earlier working instructions
 
@@ -87,6 +92,8 @@ Some guidance given during the work turned out wrong or too strong. Corrected he
 | The firmware's boot log ends in zero fill | It ends in `0xFF` fill (mistake 27) |
 | The two old `entry...` folders under the report directory are leftovers to leave alone | They are in memory and were gone after the master's first reboot |
 | Quotes carry no code measurement (RTMR3 zero) | True for runs 1 to 3 only. From 5 October the master and worker quotes carry measured stacks in RTMR3 |
+| The ResourceManager and DataNode are bound to the mesh after the hosts change | Only the master's RPC daemons bind through their hostnames. The NameNode web page and all of the worker's daemons listen on all addresses and are closed by the host firewall |
+| No firewall rule was added (run 1 and 2 wording) | True for Google's firewall. Host firewalls on both nodes were added on 6 October 2026 (cluster-configuration.md section 10) |
 
 ## 4. Decision log
 
@@ -134,6 +141,9 @@ Decisions from 5 October 2026 onward are kept in [decisions.md](decisions.md). T
 15. Before touching the kernel: snapshot each boot disk, back up GRUB, pin the running kernel with a `grub.d` file and `grub-set-default`, and prove the pin with one reboot. Then install the packages (checksums verified) and request one boot with `grub-reboot`. Keep the reboot command in its own block.
 16. After the boot: check the `measurements` folder, run the measurement script, request a quote with the log as input, and verify the signature off-cloud and the replay on two machines.
 17. Run the crawl, then recompute every measured digest and compare. After any master outage, check the worker's daemons with `jps`.
+18. Before a network change, back up `/etc/hosts` and the firewall rules. Apply a firewall with a self-undo timer that only a fresh login can cancel.
+19. After a network change: check `yarn node -list` (the node name), HDFS safe mode and live DataNodes, and run the Pi example. Check the worker's task logs for okhttp right after a crawl, before any daemon restarts.
+20. Prove the firewall with counted rules: probe the Hadoop ports over the ordinary address and the mesh address, in both directions, and read the drop counters before and after.
 
 ## 6. Security hygiene
 
@@ -144,6 +154,7 @@ Decisions from 5 October 2026 onward are kept in [decisions.md](decisions.md). T
 - Treat unknown folders under `/sys/kernel/config/tsm/report/` as someone else's.
 - The repository is public: commit scripts only, and keep quotes, boot logs, manifests and WARC files out of it.
 - Do not install extra packages on a VM you plan to measure; use the tools already there (Python's `zipfile` instead of `unzip`).
+- WireGuard private keys stay on the node that made them (root only, mode 600). Never print, copy or commit them; only public keys travel.
 
 ## 7. Open items
 
@@ -159,4 +170,5 @@ Decisions from 5 October 2026 onward are kept in [decisions.md](decisions.md). T
 | Experiments proposed by the limitations analysis (RTMR3 extension, MRTD against Google's endorsement, `gceprovenance`, Hadoop wire encryption, non-TDX baseline, WARC fixes, maintenance restart, signed evidence bundle) | Open: listed under "Next experiments" in [limitations-and-trust.md](limitations-and-trust.md) |
 | Capture run 2 file sizes | Open |
 | RTMR3 extension and measurement of the stack | **Done** 5 to 6 October for both nodes ([milestone-1-code-measurement.md](milestone-1-code-measurement.md)) |
+| Encrypt and authenticate node-to-node traffic | **Partly done** 6 October: WireGuard mesh and host firewall ([milestone-2-wireguard-mesh.md](milestone-2-wireguard-mesh.md)). Not done: a real third-machine test, IPv6, persistence across reboot, attested peer admission |
 | Larger worker disk | Open: about 5.4 GB usable by HDFS limits scale |
