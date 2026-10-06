@@ -76,6 +76,28 @@ Details: [milestone-2-wireguard-mesh.md](milestone-2-wireguard-mesh.md), [decisi
 | 18 | Unchanged. Run 5's addresses vary for an external site (`www.zyte.com` was served from a pool of addresses) | milestone-2 §7 |
 
 
+## Update, 6 October 2026 (after Milestone 3)
+
+Details: [milestone-3-hdfs-wrapper.md](milestone-3-hdfs-wrapper.md), [decisions.md](decisions.md) (ADR-017 to ADR-019).
+
+- **Now shown.**
+  - A pass-through wrapper behind `hdfs://` carries every HDFS request of a full 27-application crawl (300 start-ups in 111 programs on both nodes), for both Hadoop storage APIs.
+  - The crawl completed and matches run 5 on everything the crawler did on its own side (same pages, same counters); the one different page is explained by a site redeployment.
+  - A storage audit found no change that remains in storage and was made outside the wrapper: 187 paths added, none removed or changed, all explained.
+- **Still not shown.**
+  - Nothing is hashed, signed or verified yet; the wrapper forwards and logs.
+  - The wrapper fails open, and the audit is the proof for this crawl only.
+  - The NodeManager reads the job file through plain HDFS.
+  - Reads by unwrapped programs, same-size changes and transient files are outside the audit.
+  - The log and the listings are plain files on the provider's machines.
+  - The measured chain predates the changed driver files and job.
+
+| Row | What changed | Where |
+|---|---|---|
+| 26 | Unchanged: outputs are still not signed. The wrapper is where hashing and signing will happen (handoff Stage B), and a real run through it now exists | milestone-3 §6, §10 |
+| 23 | Unchanged: the job file and the new classes are not covered by a measurement yet; re-measurement after a reboot is planned | milestone-3 §12 |
+| 39 to 44 | New rows (table C below) | this section |
+
 ## Evidence legend (first-party, "our runs")
 
 | Code | What it shows | Repo documents |
@@ -94,6 +116,9 @@ Details: [milestone-2-wireguard-mesh.md](milestone-2-wireguard-mesh.md), [decisi
 | R12 | The WireGuard mesh is up (ping 3 of 3 both ways, handshakes, counters). Hadoop runs over it after a hosts-file change and a host firewall; a Pi job finished in 19.3 s. A node-name problem (the NodeManager registered under a name that resolves to the blocked address) was found and fixed | milestone-2-wireguard-mesh.md §5, §6 |
 | R13 | Run 5 over the mesh: same 8 URLs as run 3, no errors found, 28 YARN applications, 3,915.2 MB sent by the master through the tunnel, Hadoop-port drop rule at 0 afterwards, 22 worker task logs list okhttp | milestone-2-wireguard-mesh.md §7 |
 | R14 | Refusal test: all 7 Hadoop ports tried over the ordinary network were dropped and open over the mesh; a job submission to the ordinary address was refused (exit 255); drop counters 0 to 24, then 24 to 48 | milestone-2-wireguard-mesh.md §7 |
+| R15 | The wrapper passes 43 of 43 checks over a fake HDFS and 7 of 7 in a MapReduce job (author's environment, Hadoop 3.4.1), and on the master (Hadoop 3.4.3, Java 11) 43 of 43, 7 of 7 and, against the real HDFS, 42 of 42; from the job file 7 of 7 and 42 of 42 | milestone-3-hdfs-wrapper.md §7 |
+| R16 | Run 6 through the wrapper: 3 iterations, no failures found, 27 applications, 300 wrapper start-ups in 111 JVMs, `AUDIT-CLEAN` (187 added, 0 removed, 0 changed, all explained) | milestone-3-hdfs-wrapper.md §9, §10 |
+| R17 | Run 6 vs run 5: same 8 pages, 7 of 8 identical in content; the different page's deployment identifier changed between the runs and the live site serves the new one; the crawl database has 2 more URLs, matching 2 new links; runs 3 to 5 were identical to each other | milestone-3-hdfs-wrapper.md §11, run-comparison.md §9.2 |
 
 **Change markers:** Kept, Updated, Corrected, Merged, Removed. The severity of new rows is marked "(author judgement)".
 
@@ -139,6 +164,12 @@ Details: [milestone-2-wireguard-mesh.md](milestone-2-wireguard-mesh.md), [decisi
 | 36 | Mesh peers are authenticated by static keys, not by attestation; the private keys are on the boot disk | High (author judgement) | Medium: generate keys in the guest at boot and bind the public key into REPORTDATA or RTMR3. High: admit a peer only after verifying its quote | New | Keys are root-only (mode 600) and not bound to any quote. our runs [milestone-2-wireguard-mesh.md §5, §8] | Inference from our runs |
 | 37 | The job file reaches the worker through HDFS staging for every application | Medium (author judgement) | Check the job file's digest at load on the worker; put the staging folder under the signed file layer | New | 28 applications; about 3.9 GB sent by the master in run 5; the 134 MB job file is uploaded each time. our runs [milestone-2-wireguard-mesh.md §7] | Inference from our runs |
 | 38 | A node can register under a name that resolves to a closed network after an unrelated change; the firewall then blocks Hadoop's own traffic | Low–medium (operational) | Check `yarn node -list` and run a small job after any network change | New | Observed on 6 October and fixed by mapping the names. our runs [milestone-2-wireguard-mesh.md §6] | Inference from our runs |
+| 39 | The wrapper fails open: a program that does not get the two settings silently uses plain HDFS | High (author judgement) | Low: run the audit after every crawl (done). Medium: put the settings in the job's own configuration instead of the driver's options. High: refuse plain access to crawl data | New | 300 of 300 start-ups in 111 programs used the wrapper and the audit found no outside change. our runs [milestone-3-hdfs-wrapper.md §9, §10] | Inference from our runs |
+| 40 | The NodeManager, the daemons and the crawl script's two `hadoop fs` commands do not use the wrapper; the NodeManager reads the job file through plain HDFS | Medium | Make the NodeManager use the wrapper and check the job file's digest at load (handoff Stage B, item 6) | New | The settings reach only the crawl's own programs; the NodeManager's read was not tested separately. our runs [milestone-3-hdfs-wrapper.md §12] | Inference from our runs |
+| 41 | The audit does not cover reads, a change that keeps size and modification time, or files created and deleted between the two listings | Medium | Add an independent source (the NameNode's own audit log); record sizes in the wrapper's log | New | Tool tested with planted faults; run 6 clean. our runs [milestone-3-hdfs-wrapper.md §10] | Our tests |
+| 42 | The wrapper's log and the before and after listings are plain files on the provider's machines | High (author judgement) | In the final design the records are signed inside the TD and the ledger is witnessed (handoff Stage C) | New | Logs in `/tmp/attested-audit` on each node. our runs [milestone-3-hdfs-wrapper.md §12] | By design |
+| 43 | The measured job cannot be rebuilt from a clean checkout: an untracked file, `conf/effective_tld_names.dat`, enters it | Medium | Track the file or generate it deterministically; build the image from a clean checkout | New | Job comparison: 1029 against 1032 entries before the file was copied. our runs [milestone-3-hdfs-wrapper.md §8] | Our runs |
+| 44 | Nothing yet protects storage integrity: the wrapper forwards and logs but does not hash or verify | Expected at this stage | Handoff Stage B, items 4 to 6 | Known | By scope. our runs [milestone-3-hdfs-wrapper.md §12] | By design |
 
 ### D. Host, availability and platform
 
@@ -296,6 +327,7 @@ GCP `c3-standard` uses Sapphire Rapids. The 2026 Google/Intel review also left "
 7. Simulate host maintenance and compare MRTD and RTMRs after restart.
 8. Sign the evidence bundle inside the TD before export.
 9. Done on 3 October 2026 (see [quote-verification.md](quote-verification.md) section 6): `td_attributes` is all zeros and `tee_tcb_svn` shows minor SVN 0x0F in all four quotes. Still open: why `td_attributes` differs from Google's example value 0x10000000, and recording the TCB status string the verifier reports.
+10. Pass-through file layer in front of HDFS (handoff Gate A, item 2). **Done 6 October 2026** (Milestone 3): the wrapper behind `hdfs://` (both lookups, the real client built directly), a full crawl through it (run 6), and a clean storage audit. Next: chunk hashing on write and verification on read, metadata from records, and the job file checked at load (handoff Stage B).
 
 ## Verification status
 
