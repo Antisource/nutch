@@ -69,6 +69,13 @@ resolved, which instructions turned out to be wrong, and why the key decisions w
 | 36 | Scripts | `hdfs` and `yarn` would not be found by a command run over `gcloud compute ssh --command` | A non-interactive SSH command does not read `~/.bashrc`, where the paths are set | The scripts set `HADOOP_HOME`, `JAVA_HOME` and `PATH` themselves (found in testing) | Set the environment explicitly in remote scripts |
 | 37 | PowerShell | `Get-ChildItem -Filter` given two patterns failed with `Cannot convert System.Object[]` | `-Filter` takes one string | The listing failed; the copy and verification that followed worked | Use one `-Filter` per command, or pass an array of wildcard paths |
 | 38 | Evidence | Re-running the refusal test changed the drop counters (24 to 48) | Counters are cumulative | Both runs recorded | Note the counter baseline when repeating a test |
+| 39 | Cloud Shell | `scp` failed with "No such file" twice: the zip had not been uploaded to Cloud Shell yet (once I had also forgotten to attach it) | A step in the chain (download from chat, upload to Cloud Shell, copy to the node) was skipped | Uploaded the file and re-ran | `ls` the file before copying it on; check the fingerprint after each hop |
+| 40 | Design | The Option A wrapper was built and tested (63 checks) before the mentor had answered; the mentor chose Option B and the Option A code was dropped | Building ahead of an open design decision | The Option A code was never committed; Option B was built in its place | While a design question is with the mentor, do read-only analysis and build only what all options share |
+| 41 | Tests | The first fake HDFS crashed (`myUri` was null) because the parent class's constructor calls an overridable method before the fake's fields exist, and its statuses assumed `file:` paths | Java constructor order; the fake was too strict | Fake fixed | A fake must tolerate being called during construction |
+| 42 | Audit | The first audit tool counted every file under a renamed folder as explained, so a file edited after its folder was moved slipped through. Found by planting that fault | The rule was too generous | A moved file must keep its size; a file that vanishes during a move is reported | Test every checking tool with planted faults before trusting its "clean" |
+| 43 | Predictions | Two guesses were wrong: that HDFS byte counters might read zero through the wrapper (they read normally), and that a live site "changes on every fetch" (it changes when it is redeployed; runs 3 to 5 were identical) | Explaining a difference before testing it | Settled by counting the counters, by the control runs, and by the page's own deployment identifier | Run a control before explaining a difference; compare live pages only with a contemporaneous control or on static pages |
+| 44 | Comparison | A comparison of the crawl database statistics reported every line as different because the log timestamps were part of the compared text | Timestamps in compared output | Timestamps stripped | Strip timestamps and ids before diffing logs |
+| 45 | Build | A job built from a clean clone lacked a file that the measured job has (the untracked `conf/effective_tld_names.dat`) | The measured tree is not a clean checkout | Found by comparing the two job files entry by entry; the file was copied into the clone | Compare job files entry by entry before comparing crawls |
 
 ## 3. Corrections to earlier working instructions
 
@@ -94,6 +101,10 @@ Some guidance given during the work turned out wrong or too strong. Corrected he
 | Quotes carry no code measurement (RTMR3 zero) | True for runs 1 to 3 only. From 5 October the master and worker quotes carry measured stacks in RTMR3 |
 | The ResourceManager and DataNode are bound to the mesh after the hosts change | Only the master's RPC daemons bind through their hostnames. The NameNode web page and all of the worker's daemons listen on all addresses and are closed by the host firewall |
 | No firewall rule was added (run 1 and 2 wording) | True for Google's firewall. Host firewalls on both nodes were added on 6 October 2026 (cluster-configuration.md section 10) |
+| The wrapper is registered under a custom scheme such as `attested://` (handoff, wrapper piece) | Replaced by the mentor-approved design: the wrapper replaces the implementation behind `hdfs://`, through two settings, `fs.hdfs.impl` and `fs.AbstractFileSystem.hdfs.impl` |
+| "Nutch always reaches storage through this layer" (handoff) | Nutch's Java asks for the default file system in 6 places and from the path in 81; the six are outside the crawl loop. With the `hdfs://` replacement every request of a configured program goes through anyway |
+| HDFS byte counters might read zero through the wrapper (author's guess) | They read normally: 27 read and 27 written lines in both run 5 and run 6, with nearly equal values |
+| A live site's page changes on every fetch (author's guess) | It changes when the site is redeployed; its deployment identifier is in the page. Runs 3, 4 and 5 were identical; run 6 saw a new deployment |
 
 ## 4. Decision log
 
@@ -144,6 +155,11 @@ Decisions from 5 October 2026 onward are kept in [decisions.md](decisions.md). T
 18. Before a network change, back up `/etc/hosts` and the firewall rules. Apply a firewall with a self-undo timer that only a fresh login can cancel.
 19. After a network change: check `yarn node -list` (the node name), HDFS safe mode and live DataNodes, and run the Pi example. Check the worker's task logs for okhttp right after a crawl, before any daemon restarts.
 20. Prove the firewall with counted rules: probe the Hadoop ports over the ordinary address and the mesh address, in both directions, and read the drop counters before and after.
+21. Unpack new code into a scratch folder on the master and test it there; commit only files whose fingerprints equal those recorded when they ran, and check them from a fresh clone.
+22. Build the job in a scratch clone, never in the measured tree, and compare it with the measured job entry by entry (`job_compare.py`) before any crawl comparison.
+23. A wrapped crawl: rotate the logs on both nodes, put the seeds in, list HDFS before, crawl in tmux, list HDFS after, check the worker's task logs before any restart, collect both nodes' logs, run `audit_compare.py` with `--require-hosts` for both nodes.
+24. When two crawls differ, look at the earlier runs (a control) and at the page itself (a deployment identifier, new links) before explaining the difference.
+25. Test any new checking tool with planted faults, and keep timestamps out of compared text.
 
 ## 6. Security hygiene
 
@@ -155,6 +171,8 @@ Decisions from 5 October 2026 onward are kept in [decisions.md](decisions.md). T
 - The repository is public: commit scripts only, and keep quotes, boot logs, manifests and WARC files out of it.
 - Do not install extra packages on a VM you plan to measure; use the tools already there (Python's `zipfile` instead of `unzip`).
 - WireGuard private keys stay on the node that made them (root only, mode 600). Never print, copy or commit them; only public keys travel.
+- The wrapper's logs and the HDFS listings are plain local files. They are an engineering proof for the author, not evidence against someone with root. `audit.sh rotate` moves logs aside; it deletes nothing.
+- Do not build in the measured tree: a build overwrites the job that the measurements and earlier runs refer to.
 
 ## 7. Open items
 
@@ -171,4 +189,10 @@ Decisions from 5 October 2026 onward are kept in [decisions.md](decisions.md). T
 | Capture run 2 file sizes | Open |
 | RTMR3 extension and measurement of the stack | **Done** 5 to 6 October for both nodes ([milestone-1-code-measurement.md](milestone-1-code-measurement.md)) |
 | Encrypt and authenticate node-to-node traffic | **Partly done** 6 October: WireGuard mesh and host firewall ([milestone-2-wireguard-mesh.md](milestone-2-wireguard-mesh.md)). Not done: a real third-machine test, IPv6, persistence across reboot, attested peer admission |
+| Re-measure after a reboot (the driver files and the job changed after the last measurement) | Open: planned for the end of Milestone 3 |
+| Make the job reproducible from a clean checkout (`conf/effective_tld_names.dat` is untracked) | Open |
+| Chunk hashing on write, verification on read, metadata from records (handoff Stage B) | Open: the next milestone |
+| The NodeManager reads the job file through plain HDFS | Open: decide how to cover it (handoff Stage B, item 6) |
+| An independent audit of reads, from the NameNode's own audit log | Open |
+| Hadoop's file-system contract tests against the wrapper | Not done (planned for Option A only) |
 | Larger worker disk | Open: about 5.4 GB usable by HDFS limits scale |
