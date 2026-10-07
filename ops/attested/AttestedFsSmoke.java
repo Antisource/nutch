@@ -49,6 +49,7 @@ import org.apache.hadoop.security.UserGroupInformation;
  * Usage:
  *   AttestedFsSmoke fake            the wrapper over a fake HDFS that keeps its files on local disk
  *   AttestedFsSmoke mr-fake         a small MapReduce job (local runner) through the wrapper
+ *   AttestedFsSmoke hash            the hashing: records and Merkle roots against an independent computation
  *   AttestedFsSmoke hdfs HOST:PORT  the wrapper over the real HDFS at HOST:PORT
  *
  * The two settings fs.hdfs.impl and fs.AbstractFileSystem.hdfs.impl are the only
@@ -59,6 +60,7 @@ public class AttestedFsSmoke {
 
   static int checks = 0;
   static int failures = 0;
+  static String RECORDS_DIR;
 
   static void check(String name, boolean ok) {
     checks++;
@@ -184,6 +186,9 @@ public class AttestedFsSmoke {
     case "mr-fake":
       runMr();
       break;
+    case "hash":
+      runHash();
+      break;
     case "hdfs":
       runHdfs(args[1]);
       break;
@@ -204,6 +209,8 @@ public class AttestedFsSmoke {
     conf.set("fs.hdfs.impl", FakeWrapper.class.getName());
     conf.set("fs.AbstractFileSystem.hdfs.impl", FakeAdapter.class.getName());
     conf.set(AttestedAudit.DIR_KEY, tmp + "/audit");
+    conf.set(AttestedRecords.DIR_KEY, tmp + "/records");
+    RECORDS_DIR = tmp + "/records";
     return conf;
   }
 
@@ -237,6 +244,8 @@ public class AttestedFsSmoke {
     conf.set("fs.hdfs.impl", AttestedHdfsFileSystem.class.getName());
     conf.set("fs.AbstractFileSystem.hdfs.impl", AttestedHdfs.class.getName());
     conf.set(AttestedAudit.DIR_KEY, tmp + "/audit");
+    conf.set(AttestedRecords.DIR_KEY, tmp + "/records");
+    RECORDS_DIR = tmp + "/records";
     String user = UserGroupInformation.getCurrentUser().getShortUserName();
     String work = "/user/" + user + "/attested-smoke-" + System.currentTimeMillis();
     URI uri = URI.create("hdfs://" + authority + "/");
@@ -293,6 +302,10 @@ public class AttestedFsSmoke {
       out.write(big);
     }
     eq("sha-256 of 3 MB file read back", sha(big), sha(readAll(fs, f2)));
+    eq("record for the small file: root equals the independent computation",
+        refRoot(small, 16384), recordRoot(f1.toUri().getPath()));
+    eq("record for the 3 MB file: root equals the independent computation",
+        refRoot(big, 16384), recordRoot(f2.toUri().getPath()));
 
     try (FSDataInputStream in = fs.openFile(f1).build().get()) {
       byte[] buf = new byte[small.length];
@@ -304,6 +317,8 @@ public class AttestedFsSmoke {
       out.write("++".getBytes(StandardCharsets.UTF_8));
     }
     eq("append grows the file", (long) small.length + 2, fs.getFileStatus(f1).getLen());
+    check("an append is flagged in the records as not hashed",
+        recordFlag(f1.toUri().getPath(), "append-unhashed"));
 
     TreeSet<String> names = new TreeSet<>();
     for (FileStatus s : fs.listStatus(a)) {
@@ -354,6 +369,8 @@ public class AttestedFsSmoke {
         EnumSet.of(CreateFlag.CREATE, CreateFlag.OVERWRITE))) {
       out.write("via FileContext".getBytes(StandardCharsets.UTF_8));
     }
+    eq("FileContext: the file created through it has a record with the right root",
+        refRoot("via FileContext".getBytes(StandardCharsets.UTF_8), 16384), recordRoot(f.toUri().getPath()));
     check("FileContext: file exists", fc.util().exists(f));
     Path g = new Path(d, "renamed");
     fc.rename(f, g, Options.Rename.NONE);
@@ -503,9 +520,195 @@ public class AttestedFsSmoke {
     }
     check("the audit log shows the job's output being created",
         log.stream().anyMatch(c -> c[3].equals("CREATE") && c[4].contains("/out/") && c[4].contains("part-r-")));
+    check("the records show the job's output part files being hashed",
+        recordCountContaining("/part-r-") > 0);
     check("the audit log shows the job's commit (a rename into the output folder)",
         log.stream().anyMatch(c -> c[3].equals("RENAME") && c[5].contains("/out/")));
     deleteTree(tmp.toFile());
+  }
+
+
+  // ------------------------------------------------------------ hashing
+
+  /** The hash mode: roots against an independent computation, several sizes and settings. */
+  static void runHash() throws Exception {
+    java.nio.file.Path tmp = Files.createTempDirectory("attested-hash");
+    Configuration conf = fakeConf(tmp);
+    URI root = URI.create("hdfs://fake:9000/");
+    FileSystem fs = FileSystem.newInstance(root, conf);
+    String work = tmp.toString() + "/work";
+    fs.mkdirs(new Path("hdfs://fake:9000" + work));
+    int[] sizes = { 0, 1, 16383, 16384, 16385, 32768, 49152, 100000, 3 * 1024 * 1024 + 17 };
+    for (int n : sizes) {
+      byte[] data = new byte[n];
+      new Random(1000 + n).nextBytes(data);
+      Path f = new Path("hdfs://fake:9000" + work + "/f" + n);
+      try (FSDataOutputStream out = fs.create(f)) {
+        Random r = new Random(n);
+        int off = 0;
+        while (off < n) {  // odd-sized pieces, to cross chunk boundaries in every way
+          int k = Math.min(n - off, 1 + r.nextInt(5000));
+          out.write(data, off, k);
+          off += k;
+        }
+      }
+      String got = recordRoot(work + "/f" + n);
+      eq("size " + n + ": record root equals the independent computation", refRoot(data, 16384), got);
+      System.out.println("ROOTLINE " + n + " 16384 " + got);
+    }
+    // one byte at a time gives the same root
+    byte[] one = new byte[40000];
+    new Random(7).nextBytes(one);
+    Path fb = new Path("hdfs://fake:9000" + work + "/bytewise");
+    try (FSDataOutputStream out = fs.create(fb)) {
+      for (byte b : one) {
+        out.write(b);
+      }
+    }
+    eq("one byte at a time: same root as the independent computation", refRoot(one, 16384), recordRoot(work + "/bytewise"));
+    // flush and sync are forwarded and do not disturb the hash
+    byte[] two = new byte[30000];
+    new Random(8).nextBytes(two);
+    Path fs2p = new Path("hdfs://fake:9000" + work + "/synced");
+    try (FSDataOutputStream out = fs.create(fs2p)) {
+      out.write(two, 0, 10000);
+      out.hflush();
+      out.write(two, 10000, 10000);
+      out.hsync();
+      out.write(two, 20000, 10000);
+    }
+    eq("hflush and hsync in the middle: same root", refRoot(two, 16384), recordRoot(work + "/synced"));
+    check("the length in the record equals the length of the file",
+        recordLength(work + "/synced") == fs.getFileStatus(fs2p).getLen());
+    // another chunk size, through a second wrapper instance
+    Configuration conf2 = new Configuration(conf);
+    conf2.setLong(AttestedHdfsFileSystem.CHUNK_SIZE_KEY, 1000);
+    FileSystem fsSmall = FileSystem.newInstance(root, conf2);
+    byte[] three = new byte[5555];
+    new Random(9).nextBytes(three);
+    Path f3 = new Path("hdfs://fake:9000" + work + "/chunk1000");
+    try (FSDataOutputStream out = fsSmall.create(f3)) {
+      out.write(three);
+    }
+    eq("chunk size 1000: root equals the independent computation", refRoot(three, 1000), recordRoot(work + "/chunk1000"));
+    eq("the record carries the chunk size", "1000", recordField(work + "/chunk1000", 7));
+    eq("the record carries the number of chunks", "6", recordField(work + "/chunk1000", 8));
+    // hashing switched off: no record
+    Configuration conf3 = new Configuration(conf);
+    conf3.setBoolean(AttestedHdfsFileSystem.HASH_ENABLED_KEY, false);
+    FileSystem fsOff = FileSystem.newInstance(root, conf3);
+    Path f4 = new Path("hdfs://fake:9000" + work + "/unhashed");
+    try (FSDataOutputStream out = fsOff.create(f4)) {
+      out.write(three);
+    }
+    check("hashing off: no record is written", recordRoot(work + "/unhashed") == null && fsOff.exists(f4));
+    // copy from local goes through the hashing
+    java.io.File local = new java.io.File(tmp.toFile(), "local.bin");
+    byte[] four = new byte[70000];
+    new Random(10).nextBytes(four);
+    Files.write(local.toPath(), four);
+    Path f5 = new Path("hdfs://fake:9000" + work + "/copied");
+    fs.copyFromLocalFile(false, new Path(local.toURI()), f5);
+    eq("copyFromLocalFile: the copied file has a record with the right root", refRoot(four, 16384), recordRoot(work + "/copied"));
+    check("copyFromLocalFile: the bytes arrived intact", Arrays.equals(four, readAll(fs, f5)));
+    if (System.getProperty("smoke.keep") != null) {
+      System.out.println("KEPT " + tmp);
+    } else {
+      deleteTree(tmp.toFile());
+    }
+  }
+
+  /** The independent reference: Merkle root of RFC 6962, written recursively. */
+  static String refRoot(byte[] data, int chunk) throws Exception {
+    java.util.ArrayList<byte[]> leaves = new java.util.ArrayList<>();
+    for (int off = 0; off < data.length; off += chunk) {
+      int n = Math.min(chunk, data.length - off);
+      MessageDigest d = MessageDigest.getInstance("SHA-256");
+      d.update((byte) 0);
+      d.update(data, off, n);
+      leaves.add(d.digest());
+    }
+    if (leaves.isEmpty()) {
+      return hexOf(MessageDigest.getInstance("SHA-256").digest());
+    }
+    return hexOf(mth(leaves, 0, leaves.size()));
+  }
+
+  static byte[] mth(java.util.List<byte[]> l, int lo, int hi) throws Exception {
+    int n = hi - lo;
+    if (n == 1) {
+      return l.get(lo);
+    }
+    int k = 1;
+    while (k * 2 < n) {
+      k *= 2;
+    }
+    MessageDigest d = MessageDigest.getInstance("SHA-256");
+    d.update((byte) 1);
+    d.update(mth(l, lo, lo + k));
+    d.update(mth(l, lo + k, hi));
+    return d.digest();
+  }
+
+  static String hexOf(byte[] b) {
+    StringBuilder sb = new StringBuilder();
+    for (byte x : b) {
+      sb.append(String.format("%02x", x));
+    }
+    return sb.toString();
+  }
+
+  /** All record lines of this test run (every JVM file in the records folder). */
+  static List<String[]> recordLines() throws IOException {
+    List<String[]> out = new ArrayList<>();
+    File[] fs = new File(RECORDS_DIR).listFiles((d, n) -> n.endsWith(".tsv"));
+    if (fs != null) {
+      for (File f : fs) {
+        for (String l : Files.readAllLines(f.toPath(), StandardCharsets.UTF_8)) {
+          out.add(l.split("\t", -1));
+        }
+      }
+    }
+    return out;
+  }
+
+  /** The root of the last complete record for a path, or null. */
+  static String recordRoot(String path) throws IOException {
+    return recordField(path, 9);
+  }
+
+  static String recordField(String path, int field) throws IOException {
+    String found = null;
+    for (String[] c : recordLines()) {
+      if (c.length == 11 && c[5].equals(path) && c[10].equals("closed")) {
+        found = c[field];
+      }
+    }
+    return found;
+  }
+
+  static long recordLength(String path) throws IOException {
+    String v = recordField(path, 6);
+    return v == null ? -1 : Long.parseLong(v);
+  }
+
+  static boolean recordFlag(String path, String flag) throws IOException {
+    for (String[] c : recordLines()) {
+      if (c.length == 11 && c[5].equals(path) && c[10].equals(flag)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static int recordCountContaining(String part) throws IOException {
+    int n = 0;
+    for (String[] c : recordLines()) {
+      if (c.length == 11 && c[5].contains(part) && c[10].equals("closed")) {
+        n++;
+      }
+    }
+    return n;
   }
 
   // --------------------------------------------------------------- helpers

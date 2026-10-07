@@ -27,6 +27,7 @@ import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FSDataOutputStreamBuilder;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.FilterFileSystem;
 import org.apache.hadoop.fs.FutureDataInputStreamBuilder;
 import org.apache.hadoop.fs.Options.ChecksumOpt;
@@ -43,9 +44,11 @@ import org.apache.hadoop.util.Progressable;
  * <code>fs.hdfs.impl</code>, to use this class for every <code>hdfs://</code>
  * address, and paths stay exactly as they are.
  *
- * <p>For now it only forwards every request to the real HDFS client and writes
- * one line per request to a local audit log ({@link AttestedAudit}). Nothing
- * is hashed, signed or checked yet.</p>
+ * <p>It forwards every request to the real HDFS client and writes one line per
+ * request that changes storage to a local audit log ({@link AttestedAudit}).
+ * Since stage B1 it also hashes every file it creates (SHA-256 per chunk, Merkle
+ * root) and writes one record per file at close ({@link AttestedRecords}). The
+ * hashes are only observed: nothing is verified or refused yet.</p>
  *
  * <p>The real HDFS client is constructed directly in {@link #createInner()}.
  * It must never be looked up by scheme (<code>FileSystem.get(...)</code>):
@@ -63,6 +66,16 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
 
   public static final String SCHEME = "hdfs";
   static final int DEFAULT_PORT = 8020;
+
+  /** Stage B1: hash every file written through the wrapper (observe only). */
+  public static final String HASH_ENABLED_KEY = "attested.hash.enabled";
+  public static final String CHUNK_SIZE_KEY = "attested.hash.chunk.size";
+  public static final long DEFAULT_CHUNK_SIZE = 16384;
+
+  private boolean hashing = true;
+  private long chunkSize = DEFAULT_CHUNK_SIZE;
+  private String jobId = "";
+  private String attemptId = "";
 
   public AttestedHdfsFileSystem() {
     super();
@@ -83,6 +96,16 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
           "This wrapper only serves hdfs:// addresses, got: " + name);
     }
     AttestedAudit.open(conf);
+    this.hashing = conf.getBoolean(HASH_ENABLED_KEY, true);
+    this.chunkSize = conf.getLong(CHUNK_SIZE_KEY, DEFAULT_CHUNK_SIZE);
+    if (chunkSize < 1) {
+      throw new IOException(CHUNK_SIZE_KEY + " must be at least 1, got " + chunkSize);
+    }
+    this.jobId = conf.get("mapreduce.job.id", "");
+    this.attemptId = conf.get("mapreduce.task.attempt.id", "");
+    if (hashing) {
+      AttestedRecords.open(conf);
+    }
     FileSystem inner = createInner();
     if (inner == null || inner instanceof AttestedHdfsFileSystem) {
       throw new IOException("The wrapped file system must be the real HDFS "
@@ -93,7 +116,7 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
     super.initialize(name, conf);
     AttestedAudit.log("INIT", null, null, "uri=" + name + " inner="
         + inner.getClass().getName() + " wrapper=" + getClass().getName()
-        + " from=" + where());
+        + " hash=" + hashing + " chunk=" + chunkSize + " from=" + where());
   }
 
   private String where() {
@@ -121,6 +144,15 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
     } catch (RuntimeException e) {
       return p;
     }
+  }
+
+  /** Wraps a new output stream so that its bytes are hashed and a record is written at close. */
+  private FSDataOutputStream hashed(Path f, FSDataOutputStream stream) {
+    if (!hashing) {
+      return stream;
+    }
+    return new FSDataOutputStream(new HashingOutputStream(stream,
+        q(f).toUri().getPath(), chunkSize, jobId, attemptId), null);
   }
 
   private void audit(String op, Path p1, Path p2, String extra)
@@ -161,8 +193,8 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
       boolean overwrite, int bufferSize, short replication, long blockSize,
       Progressable progress) throws IOException {
     audit("CREATE", f, null, "overwrite=" + overwrite);
-    return super.create(f, permission, overwrite, bufferSize, replication,
-        blockSize, progress);
+    return hashed(f, super.create(f, permission, overwrite, bufferSize,
+        replication, blockSize, progress));
   }
 
   @Override
@@ -171,8 +203,8 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
       long blockSize, Progressable progress, ChecksumOpt checksumOpt)
       throws IOException {
     audit("CREATE", f, null, "flags=" + flags);
-    return super.create(f, permission, flags, bufferSize, replication,
-        blockSize, progress, checksumOpt);
+    return hashed(f, super.create(f, permission, flags, bufferSize,
+        replication, blockSize, progress, checksumOpt));
   }
 
   @Override
@@ -181,8 +213,8 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
       EnumSet<CreateFlag> flags, int bufferSize, short replication,
       long blockSize, Progressable progress) throws IOException {
     audit("CREATE", f, null, "createNonRecursive flags=" + flags);
-    return super.createNonRecursive(f, permission, flags, bufferSize,
-        replication, blockSize, progress);
+    return hashed(f, super.createNonRecursive(f, permission, flags, bufferSize,
+        replication, blockSize, progress));
   }
 
   @Override
@@ -191,10 +223,11 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
       int bufferSize, short replication, long blockSize, Progressable progress,
       ChecksumOpt checksumOpt) throws IOException {
     audit("CREATE", f, null, "primitiveCreate flags=" + flag);
-    return super.primitiveCreate(f, absolutePermission, flag, bufferSize,
-        replication, blockSize, progress, checksumOpt);
+    return hashed(f, super.primitiveCreate(f, absolutePermission, flag,
+        bufferSize, replication, blockSize, progress, checksumOpt));
   }
 
+  /** Files created through this builder are not hashed in B1; the records check reports them. */
   @Override
   @SuppressWarnings("rawtypes")
   public FSDataOutputStreamBuilder createFile(Path path) {
@@ -210,6 +243,10 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
   public FSDataOutputStream append(Path f, int bufferSize,
       Progressable progress) throws IOException {
     audit("APPEND", f, null, null);
+    if (hashing) {
+      AttestedRecords.log(jobId, attemptId, q(f).toUri().getPath(), -1,
+          chunkSize, 0, "", "append-unhashed");
+    }
     return super.append(f, bufferSize, progress);
   }
 
@@ -244,21 +281,36 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
   public void copyFromLocalFile(boolean delSrc, Path src, Path dst)
       throws IOException {
     audit("COPYFROMLOCAL", dst, null, "src=" + src);
-    super.copyFromLocalFile(delSrc, src, dst);
+    if (hashing) {
+      FileUtil.copy(FileSystem.getLocal(getConf()), src, this, dst, delSrc, true,
+          getConf());
+    } else {
+      super.copyFromLocalFile(delSrc, src, dst);
+    }
   }
 
   @Override
   public void copyFromLocalFile(boolean delSrc, boolean overwrite, Path[] srcs,
       Path dst) throws IOException {
     audit("COPYFROMLOCAL", dst, null, "srcs=" + java.util.Arrays.toString(srcs));
-    super.copyFromLocalFile(delSrc, overwrite, srcs, dst);
+    if (hashing) {
+      FileUtil.copy(FileSystem.getLocal(getConf()), srcs, this, dst, delSrc,
+          overwrite, getConf());
+    } else {
+      super.copyFromLocalFile(delSrc, overwrite, srcs, dst);
+    }
   }
 
   @Override
   public void copyFromLocalFile(boolean delSrc, boolean overwrite, Path src,
       Path dst) throws IOException {
     audit("COPYFROMLOCAL", dst, null, "src=" + src);
-    super.copyFromLocalFile(delSrc, overwrite, src, dst);
+    if (hashing) {
+      FileUtil.copy(FileSystem.getLocal(getConf()), src, this, dst, delSrc,
+          overwrite, getConf());
+    } else {
+      super.copyFromLocalFile(delSrc, overwrite, src, dst);
+    }
   }
 
   // -------------------------------------------------- names and folders

@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Compile the hdfs:// wrapper and run its smoke tests against the Hadoop installed on
+# Compile the hdfs:// wrapper (with its hashing) and run its smoke tests against the Hadoop installed on
 # this machine. Nothing in the repository is changed: the classes go to a scratch
 # folder (default /tmp/attested-build).
 #
 # Usage, from the repo root (or any folder with the same src/ and ops/ layout):
 #   ops/attested/build-and-test.sh [HOST:PORT]     default hadoop-master:9000
 #   ops/attested/build-and-test.sh none            skip the real-HDFS test
+# The hash cross-check needs python3 and ops/attested/merkle_root.py.
 #
 # Test hooks (used only to test this script away from the cluster):
 #   ATTESTED_HCP    use this classpath instead of "$(hadoop classpath)"
@@ -45,6 +46,25 @@ run() {  # run <label> <mode> [args]
 
 run fake fake
 run mr-fake mr-fake
+run hash hash
+
+echo "== hash cross-check: the wrapper's roots against merkle_root.py, on the same files"
+java -Dsmoke.keep=1 -cp "$OUT/classes:$HCP" org.apache.nutch.attested.AttestedFsSmoke hash \
+  > "$OUT/logs/hash-keep.log" 2>&1
+KEPT="$(grep '^KEPT ' "$OUT/logs/hash-keep.log" | cut -d' ' -f2)"
+xbad=0; xn=0
+while read -r _tag size chunk root; do
+  py="$(python3 ops/attested/merkle_root.py "$chunk" "$KEPT/work/f$size" | cut -d' ' -f1)"
+  xn=$((xn + 1))
+  [ "$py" = "$root" ] || { xbad=1; echo "DIFFER size $size: wrapper $root, python $py"; }
+done < <(grep '^ROOTLINE ' "$OUT/logs/hash-keep.log")
+[ -n "$KEPT" ] && rm -rf "$KEPT"
+if [ "$xbad" -eq 0 ] && [ "$xn" -gt 0 ]; then
+  echo "JAVA-AND-PYTHON-AGREE ($xn sizes)"
+else
+  echo "CROSS-CHECK-FAILED"; fail=1
+fi
+
 if [ "$AUTH" != "none" ]; then run "hdfs" hdfs "$AUTH"; fi
 
 echo
