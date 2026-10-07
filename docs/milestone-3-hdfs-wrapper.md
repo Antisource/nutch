@@ -124,7 +124,7 @@ Two earlier guesses were wrong and are recorded in [guide-pitfalls-and-lessons.m
 - **The audit's limits:** section 10.
 - **The log and the listings are plain files** on the provider's machines; they are an engineering proof, not evidence against an adversary.
 - **No contemporaneous unwrapped control run**, no Hadoop contract tests, no restart or failure tests.
-- **The measured chain is stale.** The driver files and the job changed after the last measurement; re-measurement after a reboot is planned.
+- **The measured chain does not cover run 6.** The measured set (the main tree) is unchanged: `check-unchanged.sh` reported all ten components `SAME` after run 6 (kept as `check-unchanged-after-m3.txt` in the evidence folder). But run 6 used a job and scripts outside that set. A second measurement needs a reboot by design, and is deferred until the job next changes (ADR-020).
 - **The measured tree is not a clean checkout** (one untracked file in `conf/`); a clean build gives a different job.
 
 ## 13. Differences from the handoff (to apply to the handoff later)
@@ -147,4 +147,4 @@ The nine files were committed as `a033495` and checked from a fresh clone agains
 
 ## 15. Decisions taken at this milestone
 
-ADR-017 (replace the implementation behind `hdfs://`), ADR-018 (the storage audit is the proof), ADR-019 (build and test in scratch folders; commit what ran). See [decisions.md](decisions.md).
+ADR-017 (replace the implementation behind `hdfs://`), ADR-018 (the storage audit is the proof), ADR-019 (build and test in scratch folders; commit what ran), ADR-020 (defer the re-measurement until the job next changes). See [decisions.md](decisions.md).

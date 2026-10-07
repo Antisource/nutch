@@ -189,7 +189,7 @@ Decisions from 5 October 2026 onward are kept in [decisions.md](decisions.md). T
 | Capture run 2 file sizes | Open |
 | RTMR3 extension and measurement of the stack | **Done** 5 to 6 October for both nodes ([milestone-1-code-measurement.md](milestone-1-code-measurement.md)) |
 | Encrypt and authenticate node-to-node traffic | **Partly done** 6 October: WireGuard mesh and host firewall ([milestone-2-wireguard-mesh.md](milestone-2-wireguard-mesh.md)). Not done: a real third-machine test, IPv6, persistence across reboot, attested peer admission |
-| Re-measure after a reboot (the driver files and the job changed after the last measurement) | Open: planned for the end of Milestone 3 |
+| Re-measure after a reboot (run 6's job and the new scripts are outside the measured set) | Open: deferred until the job next changes (ADR-020) |
 | Make the job reproducible from a clean checkout (`conf/effective_tld_names.dat` is untracked) | Open |
 | Chunk hashing on write, verification on read, metadata from records (handoff Stage B) | Open: the next milestone |
 | The NodeManager reads the job file through plain HDFS | Open: decide how to cover it (handoff Stage B, item 6) |

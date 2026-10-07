@@ -95,7 +95,7 @@ Details: [milestone-3-hdfs-wrapper.md](milestone-3-hdfs-wrapper.md), [decisions.
 | Row | What changed | Where |
 |---|---|---|
 | 26 | Unchanged: outputs are still not signed. The wrapper is where hashing and signing will happen (handoff Stage B), and a real run through it now exists | milestone-3 §6, §10 |
-| 23 | Unchanged: the job file and the new classes are not covered by a measurement yet; re-measurement after a reboot is planned | milestone-3 §12 |
+| 23 | Unchanged: the job file and the new classes are not covered by a measurement yet; re-measurement (which needs a reboot) is deferred until the job next changes (ADR-020) | milestone-3 §12 |
 | 39 to 44 | New rows (table C below) | this section |
 
 ## Evidence legend (first-party, "our runs")

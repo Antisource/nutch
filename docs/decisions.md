@@ -25,6 +25,7 @@ Times are UTC.
 | 017 | Replace the implementation behind `hdfs://` with the wrapper (Option B) | Accepted (mentor) |
 | 018 | The storage audit is the proof that the wrapper was used | Accepted |
 | 019 | Build and test in scratch folders; commit exactly what ran | Accepted |
+| 020 | Defer the re-measurement until the job next changes | Accepted (mentor confirmation asked) |
 
 ---
 
@@ -169,4 +170,12 @@ Times are UTC.
 - **Date:** 6 October 2026. **Status:** accepted.
 - **Context:** the measured tree and the job of run 5 must stay reproducible, and code should enter the repository only after it has run on the cluster.
 - **Decision:** unpack new files into a scratch folder on the master and test there; build the job in a scratch clone and compare it with the measured job entry by entry; commit only files whose fingerprints equal those recorded when they ran, and check them from a fresh clone.
-- **Consequences:** the job of run 6 is not the measured job, so the measurement chain must be redone after a reboot. A clean clone builds a different job from the measured one because of an untracked file, `conf/effective_tld_names.dat`, which was copied into the clone.
+- **Consequences:** the job of run 6 is not the measured job, so the measurement chain does not cover run 6; it is redone, after a reboot, when the job next changes (ADR-020). A clean clone builds a different job from the measured one because of an untracked file, `conf/effective_tld_names.dat`, which was copied into the clone.
+
+## ADR-020: Defer the re-measurement until the job next changes
+
+- **Date:** 6 October 2026. **Status:** accepted by the author and the maintainer; the mentor is asked to confirm.
+- **Context:** the measured set is the main tree, and it is unchanged (all ten components `SAME` after run 6). Run 6 ran from a scratch build outside it. `measure-all.sh` refuses to measure twice in one boot, so covering the new job needs a reboot of both nodes. A reboot also removes the firewall rules, stops the daemons that were started by hand, returns each node to the pinned 6.8 kernel (which has no measurement interface) and needs a one-time boot into 6.17.
+- **Decision:** do not reboot now. Re-measure, from a clean boot, when the job next changes; the next milestone changes it. Until then, record that run 6 is not covered by the chain and keep running `check-unchanged.sh` to show the measured tree is intact.
+- **Why:** a measurement now would cover a state that is about to be replaced, at the price of a reboot's risks; the Gate A measurement item already passed in Milestone 1.
+- **Consequences:** run 6 is not in the chain, and the documents say so. The next measurement points `NUTCH_DIR` at the build folder that holds the hashing layer.
