@@ -22,6 +22,8 @@ evidence source, evidence text. The evidence source is one of:
   zip-sha:ZIP#MEMBER        the SHA-256 of that member of the zip must start with the evidence text
   @repo:PATH                a file of the repository; the evidence text must occur in it
                             ("re:" in front makes it a regular expression here too)
+  @docs:PATH                a file under DOCS_ROOT (a document that is being checked together with the
+                            others and is not in the repository yet); the evidence text must occur in it
   @git-log                  the evidence text must occur in the last commits (one line each)
   @git-files:COMMIT         the number of files changed by that commit must equal the evidence text
 
@@ -52,7 +54,7 @@ def git(repo, args):
     return subprocess.run(["git", "-C", repo] + args, capture_output=True, text=True).stdout
 
 
-def check_evidence(src, text, evid, repo):
+def check_evidence(src, text, evid, repo, docs=None):
     """Returns ('ok' | 'fail' | 'missing', detail)."""
     if src == "@git-log":
         return ("ok", "") if text in git(repo, ["log", "--oneline", "-30"]) else ("fail", "not in the last 30 commits")
@@ -65,6 +67,11 @@ def check_evidence(src, text, evid, repo):
         p = os.path.join(repo, src[6:])
         if not os.path.exists(p):
             return ("missing", "no such file in the clone: " + src[6:])
+        return ("ok", "") if matches(read(p), text) else ("fail", "text not in " + src[6:])
+    if src.startswith("@docs:"):
+        p = os.path.join(docs or ".", src[6:])
+        if not os.path.exists(p):
+            return ("missing", "no such file under the documents root: " + src[6:])
         return ("ok", "") if matches(read(p), text) else ("fail", "text not in " + src[6:])
     if src.startswith("lines:"):
         p = os.path.join(evid, src[6:])
@@ -130,7 +137,7 @@ def main(argv):
         if docs_only:
             good += 1
             continue
-        status, why = check_evidence(src, etext, evid, repo)
+        status, why = check_evidence(src, etext, evid, repo, docs)
         if status == "ok":
             good += 1
         elif status == "missing":

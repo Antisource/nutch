@@ -1,0 +1,99 @@
+# Facts of the plan documents (handoff corrections, the decisions of 7 October, the milestone plan and their updates): document <TAB> text in the document <TAB> evidence source <TAB> evidence text
+docs/handoff-attested-hadoop-cluster.md	Run 3 is not byte-comparable with runs 1 and 2 (the configuration is inside the job file).	@repo:docs/milestone-1-code-measurement.md	Run 3 is not byte-comparable with runs 1 and 2 (the configuration is inside the job file).
+docs/handoff-attested-hadoop-cluster.md	Line 187, "identify the JDK": the JDK folder alone does not do it; JDK settings and the CA store live in `/etc`.	@repo:docs/milestone-1-code-measurement.md	Line 187, "identify the JDK": the JDK folder alone does not do it; JDK settings and the CA store live in `/etc`.
+docs/handoff-attested-hadoop-cluster.md	Line 187, an image digest on an allowlist: raw register values depend on disk identifiers, partition growth on the first boot and GRUB state. A verifier needs event-level policy.	@repo:docs/milestone-1-code-measurement.md	Line 187, an image digest on an allowlist: raw register values depend on disk identifiers, partition growth on the first boot and GRUB state. A verifier needs event-level policy.
+docs/handoff-attested-hadoop-cluster.md	The kernel requirement (6.16 or later) is confirmed. A 6.17 Google kernel exists for Ubuntu 24.04 and works, installed on Ubuntu 22.04, on these VMs. It exists for 22.04 only up to 6.8.	@repo:docs/milestone-1-code-measurement.md	The kernel requirement (6.16 or later) is confirmed. A 6.17 Google kernel exists for Ubuntu 24.04 and works, installed on Ubuntu 22.04, on these VMs. It exists for 22.04 only up to 6.8.
+docs/handoff-attested-hadoop-cluster.md	Lines 189 and 190 (substrate, TLS) now have mentor answers (ADR-001, ADR-002).	@repo:docs/milestone-1-code-measurement.md	Lines 189 and 190 (substrate, TLS) now have mentor answers (ADR-001, ADR-002).
+docs/handoff-attested-hadoop-cluster.md	Line 181: the worker holds no job file; the jar digest needs the task-record mechanism.	@repo:docs/milestone-1-code-measurement.md	Line 181: the worker holds no job file; the jar digest needs the task-record mechanism.
+docs/handoff-attested-hadoop-cluster.md	YARN kept no container logs on this cluster, and the worker's local task logs were removed.	@repo:docs/milestone-1-code-measurement.md	YARN kept no container logs on this cluster, and the worker's local task logs were removed.
+docs/handoff-attested-hadoop-cluster.md	The handoff's Hadoop source references are from release 3.4.1 (line 153); the cluster runs 3.4.3.	@repo:docs/milestone-1-code-measurement.md	The handoff's Hadoop source references are from release 3.4.1 (line 153); the cluster runs 3.4.3.
+docs/handoff-attested-hadoop-cluster.md	Line 239 (does the 6.17 kernel expose RTMR extension and the boot log): yes, for Ubuntu 6.17.0-1022-gcp on these VMs, both nodes. Line 244 (why RTMR0 to RTMR2 differ between nodes): kernel, GRUB configuration and state, disk identifiers and partition growth; one RTMR0 event is not decoded.	@repo:docs/milestone-1-code-measurement.md	Line 239 (does the 6.17 kernel expose RTMR extension and the boot log): yes, for Ubuntu 6.17.0-1022-gcp on these VMs, both nodes. Line 244 (why RTMR0 to RTMR2 differ between nodes): kernel, GRUB configuration and state, disk identifiers and partition growth; one RTMR0 event is not decoded.
+docs/handoff-attested-hadoop-cluster.md	The handoff says the daemons are bound to the mesh. In practice the master's RPC daemons bind through their hostnames, while the NameNode web page and the worker's daemons bind to all addresses and are closed by the host firewall.	@repo:docs/milestone-2-wireguard-mesh.md	The handoff says the daemons are bound to the mesh. In practice the master's RPC daemons bind through their hostnames, while the NameNode web page and the worker's daemons bind to all addresses and are closed by the host firewall.
+docs/handoff-attested-hadoop-cluster.md	A job from "a third machine" was tested with a stand-in (ordinary network path), because no third VM was created.	@repo:docs/milestone-2-wireguard-mesh.md	A job from "a third machine" was tested with a stand-in (ordinary network path), because no third VM was created.
+docs/handoff-attested-hadoop-cluster.md	Node names matter: a node can register under a name that resolves to the closed network, after an unrelated hosts-file change.	@repo:docs/milestone-2-wireguard-mesh.md	Node names matter: a node can register under a name that resolves to the closed network, after an unrelated hosts-file change.
+docs/handoff-attested-hadoop-cluster.md	The job file travels to the worker through HDFS staging for every application (about 134.8 MB, 27 times in run 5), which supports the handoff's design of checking the job file at load on the worker.	@repo:docs/milestone-2-wireguard-mesh.md	The job file travels to the worker through HDFS staging for every application (about 134.8 MB, 27 times in run 5), which supports the handoff's design of checking the job file at load on the worker.
+docs/handoff-attested-hadoop-cluster.md	The wrapper replaces the implementation behind `hdfs://` instead of registering `attested://` (mentor-approved).	@repo:docs/milestone-3-hdfs-wrapper.md	The wrapper replaces the implementation behind `hdfs://` instead of registering `attested://` (mentor-approved).
+docs/handoff-attested-hadoop-cluster.md	Both lookups must be swapped: `fs.hdfs.impl` and `fs.AbstractFileSystem.hdfs.impl`.	@repo:docs/milestone-3-hdfs-wrapper.md	Both lookups must be swapped: `fs.hdfs.impl` and `fs.AbstractFileSystem.hdfs.impl`.
+docs/handoff-attested-hadoop-cluster.md	"Nutch always reaches storage through this layer" is not literally true (81 path-style calls and 6 default-style); with the `hdfs://` replacement every request of a configured JVM goes through anyway.	@repo:docs/milestone-3-hdfs-wrapper.md	"Nutch always reaches storage through this layer" is not literally true (81 path-style calls and 6 default-style); with the `hdfs://` replacement every request of a configured JVM goes through anyway.
+docs/handoff-attested-hadoop-cluster.md	The job file is uploaded through the wrapper by the client (27 uploads), but the NodeManager reads it through plain HDFS, so the handoff's "job code verified at load" (item 3 of the control plane) is still open.	@repo:docs/milestone-3-hdfs-wrapper.md	The job file is uploaded through the wrapper by the client (27 uploads), but the NodeManager reads it through plain HDFS, so the handoff's "job code verified at load" (item 3 of the control plane) is still open.
+docs/handoff-attested-hadoop-cluster.md	Hadoop is 3.4.3, not 3.4.1.	@repo:docs/milestone-3-hdfs-wrapper.md	Hadoop is 3.4.3, not 3.4.1.
+docs/handoff-attested-hadoop-cluster.md	Records are made by the wrapper when each file is closed, tagged with the task attempt id, and not by the commit hook: Nutch's fetch, parse and WARC outputs are written directly to their final path, and its parse output creates its own committer, so the hook set by configuration does not see them all. The committer stays an optional extra for manifests (question 13).	@repo:docs/milestone-4-storage-integrity.md	Records are made by the wrapper when each file is closed, tagged with the task attempt id, and not by the commit hook: Nutch's fetch, parse and WARC outputs are written directly to their final path, and its parse output creates its own committer, so the hook set by configuration does not see them all. The committer stays an optional extra for manifests (question 13).
+docs/handoff-attested-hadoop-cluster.md	The record is kept in a companion file next to the data file, not yet in a signed record and a ledger.	@repo:docs/milestone-4-storage-integrity.md	The record is kept in a companion file next to the data file, not yet in a signed record and a ledger.
+docs/handoff-attested-hadoop-cluster.md	Metadata from records is not yet done.	@repo:docs/milestone-4-storage-integrity.md	Metadata from records is not yet done.
+docs/handoff-attested-hadoop-cluster.md	master 10 events, worker 5	@repo:docs/limitations-and-trust.md	master 10 events, worker 5
+docs/handoff-attested-hadoop-cluster.md	Runs 3 and later use protocol-okhttp	@repo:docs/milestone-0-clean-baseline.md	protocol-okhttp
+docs/handoff-attested-hadoop-cluster.md	(ADR-020, ADR-029)	@repo:docs/decisions.md	ADR-020
+docs/handoff-attested-hadoop-cluster.md	(ADR-020, ADR-029)	@docs:docs/decisions.md	## ADR-029:
+docs/handoff-attested-hadoop-cluster.md	run the unwrapped control in the same hour	@docs:docs/decisions.md	run the unwrapped control in the same hour
+docs/handoff-attested-hadoop-cluster.md	turn on the NameNode audit log in Stage B	@docs:docs/decisions.md	turn on the NameNode audit log in Stage B
+docs/handoff-attested-hadoop-cluster.md	as long as nothing unmeasured is ever described as measured	@docs:docs/decisions.md	as long as nothing unmeasured is ever described as measured
+docs/handoff-attested-hadoop-cluster.md	in one commit with a corrections list at the top	@docs:docs/decisions.md	in one commit with a corrections list at the top
+docs/handoff-attested-hadoop-cluster.md	mid-November to 20 November, 5 pages plus 2	@docs:docs/decisions.md	mid-November to 20 November, 5 pages plus 2
+docs/handoff-attested-hadoop-cluster.md	a task hashing its own job file can be skipped by a swapped job file	@docs:docs/decisions.md	a task hashing its own job file can be skipped by a swapped job file
+docs/handoff-attested-hadoop-cluster.md	coordinate with her on building the job with it	@docs:docs/decisions.md	coordinate with her on building the job with it
+docs/handoff-attested-hadoop-cluster.md	performance is the result that matters most	@docs:docs/decisions.md	performance is the result that matters most
+docs/handoff-attested-hadoop-cluster.md	wall time and bytes fetched for every wrapped and unwrapped pair	@docs:docs/decisions.md	wall time and bytes fetched for every wrapped and unwrapped pair
+docs/handoff-attested-hadoop-cluster.md	ADR-026	@docs:docs/decisions.md	## ADR-026:
+docs/handoff-attested-hadoop-cluster.md	ADR-027	@docs:docs/decisions.md	## ADR-027:
+docs/handoff-attested-hadoop-cluster.md	ADR-028	@docs:docs/decisions.md	## ADR-028:
+docs/handoff-attested-hadoop-cluster.md	ADR-029	@docs:docs/decisions.md	## ADR-029:
+docs/handoff-attested-hadoop-cluster.md	SHA-256 `5123668b5bd0c563d54c33cfb6b6e7698c08adff13c9559cf7577da6791b2d33`	@docs:docs/handoff-attested-hadoop-cluster.md	5123668b5bd0c563d54c33cfb6b6e7698c08adff13c9559cf7577da6791b2d33
+docs/decisions.md	baby steps 4.6.1, 4.6.2 and 4.6.3	@docs:docs/milestone-4-storage-integrity.md	4.6.1 the wrapper's classes on Hadoop's classpath
+docs/decisions.md	baby step 4.5.2	@docs:docs/milestone-4-storage-integrity.md	4.5.2 the NameNode's audit log
+docs/decisions.md	Milestone 5, step 5.3	@docs:docs/milestone-plan.md	5.3.3 TLS checking on, with per-fetch TLS evidence (teammate S's patch)
+docs/decisions.md	ADR-017, ADR-018	@repo:docs/decisions.md	## ADR-017:
+docs/decisions.md	ADR-017, ADR-018	@repo:docs/decisions.md	## ADR-018:
+docs/milestone-plan.md	| 4.1 | Recon of what the crawl writes and reads |	@repo:docs/milestone-4-storage-integrity.md	| 4.1 | Recon of what the crawl writes and reads |
+docs/milestone-plan.md	| 4.2 | Hash every written file and record its Merkle root (observe only) |	@repo:docs/milestone-4-storage-integrity.md	| 4.2 | Hash every written file and record its Merkle root (observe only) |
+docs/milestone-plan.md	| 4.3 | Keep a record next to each file and verify every read against it |	@repo:docs/milestone-4-storage-integrity.md	| 4.3 | Keep a record next to each file and verify every read against it |
+docs/milestone-plan.md	| 4.4 | Run Hadoop's file-system contract tests against the wrapper |	@repo:docs/milestone-4-storage-integrity.md	| 4.4 | Run Hadoop's file-system contract tests against the wrapper |
+docs/milestone-plan.md	| 4.5 | Answer length, existence and listings from records, never from storage |	@repo:docs/milestone-4-storage-integrity.md	| 4.5 | Answer length, existence and listings from records, never from storage |
+docs/milestone-plan.md	| 4.6 | Check the job file and configuration digests at the start of each task |	@repo:docs/milestone-4-storage-integrity.md	| 4.6 | Check the job file and configuration digests at the start of each task |
+docs/milestone-plan.md	| 4.7 | Task records and job manifests; speculative execution off |	@repo:docs/milestone-4-storage-integrity.md	| 4.7 | Task records and job manifests; speculative execution off |
+docs/milestone-plan.md	| 4.8 | Milestone report; re-measure after a reboot (ADR-020) |	@repo:docs/milestone-4-storage-integrity.md	| 4.8 | Milestone report; re-measure after a reboot (ADR-020) |
+docs/milestone-4-storage-integrity.md	Changed by the mentor on 7 October (ADR-027)	@docs:docs/decisions.md	## ADR-027:
+docs/milestone-4-storage-integrity.md	(the mentor, 7 October; ADR-026)	@docs:docs/decisions.md	## ADR-026:
+docs/milestone-plan.md	Done, 5 October	@repo:docs/milestone-0-clean-baseline.md	stamped 09:44 on 5 October
+docs/milestone-plan.md	Done, 5 to 6 October	@repo:docs/limitations-and-trust.md	**Done 5 to 6 October 2026** (Milestone 1)
+docs/milestone-plan.md	Done, 6 October, with limits	@repo:docs/guide-pitfalls-and-lessons.md	Not done: a real third-machine test, IPv6, persistence across reboot, attested peer admission
+docs/milestone-plan.md	the firewall rules are not saved across a reboot	@repo:docs/milestone-4-storage-integrity.md	Firewall rules must be saved first
+docs/milestone-plan.md	Done, 6 October	@repo:docs/limitations-and-trust.md	**Done 6 October 2026** (Milestone 3)
+docs/milestone-plan.md	steps 4.1 to 4.4 done, 4.5 to 4.8 open	@docs:docs/milestone-4-storage-integrity.md	steps 4.1 to 4.4 done; steps 4.5 to 4.8 open
+docs/milestone-plan.md	Gate A, item 3	@docs:docs/handoff-attested-hadoop-cluster.md	3. **Measurement.**
+docs/milestone-plan.md	Gate A, item 1	@docs:docs/handoff-attested-hadoop-cluster.md	1. **Mesh.**
+docs/milestone-plan.md	Gate A, item 2	@docs:docs/handoff-attested-hadoop-cluster.md	2. **Wrapper, no crypto.**
+docs/milestone-plan.md	Stage B, items 4 to 6	@docs:docs/handoff-attested-hadoop-cluster.md	**Stage B: integrity of storage.**
+docs/milestone-plan.md	Stage C, items 7 to 9	@docs:docs/handoff-attested-hadoop-cluster.md	7. Per-VM signing key bound to the quote
+docs/milestone-plan.md	Stage C, items 7 to 9	@docs:docs/handoff-attested-hadoop-cluster.md	8. Locked-down measured image
+docs/milestone-plan.md	Stage C, items 7 to 9	@docs:docs/handoff-attested-hadoop-cluster.md	9. Merkle log, signed checkpoints
+docs/milestone-plan.md	Stage D, items 10 to 13	@docs:docs/handoff-attested-hadoop-cluster.md	10. Verifier, plus a second implementation
+docs/milestone-plan.md	Stage D, items 10 to 13	@docs:docs/handoff-attested-hadoop-cluster.md	11. Tamper harness
+docs/milestone-plan.md	Stage D, items 10 to 13	@docs:docs/handoff-attested-hadoop-cluster.md	12. Performance: the same crawl with and without the custody layer
+docs/milestone-plan.md	Stage D, items 10 to 13	@docs:docs/handoff-attested-hadoop-cluster.md	13. Scale up
+docs/milestone-plan.md	mid-November to 20 November, 5 pages plus 2	@docs:docs/decisions.md	mid-November to 20 November, 5 pages plus 2
+docs/milestone-plan.md	Gate A is accepted	@docs:docs/decisions.md	Gate A accepted
+docs/milestone-plan.md	performance matters most, per Amir	@docs:docs/decisions.md	performance is the result that matters most
+docs/milestone-plan.md	ADR-020	@docs:docs/decisions.md	ADR-020
+docs/milestone-plan.md	ADR-024	@docs:docs/decisions.md	## ADR-024:
+docs/milestone-plan.md	ADR-025	@docs:docs/decisions.md	## ADR-025:
+docs/milestone-plan.md	ADR-027	@docs:docs/decisions.md	## ADR-027:
+docs/milestone-plan.md	ADR-028	@docs:docs/decisions.md	## ADR-028:
+docs/milestone-plan.md	ADR-029	@docs:docs/decisions.md	## ADR-029:
+docs/README.md	[milestone-plan.md](milestone-plan.md)	@docs:docs/milestone-plan.md	# Milestone plan
+docs/README.md	[milestone-0-clean-baseline.md](milestone-0-clean-baseline.md)	@repo:docs/milestone-0-clean-baseline.md	# Milestone 0
+docs/README.md	[milestone-1-code-measurement.md](milestone-1-code-measurement.md)	@repo:docs/milestone-1-code-measurement.md	# Milestone 1
+docs/README.md	[milestone-2-wireguard-mesh.md](milestone-2-wireguard-mesh.md)	@repo:docs/milestone-2-wireguard-mesh.md	# Milestone 2
+docs/README.md	[milestone-3-hdfs-wrapper.md](milestone-3-hdfs-wrapper.md)	@repo:docs/milestone-3-hdfs-wrapper.md	# Milestone 3
+docs/README.md	[milestone-4-storage-integrity.md](milestone-4-storage-integrity.md)	@docs:docs/milestone-4-storage-integrity.md	# Milestone 4
+docs/README.md	[decisions.md](decisions.md)	@docs:docs/decisions.md	# Decision log
+docs/README.md	[handoff-attested-hadoop-cluster.md](handoff-attested-hadoop-cluster.md)	@docs:docs/handoff-attested-hadoop-cluster.md	# Handoff
+docs/limitations-and-trust.md	ADR-027, step 4.6 (the mentor, 7 October)	@docs:docs/decisions.md	## ADR-027:
+docs/limitations-and-trust.md	baby step 4.5.2 (the mentor, 7 October)	@docs:docs/milestone-4-storage-integrity.md	4.5.2 the NameNode's audit log
+docs/limitations-and-trust.md	ADR-028), results in step 6.3	@docs:docs/milestone-plan.md	| 6.3 | Performance with and without the custody layer
+docs/limitations-and-trust.md	step 5.3	@docs:docs/milestone-plan.md	| 5.3 | Locked image
+docs/run-comparison.md	(10 min 42 s, 10 min 43 s and 10 min 57 s)	@repo:docs/run-comparison.md	(10 min 42 s)
+docs/run-comparison.md	(10 min 42 s, 10 min 43 s and 10 min 57 s)	@repo:docs/run-comparison.md	(10 min 57 s)
+docs/cluster-configuration.md	| ADR-027 | 4.6 (baby steps 4.6.1 and 4.6.2) |	@docs:docs/decisions.md	## ADR-027:
+docs/cluster-configuration.md	4.5 (baby step 4.5.2)	@docs:docs/milestone-4-storage-integrity.md	4.5.2 the NameNode's audit log
+docs/guide-pitfalls-and-lessons.md	Decided by the mentor on 7 October (ADR-027)	@docs:docs/decisions.md	## ADR-027:
+docs/guide-pitfalls-and-lessons.md	A rule for every crawl from now on (the mentor, 7 October; ADR-028)	@docs:docs/decisions.md	## ADR-028:
