@@ -823,6 +823,46 @@ public class AttestedFsSmoke {
     check("append: the old record is removed (the file changed), and it still reads (warn)",
         !plain.exists(sc(ap)) && readAll(fs, ap).length == 1001);
 
+    // the builder forms of create and append go through the wrapper (hashed; the record is kept or dropped)
+    Path bc = new Path(dir, "builder-create");
+    byte[] bcData = data(30000, 11);
+    try (FSDataOutputStream o = fs.createFile(bc).build()) {
+      o.write(bcData);
+    }
+    check("builder create: the file has a record and verifies",
+        plain.exists(sc(bc)) && Arrays.equals(bcData, readAll(fs, bc)));
+    byte[] bcData2 = data(5000, 12);
+    try (FSDataOutputStream o = fs.createFile(bc).build()) {
+      o.write(bcData2);
+    }
+    check("builder create over an existing file: the new content verifies (no stale record)",
+        Arrays.equals(bcData2, readAll(fs, bc)));
+    try (FSDataOutputStream o = fs.appendFile(bc).build()) {
+      o.write(1);
+    }
+    check("builder append: the old record is dropped and the longer file reads (policy warn)",
+        !plain.exists(sc(bc)) && readAll(fs, bc).length == bcData2.length + 1);
+
+    // I/O statistics and unbuffer behave as they do through the plain client
+    Path st = new Path(dir, "stats");
+    byte[] stData = data(40000, 13);
+    put(fs, st, stData);
+    try (FSDataInputStream ra = fs.open(st); FSDataInputStream rb = plain.open(st)) {
+      check("I/O statistics of a read stream are offered exactly when the plain client offers them",
+          (ra.getIOStatistics() != null) == (rb.getIOStatistics() != null));
+      byte[] x = new byte[100];
+      ra.readFully(x);
+      ra.unbuffer();
+      byte[] y = new byte[100];
+      ra.readFully(y);
+      check("unbuffer in the middle of a read: the reading goes on with the right bytes",
+          Arrays.equals(Arrays.copyOfRange(stData, 0, 100), x) && Arrays.equals(Arrays.copyOfRange(stData, 100, 200), y));
+    }
+    try (FSDataOutputStream wa = fs.create(new Path(dir, "stats2")); FSDataOutputStream wb = plain.create(new Path(dir, "stats3"))) {
+      check("I/O statistics of a write stream are offered exactly when the plain client offers them",
+          (wa.getIOStatistics() != null) == (wb.getIOStatistics() != null));
+    }
+
     check("the audit log has VERIFY-FAIL lines for the changed files and records",
         auditCount(auditDir, "VERIFY-FAIL", "") >= 8);
     check("the audit log marks verified opens", auditCount(auditDir, "OPEN", "verify=ok") > 10);

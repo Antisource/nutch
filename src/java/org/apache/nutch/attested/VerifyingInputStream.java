@@ -22,11 +22,14 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 
+import org.apache.hadoop.fs.CanUnbuffer;
 import org.apache.hadoop.fs.ChecksumException;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSInputStream;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.StreamCapabilities;
+import org.apache.hadoop.fs.statistics.IOStatistics;
+import org.apache.hadoop.fs.statistics.IOStatisticsSource;
 
 /**
  * Reads a file through its record: every chunk is hashed as it is read from storage
@@ -39,7 +42,7 @@ import org.apache.hadoop.fs.StreamCapabilities;
  * chunks and keeps the last verified chunk. The length comes from the record.</p>
  */
 final class VerifyingInputStream extends FSInputStream
-    implements StreamCapabilities {
+    implements StreamCapabilities, CanUnbuffer, IOStatisticsSource {
 
   private final FSDataInputStream in;
   private final AttestedSidecar rec;
@@ -189,9 +192,24 @@ final class VerifyingInputStream extends FSInputStream
     return false;
   }
 
+  /** Only the capability of releasing buffers is passed on; everything else is not offered. */
   @Override
   public boolean hasCapability(String capability) {
-    return false;
+    return StreamCapabilities.UNBUFFER.equals(capability) && in.hasCapability(capability);
+  }
+
+  /** Releases the real stream's buffers and forgets the cached chunk (it is read and checked again when needed). */
+  @Override
+  public synchronized void unbuffer() {
+    in.unbuffer();
+    cur = null;
+    curIdx = -1;
+    innerPos = -1;
+  }
+
+  @Override
+  public IOStatistics getIOStatistics() {
+    return in.getIOStatistics();
   }
 
   @Override

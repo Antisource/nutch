@@ -470,16 +470,16 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
         bufferSize, replication, blockSize, progress, checksumOpt));
   }
 
-  /** Files created through this builder are not hashed in B1; the records check reports them. */
+  /**
+   * The builder forms of create and append must come to this class too: a builder bound to the real
+   * client would write files without hashing them, and would change a file without dropping its
+   * record, so a later read would fail on a stale record. These builders call this class's create
+   * and append (the same factory Hadoop's own {@code FileSystem} uses).
+   */
   @Override
   @SuppressWarnings("rawtypes")
   public FSDataOutputStreamBuilder createFile(Path path) {
-    try {
-      audit("CREATE", path, null, "createFile builder");
-    } catch (IOException e) {
-      throw new IllegalStateException("attested audit log failed", e);
-    }
-    return super.createFile(path);
+    return createDataOutputStreamBuilder(this, path).create().overwrite(true);
   }
 
   @Override
@@ -499,12 +499,7 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
   @Override
   @SuppressWarnings("rawtypes")
   public FSDataOutputStreamBuilder appendFile(Path path) {
-    try {
-      audit("APPEND", path, null, "appendFile builder");
-    } catch (IOException e) {
-      throw new IllegalStateException("attested audit log failed", e);
-    }
-    return super.appendFile(path);
+    return createDataOutputStreamBuilder(this, path).append();
   }
 
   @Override

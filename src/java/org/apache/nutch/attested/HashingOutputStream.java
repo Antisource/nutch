@@ -22,6 +22,8 @@ import java.io.OutputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.StreamCapabilities;
 import org.apache.hadoop.fs.Syncable;
+import org.apache.hadoop.fs.statistics.IOStatistics;
+import org.apache.hadoop.fs.statistics.IOStatisticsSource;
 
 /**
  * Passes every byte to the real output stream and to a {@link MerkleHasher}; when
@@ -30,7 +32,7 @@ import org.apache.hadoop.fs.Syncable;
  * stream behaves as before for its caller.
  */
 final class HashingOutputStream extends OutputStream
-    implements Syncable, StreamCapabilities {
+    implements Syncable, StreamCapabilities, IOStatisticsSource {
 
   private final FSDataOutputStream inner;
   private final MerkleHasher hasher;
@@ -93,6 +95,12 @@ final class HashingOutputStream extends OutputStream
   @Override
   public boolean hasCapability(String capability) {
     return inner.hasCapability(capability);
+  }
+
+  /** The statistics of the real stream, so that callers see the same statistics as without the wrapper. */
+  @Override
+  public IOStatistics getIOStatistics() {
+    return inner.getIOStatistics();
   }
 
   @Override
