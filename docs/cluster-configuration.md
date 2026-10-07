@@ -249,3 +249,17 @@ Report: [milestone-3-hdfs-wrapper.md](milestone-3-hdfs-wrapper.md).
 How a verified crawl is run: section 15 of [milestone-4-storage-integrity.md](milestone-4-storage-integrity.md).
 
 Undo: pass `-D attested.verify.reads=false -D attested.sidecar.enabled=false -D attested.hash.enabled=false`, or run the original `ops/run-crawl.sh`; remove `/tmp/attested-records` and `/tmp/attested-records-old` on each node. Companion files already in HDFS can stay (Hadoop's input formats ignore them) or be removed with `hdfs dfs -rm`.
+
+## 13. Contract tests (7 October 2026, step 4.4)
+
+| Item | Value |
+|---|---|
+| What it does | Hadoop's file-system contract tests run twice against the real HDFS, through the plain client and through the wrapper, and are compared (`ops/attested/contract-tests.sh`, `contract_compare.py`) |
+| Test folder in HDFS | `/user/rishabsdp17/contract-tests-m44`; created and deleted by the tests; the script refuses to start if it exists, and both script and contract class refuse any folder that is not dedicated |
+| Settings (environment) | `ATTESTED_CONTRACT_URI` (default `hdfs://hadoop-master:9000`), `ATTESTED_CONTRACT_DIR`, `ATTESTED_JOB` (the job file that supplies the wrapper), `EXPECT_JOB` (job fingerprint prefix), `EXPECT_FILES` (list of file fingerprints), `HADOOP_HOME` |
+| Libraries | `hadoop-common-3.4.3-tests.jar`, `junit-4.13.2.jar` and `hamcrest-core-1.3.jar` from `~/hadoop/share/hadoop`; `assertj-core-3.12.2.jar` downloaded by the script into `~/contract-libs` (sha1 checked) |
+| Build and output folders | `~/contract-build` (compiled classes); results in `~/evidence-m3/contract-m44` and the sensitivity run in `~/evidence-m3/contract-m44-sensitivity-run8-job`; the unpacked test zip is `~/m44b` (scratch, not measured) |
+| Wrapper logs of the tests | in the output folder (`audit-wrapped`, `records-wrapped`), not in `/tmp/attested-audit` |
+| Jobs | `dea47c6d41729bef` (the fixed wrapper, saved as `job-m44.job`) and run 8's `a092d5fab91d4b73` for the sensitivity run |
+
+Run: `EXPECT_JOB=<job fingerprint> EXPECT_FILES=<list> ATTESTED_JOB=<job file> ops/attested/contract-tests.sh <new output folder>` on the master. Undo: nothing persists in HDFS (the tests delete their folder); `~/contract-libs`, `~/contract-build` and the output folders can be removed.

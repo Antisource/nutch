@@ -31,6 +31,9 @@ resolved, which instructions turned out to be wrong, and why the key decisions w
 15. **Do not test a check only against stand-ins you wrote from the same assumption.** Such a test cannot find the assumption. Prefer evidence that our own code writes (audit lines, records), and run the check on real logs.
 16. **Move files in one pack, with a printed fingerprint, and verify it on arrival.** Look at the unpacked folder (`pwd`, `ls`) before running anything from it. Several browser downloads in a row lost files; a small web server in Cloud Shell (`python3 -m http.server 8080`, opened through Web Preview) worked.
 17. **Commit gate and documents.** Before any commit, check that the files are identical (by fingerprint) to the files that ran, in the cluster folders, on the laptop and in a fresh clone; abort on any difference. Write the documents after the code ran, from a fresh copy of the branch, and check their numbers against the evidence (`docs_facts_check.py`).
+18. **Rehearse code with the real libraries before sending it.** If the real libraries cannot be had, say in the message exactly what could not be rehearsed. Code checked only against stand-ins written from one's own assumptions fails where the assumptions are wrong (the contract tests, 7 October).
+19. **Documents and programs go in separate commits**, programs first and each gated; a tool's data file counts as a program.
+20. **Test a check against a known fault before trusting its pass.** The contract comparison was run once with the old job, which has known defects, and had to report them.
 
 ## 2. Mistake log
 
@@ -90,6 +93,14 @@ resolved, which instructions turned out to be wrong, and why the key decisions w
 | 52 | Tests | A check for carriage returns flagged two files | The shell used did not interpret `$'\r'`, so the pattern matched the text `$r` | A byte-level check found no carriage returns | Check for bytes with a program, not with a shell pattern |
 | 53 | Process | A design draft was written before the code the author wanted | Documents were written ahead of the build | The draft was kept uncommitted and the build was done first | Code first; documents after, each with a gate (rule 17) |
 | 54 | Documents | A local copy of the repository used as the base for these documents lacked the latest documents commit (ADR-020) | The copy had been fetched earlier and was not refreshed | A fresh clone of the branch head was used | Refresh before editing (rule 17) |
+| 55 | Master | The check of the file list printed "22 of 21" and stopped the run; I had miscounted the files and gave an invented reason for the number | A miscount, then an explanation made up to fit it | All 22 files had matched; the check now compares with the list's own line count and lives inside the script | Never explain a number that was not verified (rule 14) |
+| 56 | Master | The same check was bypassed once: the pasted block began with a stray `> ` and its first line failed | The prompt character was copied with the lines | The files had matched minutes earlier; the check moved into the script | Copy only the lines inside the box |
+| 57 | Master | The first contract run failed at compilation: `PathHandle` and `VectoredRead` are parameterized tests and need constructor arguments | The stand-ins assumed no-argument constructors; the real sources had been downloaded but only their imports were checked | Fixed, then rehearsed with the real classes (milestone-4 §18.3) | Rule 18 |
+| 58 | Package | `job_compare.py` was used in a command but was not in the package | Not checked against the package | The tool already existed on the master; the comparison was rerun with its fingerprint printed | List every file a command uses |
+| 59 | Master | `unzip` is not installed, so an inventory reported 0 contract classes | The error output was hidden (`2>/dev/null`) | Redone with `jar`; the real result was 22 classes | Do not hide errors in an inventory |
+| 60 | Reports | A pass count was added wrongly (239 instead of 238) | Mental arithmetic | Corrected: 255 − 16 − 1 | Show the sum, or compute it |
+| 61 | Display | The output of a long run scrambled when read inside tmux | The tmux screen redraws over the text | The output was read in a normal shell | tmux for running, a normal shell for reading |
+| 62 | Process | The contract comparison had never been shown to fail on the cluster | A pass means little if the check could not fail | Ran the same suite with the old job: 10 differences (milestone-4 §18.7) | Rule 20 |
 
 ## 3. Corrections to earlier working instructions
 
@@ -208,5 +219,5 @@ Decisions from 5 October 2026 onward are kept in [decisions.md](decisions.md). T
 | Chunk hashing on write, verification on read, metadata from records (handoff Stage B) | **Partly done** 7 October (Milestone 4, steps 4.2 and 4.3): hashing at close and verified reads ([milestone-4-storage-integrity.md](milestone-4-storage-integrity.md)). Open: metadata from records (step 4.5), task records and manifests (step 4.7) |
 | The NodeManager reads the job file through plain HDFS | Open: decide how to cover it (handoff Stage B, item 6) |
 | An independent audit of reads, from the NameNode's own audit log | Open |
-| Hadoop's file-system contract tests against the wrapper | Open: Milestone 4, step 4.4 (the wrapper replaced Option A) |
+| Hadoop's file-system contract tests against the wrapper | **Done** 7 October (Milestone 4, step 4.4): 255 tests, identical to plain HDFS; three wrapper defects found and fixed ([milestone-4-storage-integrity.md](milestone-4-storage-integrity.md) section 18) |
 | Larger worker disk | Open: about 5.4 GB usable by HDFS limits scale |

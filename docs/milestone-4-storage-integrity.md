@@ -1,7 +1,7 @@
 # Milestone 4: storage integrity (handoff Stage B)
 
-Date: 7 October 2026. Times are UTC. Status: **steps 4.1 to 4.3 done; steps 4.4 to 4.8 open** (section 4).
-Written when step 4.3 closed. This report is extended as the later steps close.
+Date: 7 October 2026. Times are UTC. Status: **steps 4.1 to 4.4 done; steps 4.5 to 4.8 open** (section 4).
+Written when step 4.3 closed and extended when step 4.4 closed (section 18). It is extended as the later steps close.
 
 ## 1. Goal
 
@@ -36,7 +36,7 @@ Everything the mentor may change sits behind a setting (section 6), and the reco
 | 4.1 | Recon of what the crawl writes and reads | 4 | step 3.6 | Done | Section 5 |
 | 4.2 | Hash every written file and record its Merkle root (observe only) | 4 | 4.1 | Done | Run 7; commit `686c277ae` (sections 9, 15) |
 | 4.3 | Keep a record next to each file and verify every read against it | 4 | 4.2 | Done | Run 8 and the tamper test; commit `67c56f5a7` (sections 10, 11, 15) |
-| 4.4 | Run Hadoop's file-system contract tests against the wrapper | 4 | none | Open | Independent of the other steps |
+| 4.4 | Run Hadoop's file-system contract tests against the wrapper | 4 | none | Done | Section 18; the wrapper fix `26da09f1c` and the tests `e72d1ed05` (section 15) |
 | 4.5 | Answer length, existence and listings from records, never from storage | 4 | 4.3 | Open | |
 | 4.6 | Check the job file and configuration digests at the start of each task | 6 | 4.2 | Open | |
 | 4.7 | Task records and job manifests; speculative execution off | 5 | 4.3 | Open | Depends on the answer to question 13 |
@@ -114,6 +114,7 @@ New checks in step 4.3 (38 on the real HDFS): a record next to every file for al
 | 6 | `ddc415a5d87c9e6b` | 1033 | four wrapper entries (step 3.3) |
 | 7 | `8fdd7cdadd6a7e11` | 1036 | seven entries more than run 5: the wrapper's folder and six classes; nothing else differs |
 | 8 | `a092d5fab91d4b73` | 1041 | five new classes and three changed classes against run 7; nothing else differs |
+| step 4.4 | `dea47c6d41729bef` | 1041 | used only for the contract tests, not for a crawl; three changed classes against run 8's job, nothing added or removed (section 18) |
 
 Runs 7 and 8 were built in the scratch clone `~/m3-build` (not measured; the folder keeps its Milestone 3 name). **Run 6's job file was not kept.** A saved copy meant to be run 6's job was already the rebuilt job (fingerprint `1828836b2be42a3d`, 1036 entries); the likely cause is that the build step ran twice, which was not verified. Only the fingerprint and the comparison outputs of run 6 remain, so later jobs are compared with the measured run 5 job. The copy is kept as `job-not-run6-already-new-code.job` in the evidence folder.
 
@@ -179,10 +180,10 @@ A known cosmetic fault remains in the committed script: its console label "absol
 
 - **The records are not signed.** A file and its record rewritten together are accepted; there is a test that states this. Signing is Stage C.
 - **Unverified read paths.** `copyToLocalFile` (marked `verify=bypassed`; not used by the crawl), opening by path handle, and any program that does not use the wrapper.
-- **Files created through the builder API** (`createFile`) are not hashed; none occurred in runs 7 and 8 (every kept file has a record).
+- **Files created through the builder API** (`createFile`) were not hashed at the time of runs 7 and 8; none occurred (every kept file has a record). Step 4.4 fixed this (section 18).
 - **A file without a record** is read with a warning (policy `warn`). In run 8 only the seed file was read that way. A file whose writer was killed before closing it has no record.
 - **Metadata still comes from storage** (step 4.5). The length is compared with the record at open, which catches a shortened or lengthened file, but listings and existence are storage's.
-- **No task records or job manifests** (step 4.7), no job-file digest check (step 4.6), no contract tests (step 4.4).
+- **No task records or job manifests** (step 4.7) and no job-file digest check (step 4.6).
 - **The NodeManager still reads the job file through plain HDFS.**
 - **Plain tools see the companion files**, and consumers that list directories without skipping hidden files will see them.
 - **The logs and records are plain files** on the provider's machines.
@@ -203,10 +204,11 @@ A known cosmetic fault remains in the committed script: its console label "absol
 | `evidence-run7-audit.tar.gz` | 231 | `cff63506b114` | listings, the audit and records checks, all wrapper and record logs of both machines, the start-up and volume checks, the worker's task-log check, the zip of files that ran |
 | `evidence-run8.tar.gz` | 71 | `5b06c2117a7c` | the 18 WARC and index files and their companion files, the crawl log, both listings, the expected-records list and the independent re-hash, the job comparison, the page and deployment checks, the test log and build log, both tamper attempts with their logs and consoles, the two zips of files that ran |
 | `evidence-run8-audit.tar.gz` | 299 | `72a754d5cf9f` | listings, the three checks (audit, records, verification summary), all audit and record logs of both machines, both tamper attempts' audit logs and task logs and their proofs, the start-up check, the worker's task-log check |
+| `evidence-m44.tar.gz` | 31 | `5abecb377dfc` | both contract runs (with the fixed job, and with run 8's job) with their results, comparisons, libraries and wrapper logs; the failed first attempt; the consoles; the job comparison; the test and build logs; the two zips; the list of fingerprints that the cluster verified |
 
 Each bundle was compared on the laptop with its `.sha256` file (`MATCH`) and unpacked into `tdx-evidence\extracted` (16 folders now).
 
-Commits: `686c277ae` (step 4.2, 9 files) and `67c56f5a7` (step 4.3, 10 files). Both were gated: before each commit the 15 and then 20 files were checked identical to the files that ran (on the master, in the build folder and in the tests folder, on the laptop, and in a fresh clone from GitHub). The 20 files and their fingerprints (first 16 hex digits):
+Commits: `686c277ae` (step 4.2, 9 files) and `67c56f5a7` (step 4.3, 10 files). Both were gated: before each commit the 15 and then 20 files were checked identical to the files that ran (on the master, in the build folder and in the tests folder, on the laptop, and in a fresh clone from GitHub). The 20 files and their fingerprints (first 16 hex digits), as they were for runs 7 and 8 (step 4.4 later changed four of them; see section 18):
 
 | File | Fingerprint |
 |---|---|
@@ -231,12 +233,157 @@ Commits: `686c277ae` (step 4.2, 9 files) and `67c56f5a7` (step 4.3, 10 files). B
 | `ops/attested/tamper_verify.py` | `75954a6cd66703dc` |
 | `ops/attested/verify_summary.py` | `3e8ac8a8c1edf95f` |
 
+Step 4.4 added two more code commits, kept apart from the documents: `26da09f1c` (the wrapper fix, 4 files) and `e72d1ed05` (the contract tests, 22 files); section 18 lists their files and fingerprints.
+
 How a verified crawl is run (every step is a script): rotate the logs on both nodes; put the seeds into HDFS; take the "before" listing; run `ops/run-crawl-attested.sh`; take the "after" listing; check the worker's task logs; copy both listings and both nodes' audit and record logs to Cloud Shell; run `audit_compare.py`, `records_expected.py` (with `--require-sidecars`) and `verify_summary.py` (with `--allow-missing` for the seed folder); copy `expected.tsv` back and run `records_verify.sh` on the master. The tamper test follows (rotate the logs first), then `tamper_verify.py` on the collected logs.
 
 ## 16. Decisions taken at this milestone
 
-ADR-021 (keep the record next to the file), ADR-022 (records from the wrapper when a file is closed), ADR-023 (a file without a record is allowed but logged for now), ADR-024 (naming, the commit gate, and verifying assumptions before writing checks). See [decisions.md](decisions.md).
+ADR-021 (keep the record next to the file), ADR-022 (records from the wrapper when a file is closed), ADR-023 (a file without a record is allowed but logged for now), ADR-024 (naming, the commit gate, and verifying assumptions before writing checks), ADR-025 (rehearse code with the real libraries; documents and programs in separate commits). See [decisions.md](decisions.md).
 
 ## 17. Lessons from this milestone
 
 The mistakes are in [guide-pitfalls-and-lessons.md](guide-pitfalls-and-lessons.md) (mistake log 46 to 54). The main one: checks were written from assumptions about other tools' output (what the client prints, how `ls` shows a path) and tested with stand-ins built from the same assumptions, so the tests could not find them. From now on a real sample is read first, and proofs rely on what our own code writes.
+
+## 18. Step 4.4: Hadoop's file-system contract tests
+
+Date: 7 October 2026. Status: **done**. Commits: `26da09f1c` (the wrapper fix) and `e72d1ed05` (the tests).
+
+### 18.1 What they are, in plain words
+
+Hadoop ships a standard list of checks that every file system it supports must pass: create, open, rename, delete, make a folder, file status, seek, append, concat, set times, content summary, copy from local, path handles, unbuffer, vectored reads. It is like a driving test: the same list for every file system. The pass condition of this step: the tests that apply to HDFS pass through the wrapper, or each failure is explained. "Behaves like plain HDFS" is shown by running the same suite twice on the real cluster, once through the plain HDFS client (the control) and once through the wrapper, and comparing the two test by test.
+
+### 18.2 How it was run
+
+- **17 test classes:** Create, Open, Rename, Delete, Mkdir, GetFileStatus, Seek, Append, Concat, SetTimes, ContentSummary, CopyFromLocal, Unbuffer, VectoredRead, StreamIOStatistics, PathHandle and Etag. Left out on purpose: the root-directory tests (they work on the root of the file system), lease recovery, safe mode, the multipart uploader and bulk delete.
+- **Safety.** Hadoop's tests delete their test folder after every test. The folder is `/user/rishabsdp17/contract-tests-m44`. The contract class and the script both refuse any folder that is not dedicated (an absolute path of at least three parts whose last part contains "contract-tests"); the script stops if the folder already exists; the root-directory option is off in the options file. The options file is Hadoop 3.4.3's own `contract/hdfs.xml` with that one change; the inventory found no such file in the cluster's tests jar, so it was taken from the source of the same version.
+- **Libraries.** `hadoop-common-3.4.3-tests.jar`, JUnit 4.13.2 and hamcrest 1.3 (both from Hadoop's own `tools/lib`), and AssertJ 3.12.2, which the master downloaded from Maven Central and checked against the sha1 published next to it; its SHA-256 is recorded in `libs.txt`.
+- **The wrapper under test** comes from the job file, so the tests exercise the classes that were built; the script checks the job's fingerprint and all 33 files against the list in the zip before it does anything.
+- **Tools** (in `ops/attested/`): `contract-tests.sh` (the run), `contract_compare.py` (the comparison), and in `contract/` the contract class `AttestedHdfsContract`, the runner `ContractRunner` and the 17 test classes.
+
+### 18.3 The rehearsal, and what it found before the cluster run
+
+The development machine had no JUnit, AssertJ or Hadoop test classes, so the first version was only type-checked against stand-ins. That was not enough (section 18.4). The second version was rehearsed with the real things: JUnit 4.13.2, hamcrest 1.3 and AssertJ 3.14.0 (from Ubuntu packages), Hadoop 3.4.3's contract sources from GitHub (tag `rel/release-3.4.3`, with a few newer helper classes compiled from the same tag), the wrapper over a fake HDFS, both modes, and the comparison tool. It found:
+
+| Finding | Meaning |
+|---|---|
+| The builder forms of `append` and `create` went straight to the real client | A real defect: a file changed through the builder kept its old record, so reading it failed; a file created through the builder was not hashed |
+| The wrapper's streams offered no I/O statistics and no `unbuffer` | Behavior differences from the plain HDFS streams |
+| The runner merged the variants of parameterized tests | `PathHandle` showed 28 tests where JUnit ran 56 |
+
+After the fixes the rehearsal showed no test that passes on plain and fails through the wrapper (before the fixes: 5). The one class that could not be rehearsed was `VectoredRead`, which needs a newer Hadoop API; it ran first on the cluster.
+
+### 18.4 The first attempt
+
+The first run on the master stopped at compilation, before any test ran and before anything in HDFS was touched: `PathHandle` and `VectoredRead` are parameterized tests whose constructors take arguments, and the stand-ins had assumed none. The compiler output is kept in the evidence (`contract-m44-attempt1-compile-failed/compile.txt`).
+
+### 18.5 Results on the real cluster
+
+| Item | Result |
+|---|---|
+| Job and files | job `dea47c6d41729bef`; the 33 files identical to the list; started 14:34:31 |
+| Tests per mode | 255 |
+| Passed in both modes | 238 |
+| Failed in both modes | 16 (the same 16) |
+| Skipped in both modes | 1 (the same one) |
+| Passed on plain HDFS but failed through the wrapper | 0 |
+| Missing from one of the runs | 0 |
+| Verdict | `CONTRACT-SAME-AS-HDFS` |
+
+Per class (pass / fail / skip, the same in both modes): Append 8 / 0 / 0, Concat 5 / 0 / 0, ContentSummary 2 / 0 / 0, CopyFromLocal 15 / 0 / 0, Create 11 / 5 / 0, Delete 8 / 0 / 0, Etag 0 / 3 / 1, GetFileStatus 20 / 0 / 0, Mkdir 8 / 0 / 0, Open 27 / 0 / 0, PathHandle 56 / 0 / 0, Rename 7 / 3 / 0, Seek 18 / 0 / 0, SetTimes 1 / 0 / 0, StreamIOStatistics 0 / 5 / 0, Unbuffer 6 / 0 / 0, VectoredRead 46 / 0 / 0.
+
+### 18.6 The 16 failures that plain HDFS shares
+
+| Tests | Count | Cause |
+|---|---|---|
+| Create (5), Rename (3), StreamIOStatistics (1) | 9 | The NameNode refuses block sizes below 1 MiB (`dfs.namenode.fs-limits.min-block-size=1048576`); the tests ask for 1024 or 8000 bytes |
+| Etag | 3 | HDFS has no etag support |
+| StreamIOStatistics | 4 | Plain HDFS's streams offer no statistics (`Expecting actual not to be null`); the wrapper now returns exactly what the plain stream returns |
+
+The three Rename tests that fail on both sides (rename over an existing file, rename of a folder into an existing folder, ancestors after a rename) would have exercised the wrapper's moving of record files. Our own unit tests cover renames of files, of folders and into folders, but not rename over an existing file; this is a coverage gap (section 18.10).
+
+### 18.7 The sensitivity check: could the comparison have caught a defect?
+
+The same suite ran with run 8's job, which has the wrapper as it was before the fixes. It reported `CONTRACT-DIFFERENCES (10)` (totals: plain 238 / 16 / 1, the old wrapper 228 / 26 / 1): `Append.testBuilderAppendToExistingFile`, `Append.testBuilderAppendToEmptyFile`, and `PathHandle.testChanged` in all four option sets (each twice). All ten have one cause, the builder defect. The wrapper's own log agrees: the old job logged exactly 10 refused reads. With the fixed job the comparison reports none. So the comparison can detect a wrapper defect on this cluster, and the pass of the fixed job means something.
+
+### 18.8 What the wrapper logged during the wrapped runs
+
+| Item | Fixed job | Run 8's job |
+|---|---|---|
+| Audit lines | 1669 (CREATE 535, MKDIRS 337, DELETE 327, INIT 255, OPEN 126, RENAME 41, APPEND 23, COPYFROMLOCAL 20, CONCAT 4, SETATTR 1) | 1649 (CREATE 533, MKDIRS 337, DELETE 309, INIT 255, OPEN 116, RENAME 41, APPEND 23, COPYFROMLOCAL 20, VERIFY-FAIL 10, CONCAT 4, SETATTR 1) |
+| Opens verified | 111 | 109 |
+| Opens without a record | 15 | 7 |
+| Reads refused (VERIFY-FAIL) | 0 | 10 |
+| Record lines | 283 | 263 |
+
+The contract tests ran with the wrapper's defaults (records and verification on), which is consistent with the companion files not disturbing listings and renames (an inference).
+
+### 18.9 The fix
+
+The new job `dea47c6d41729bef` was built on 7 October from the 33 verified files. Against run 8's job it has the same 1041 entries; exactly three classes differ (`AttestedHdfsFileSystem`, `HashingOutputStream`, `VerifyingInputStream`) and nothing is added or removed. The changes:
+
+1. `createFile` and `appendFile` return builders that call the wrapper's own `create` and `append` (Hadoop's own factory), so files created through the builder are hashed and a file appended to through the builder loses its old record.
+2. The streams pass on the real stream's I/O statistics, so callers see what they see without the wrapper.
+3. The input stream supports `unbuffer` and reports that capability.
+4. In the runner, the second variant of a repeated test name is kept (`name#2`).
+
+The wrapper's own tests after the fix: fake HDFS 91 of 91, MapReduce 12 of 12, hashing 18 of 18, Java and Python agree on 9 sizes, real HDFS 90 of 90 (the earlier 84 plus six new checks: builder create, create over an existing file, builder append, statistics parity for reads and writes, unbuffer).
+
+### 18.10 Limits of this step
+
+- One small cluster (one DataNode), one run per mode; the same tests were not repeated.
+- Nine tests (Create 5, Rename 3 and one statistics test) fail on plain HDFS too because of the NameNode's minimum block size, so they say nothing about the wrapper; the cluster setting was not changed.
+- The Etag and statistics tests fail on plain HDFS here, so they say nothing about the wrapper; the statistics parity is covered by the unit tests.
+- The contract suite does not test the wrapper's own additions (records, verification, hiding of companion files) or `copyToLocalFile`; those rest on the tests of steps 4.2 and 4.3.
+- AssertJ 3.12.2 ran on the cluster, 3.14.0 in the rehearsal.
+- The root-directory, lease-recovery, safe-mode, multipart-upload and bulk-delete tests are not part of the suite.
+- The sensitivity run used the old job for the contract tests only; it is not a crawl.
+
+### 18.11 Evidence and commits
+
+The bundle `evidence-m44.tar.gz` is listed in section 15. It was compared on the laptop with its `.sha256` file (`MATCH`) and unpacked (17 folders in `tdx-evidence\extracted` now). The files that ran are listed in `m44b-expected.sha` (33 lines), and the script verified them at the start of each run.
+
+The wrapper fix, `26da09f1c` (4 files):
+
+| File | Fingerprint |
+|---|---|
+| `src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java` | `3e7bcb81ad26467d` |
+| `src/java/org/apache/nutch/attested/HashingOutputStream.java` | `94de417078879f14` |
+| `src/java/org/apache/nutch/attested/VerifyingInputStream.java` | `45e938a63ae7e1ab` |
+| `ops/attested/AttestedFsSmoke.java` | `bcc72cbd53fbfd6b` |
+
+The contract tests, `e72d1ed05` (22 files):
+
+| File | Fingerprint |
+|---|---|
+| `ops/attested/contract-tests.sh` | `c4587c9a9667276f` |
+| `ops/attested/contract/AttestedHdfsContract.java` | `68a4f5f667c9d832` |
+| `ops/attested/contract/ContractRunner.java` | `a09e4385c1f268af` |
+| `ops/attested/contract/TestAttestedContractAppend.java` | `6863e125eb893c7d` |
+| `ops/attested/contract/TestAttestedContractConcat.java` | `e1f72836f57a3cff` |
+| `ops/attested/contract/TestAttestedContractContentSummary.java` | `c8c3a197ece421ec` |
+| `ops/attested/contract/TestAttestedContractCopyFromLocal.java` | `f61e3655e4935f88` |
+| `ops/attested/contract/TestAttestedContractCreate.java` | `b36c6d4d6541c37e` |
+| `ops/attested/contract/TestAttestedContractDelete.java` | `9782dfe16bd60da8` |
+| `ops/attested/contract/TestAttestedContractEtag.java` | `d6ed42710b7e6b88` |
+| `ops/attested/contract/TestAttestedContractGetFileStatus.java` | `2b85d8a2f4b2629b` |
+| `ops/attested/contract/TestAttestedContractMkdir.java` | `b582856745cdf0bd` |
+| `ops/attested/contract/TestAttestedContractOpen.java` | `e8a1e67c496e9265` |
+| `ops/attested/contract/TestAttestedContractPathHandle.java` | `f043645c33171ab9` |
+| `ops/attested/contract/TestAttestedContractRename.java` | `579fd8cd486ce0f1` |
+| `ops/attested/contract/TestAttestedContractSeek.java` | `bd33f1e6e38a5fd4` |
+| `ops/attested/contract/TestAttestedContractSetTimes.java` | `5d0b8138022c9d6f` |
+| `ops/attested/contract/TestAttestedContractStreamIOStatistics.java` | `b50249324f1e2b28` |
+| `ops/attested/contract/TestAttestedContractUnbuffer.java` | `f90fa403e5024cba` |
+| `ops/attested/contract/TestAttestedContractVectoredRead.java` | `0c0696ae5fa9ff99` |
+| `ops/attested/contract/resources/contract/attested-hdfs.xml` | `03c92bead0302ba9` |
+| `ops/attested/contract_compare.py` | `ece2afb1263e910b` |
+
+Before each commit the files were checked identical to the list the cluster had verified, on the laptop, and afterwards in a fresh clone from GitHub, which also confirmed that neither commit touches `docs/`. The zips `m44-files.zip` (the first attempt) and `m44b-files.zip` (the final set) are in the bundle; an intermediate `m44-update1.zip` was withdrawn before it was used.
+
+### 18.12 Lessons from this step
+
+- Code that depends on real libraries is rehearsed with those libraries before it is sent, and the message says what could not be rehearsed (ADR-025).
+- A check is only trusted after it has caught a known fault; here, the old job.
+- A file list is verified by the script that uses it, not by a pasted command.
+- The mistakes are in [guide-pitfalls-and-lessons.md](guide-pitfalls-and-lessons.md) (mistake log 55 to 62).

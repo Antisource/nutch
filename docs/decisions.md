@@ -30,6 +30,7 @@ Times are UTC.
 | 022 | Records come from the wrapper when a file is closed, not from the commit hook | Accepted (mentor question 13 open) |
 | 023 | A file without a record is allowed but logged, for now | Accepted (provisional) |
 | 024 | Naming, the commit gate, and checking assumptions against real samples | Accepted |
+| 025 | Rehearse code with the real libraries; documents and programs in separate commits | Accepted |
 
 ---
 
@@ -215,3 +216,11 @@ Times are UTC.
 - **Decision:** (1) names are Milestone N and Step N.k with a descriptive title, runs are numbered, and the handoff's item numbers stay as references. (2) A commit gate: committed programs and scripts are checked identical, by fingerprint, to the files that ran, on the cluster, on the laptop and in a fresh clone from GitHub; on any difference the commit and push are aborted. The documents are checked against the procedure followed and against the evidence (`docs_facts_check.py`). (3) Before a check depends on another tool's real output, a read-only sample of that output is read; proofs rely on what our own code writes (audit lines, records).
 - **Why:** unverified assumptions cost hours of repeated steps on 7 October.
 - **Consequences:** a little slower per step and much fewer repeats; each milestone has a facts file that ties the documents' numbers to the evidence.
+
+## ADR-025: Rehearse code with the real libraries; documents and programs in separate commits
+
+- **Date:** 7 October 2026. **Status:** accepted.
+- **Context:** the first version of the contract tests was only type-checked against stand-ins written from the author's own assumptions, and failed at compilation on the cluster. The author asked for documents and programs to be kept apart in the history.
+- **Decision:** (1) code that depends on real libraries is rehearsed in the development environment with those libraries (or the nearest available versions) before it is sent to the cluster, and the message says what could not be rehearsed. (2) Documents and programs are committed separately, each with its own gate: programs first, each checked identical to the files that ran; then documents, checked against the evidence by the facts checker. A tool's data file (for example a facts list) is committed as a program. The one earlier exception is commit `d4c5489`, which also carried the facts checker.
+- **Why:** the rehearsal found three defects in the wrapper and one in the runner before the cluster run, and a clear separation makes the history easier to read and review.
+- **Consequences:** some libraries are not reachable from the development environment, so a rehearsal can use a different version (AssertJ 3.14.0 instead of 3.12.2) or leave one class out (`VectoredRead`); each such gap is stated in the report.
