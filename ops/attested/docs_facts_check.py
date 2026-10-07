@@ -21,6 +21,7 @@ evidence source, evidence text. The evidence source is one of:
   dirhas:DIR                some *.tsv file under DIR must contain the evidence text
   zip-sha:ZIP#MEMBER        the SHA-256 of that member of the zip must start with the evidence text
   @repo:PATH                a file of the repository; the evidence text must occur in it
+                            ("re:" in front makes it a regular expression here too)
   @git-log                  the evidence text must occur in the last commits (one line each)
   @git-files:COMMIT         the number of files changed by that commit must equal the evidence text
 
@@ -40,6 +41,13 @@ def read(path):
         return f.read()
 
 
+def matches(body, text):
+    """A plain text must occur in the body; with "re:" in front it is a regular expression."""
+    if text.startswith("re:"):
+        return re.search(text[3:], body) is not None
+    return text in body
+
+
 def git(repo, args):
     return subprocess.run(["git", "-C", repo] + args, capture_output=True, text=True).stdout
 
@@ -57,7 +65,7 @@ def check_evidence(src, text, evid, repo):
         p = os.path.join(repo, src[6:])
         if not os.path.exists(p):
             return ("missing", "no such file in the clone: " + src[6:])
-        return ("ok", "") if text in read(p) else ("fail", "text not in " + src[6:])
+        return ("ok", "") if matches(read(p), text) else ("fail", "text not in " + src[6:])
     if src.startswith("lines:"):
         p = os.path.join(evid, src[6:])
         if not os.path.exists(p):
@@ -91,10 +99,7 @@ def check_evidence(src, text, evid, repo):
     p = os.path.join(evid, src)
     if not os.path.exists(p):
         return ("missing", "no such evidence file: " + src)
-    body = read(p)
-    if text.startswith("re:"):
-        return ("ok", "") if re.search(text[3:], body) else ("fail", "pattern not found in " + src)
-    return ("ok", "") if text in body else ("fail", "text not found in " + src)
+    return ("ok", "") if matches(read(p), text) else ("fail", "text not found in " + src)
 
 
 def main(argv):

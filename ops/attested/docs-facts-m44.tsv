@@ -1,0 +1,122 @@
+# Facts of the Step 4.4 documents: document <TAB> text in the document <TAB> evidence source <TAB> evidence text
+docs/milestone-4-storage-integrity.md	| Tests per mode | 255 |	evidence-m44/contract-m44-console.txt	RUN-DONE mode=plain tests=255 failed=16 skipped=1
+docs/milestone-4-storage-integrity.md	| Tests per mode | 255 |	evidence-m44/contract-m44-console.txt	RUN-DONE mode=wrapped tests=255 failed=16 skipped=1
+docs/limitations-and-trust.md	(255 per mode)	evidence-m44/contract-m44-console.txt	RUN-DONE mode=wrapped tests=255 failed=16 skipped=1
+docs/milestone-4-storage-integrity.md	| Passed in both modes | 238 |	evidence-m44/contract-m44/comparison.txt	re:TOTAL\s+238 / 16 / 1\s+238 / 16 / 1
+docs/milestone-4-storage-integrity.md	| Failed in both modes | 16 (the same 16) |	evidence-m44/contract-m44/comparison.txt	tests that fail on plain HDFS and through the wrapper (explained by the cluster or the options): 16
+docs/milestone-4-storage-integrity.md	| Passed on plain HDFS but failed through the wrapper | 0 |	evidence-m44/contract-m44/comparison.txt	tests that pass on plain HDFS but fail (or are skipped) through the wrapper: 0
+docs/milestone-4-storage-integrity.md	| Missing from one of the runs | 0 |	evidence-m44/contract-m44/comparison.txt	tests missing from one of the runs: 0
+docs/milestone-4-storage-integrity.md	| Verdict | `CONTRACT-SAME-AS-HDFS` |	evidence-m44/contract-m44/comparison.txt	CONTRACT-SAME-AS-HDFS
+docs/milestone-4-storage-integrity.md	Append 8 / 0 / 0	evidence-m44/contract-m44/comparison.txt	re:TestAttestedContractAppend\s+8 / 0 / 0\s+8 / 0 / 0
+docs/milestone-4-storage-integrity.md	Concat 5 / 0 / 0	evidence-m44/contract-m44/comparison.txt	re:TestAttestedContractConcat\s+5 / 0 / 0\s+5 / 0 / 0
+docs/milestone-4-storage-integrity.md	ContentSummary 2 / 0 / 0	evidence-m44/contract-m44/comparison.txt	re:TestAttestedContractContentSummary\s+2 / 0 / 0\s+2 / 0 / 0
+docs/milestone-4-storage-integrity.md	CopyFromLocal 15 / 0 / 0	evidence-m44/contract-m44/comparison.txt	re:TestAttestedContractCopyFromLocal\s+15 / 0 / 0\s+15 / 0 / 0
+docs/milestone-4-storage-integrity.md	Create 11 / 5 / 0	evidence-m44/contract-m44/comparison.txt	re:TestAttestedContractCreate\s+11 / 5 / 0\s+11 / 5 / 0
+docs/milestone-4-storage-integrity.md	Delete 8 / 0 / 0	evidence-m44/contract-m44/comparison.txt	re:TestAttestedContractDelete\s+8 / 0 / 0\s+8 / 0 / 0
+docs/milestone-4-storage-integrity.md	Etag 0 / 3 / 1	evidence-m44/contract-m44/comparison.txt	re:TestAttestedContractEtag\s+0 / 3 / 1\s+0 / 3 / 1
+docs/milestone-4-storage-integrity.md	GetFileStatus 20 / 0 / 0	evidence-m44/contract-m44/comparison.txt	re:TestAttestedContractGetFileStatus\s+20 / 0 / 0\s+20 / 0 / 0
+docs/milestone-4-storage-integrity.md	Mkdir 8 / 0 / 0	evidence-m44/contract-m44/comparison.txt	re:TestAttestedContractMkdir\s+8 / 0 / 0\s+8 / 0 / 0
+docs/milestone-4-storage-integrity.md	Open 27 / 0 / 0	evidence-m44/contract-m44/comparison.txt	re:TestAttestedContractOpen\s+27 / 0 / 0\s+27 / 0 / 0
+docs/milestone-4-storage-integrity.md	PathHandle 56 / 0 / 0	evidence-m44/contract-m44/comparison.txt	re:TestAttestedContractPathHandle\s+56 / 0 / 0\s+56 / 0 / 0
+docs/milestone-4-storage-integrity.md	Rename 7 / 3 / 0	evidence-m44/contract-m44/comparison.txt	re:TestAttestedContractRename\s+7 / 3 / 0\s+7 / 3 / 0
+docs/milestone-4-storage-integrity.md	Seek 18 / 0 / 0	evidence-m44/contract-m44/comparison.txt	re:TestAttestedContractSeek\s+18 / 0 / 0\s+18 / 0 / 0
+docs/milestone-4-storage-integrity.md	SetTimes 1 / 0 / 0	evidence-m44/contract-m44/comparison.txt	re:TestAttestedContractSetTimes\s+1 / 0 / 0\s+1 / 0 / 0
+docs/milestone-4-storage-integrity.md	StreamIOStatistics 0 / 5 / 0	evidence-m44/contract-m44/comparison.txt	re:TestAttestedContractStreamIOStatistics\s+0 / 5 / 0\s+0 / 5 / 0
+docs/milestone-4-storage-integrity.md	Unbuffer 6 / 0 / 0	evidence-m44/contract-m44/comparison.txt	re:TestAttestedContractUnbuffer\s+6 / 0 / 0\s+6 / 0 / 0
+docs/milestone-4-storage-integrity.md	VectoredRead 46 / 0 / 0	evidence-m44/contract-m44/comparison.txt	re:TestAttestedContractVectoredRead\s+46 / 0 / 0\s+46 / 0 / 0
+docs/milestone-4-storage-integrity.md	job `dea47c6d41729bef`; the 33 files identical to the list; started 14:34:31	evidence-m44/contract-m44-console.txt	== files: 33 of 33 identical to the list
+docs/milestone-4-storage-integrity.md	job `dea47c6d41729bef`; the 33 files identical to the list; started 14:34:31	evidence-m44/contract-m44/libs.txt	date: 2026-10-07T14:34:31Z
+docs/milestone-4-storage-integrity.md	job `dea47c6d41729bef`; the 33 files identical to the list; started 14:34:31	evidence-m44/job-fingerprints.txt	new job:   dea47c6d41729bef
+docs/milestone-4-storage-integrity.md	(`dfs.namenode.fs-limits.min-block-size=1048576`)	evidence-m44/contract-m44/comparison.txt	min-block-size=1048576
+docs/milestone-4-storage-integrity.md	| Create (5), Rename (3), StreamIOStatistics (1) | 9 |	evidence-m44/contract-m44/comparison.txt	testCreatedFileIsImmediatelyVisible
+docs/milestone-4-storage-integrity.md	| Create (5), Rename (3), StreamIOStatistics (1) | 9 |	evidence-m44/contract-m44/comparison.txt	testRenameFileOverExistingFile
+docs/milestone-4-storage-integrity.md	| Create (5), Rename (3), StreamIOStatistics (1) | 9 |	evidence-m44/contract-m44/comparison.txt	testRenameDirIntoExistingDir
+docs/milestone-4-storage-integrity.md	| Create (5), Rename (3), StreamIOStatistics (1) | 9 |	evidence-m44/contract-m44/comparison.txt	testRenamePopulatesFileAncestors
+docs/milestone-4-storage-integrity.md	| Create (5), Rename (3), StreamIOStatistics (1) | 9 |	evidence-m44/contract-m44/comparison.txt	testInputStreamStatisticRead
+docs/milestone-4-storage-integrity.md	| Etag | 3 | HDFS has no etag support |	evidence-m44/contract-m44/comparison.txt	fs.capability.etags.available
+docs/milestone-4-storage-integrity.md	`Expecting actual not to be null`	evidence-m44/contract-m44/comparison.txt	Expecting actual not to be null
+docs/milestone-4-storage-integrity.md	`hadoop-common-3.4.3-tests.jar`, JUnit 4.13.2 and hamcrest 1.3	evidence-m44/contract-m44/libs.txt	hadoop-common-3.4.3-tests.jar
+docs/milestone-4-storage-integrity.md	`hadoop-common-3.4.3-tests.jar`, JUnit 4.13.2 and hamcrest 1.3	evidence-m44/contract-m44/libs.txt	junit-4.13.2.jar
+docs/milestone-4-storage-integrity.md	`hadoop-common-3.4.3-tests.jar`, JUnit 4.13.2 and hamcrest 1.3	evidence-m44/contract-m44/libs.txt	hamcrest-core-1.3.jar
+docs/milestone-4-storage-integrity.md	`hadoop-common-3.4.3-tests.jar`, JUnit 4.13.2 and hamcrest 1.3	evidence-m44/contract-m44/libs.txt	assertj-core-3.12.2.jar
+docs/milestone-4-storage-integrity.md	and AssertJ 3.12.2, which the master downloaded	evidence-m44/contract-m44/libs.txt	f0d4eace1208744a61f021c580ae954a6c31b5884616e079bf6a84feff49397c
+docs/cluster-configuration.md	`assertj-core-3.12.2.jar` downloaded by the script	evidence-m44/contract-m44/libs.txt	assertj-core-3.12.2.jar
+docs/milestone-4-storage-integrity.md	It reported `CONTRACT-DIFFERENCES (10)`	evidence-m44/contract-m44-sensitivity-run8-job/comparison.txt	CONTRACT-DIFFERENCES (10)
+docs/milestone-4-storage-integrity.md	(totals: plain 238 / 16 / 1, the old wrapper 228 / 26 / 1)	evidence-m44/contract-m44-sensitivity-run8-job/comparison.txt	re:TOTAL\s+238 / 16 / 1\s+228 / 26 / 1
+docs/milestone-4-storage-integrity.md	`Append.testBuilderAppendToExistingFile`, `Append.testBuilderAppendToEmptyFile`	evidence-m44/contract-m44-sensitivity-run8-job/comparison.txt	testBuilderAppendToExistingFile
+docs/milestone-4-storage-integrity.md	`Append.testBuilderAppendToExistingFile`, `Append.testBuilderAppendToEmptyFile`	evidence-m44/contract-m44-sensitivity-run8-job/comparison.txt	testBuilderAppendToEmptyFile
+docs/milestone-4-storage-integrity.md	`PathHandle.testChanged` in all four option sets	evidence-m44/contract-m44-sensitivity-run8-job/comparison.txt	testChanged[TestReference]
+docs/milestone-4-storage-integrity.md	which has the wrapper as it was before the fixes	evidence-m44/contract-m44-sensitivity-run8-job/libs.txt	a092d5fab91d4b73
+docs/limitations-and-trust.md	the same suite reports 10 differences with the wrapper as it was before step 4.4	evidence-m44/contract-m44-sensitivity-run8-job/comparison.txt	CONTRACT-DIFFERENCES (10)
+docs/milestone-4-storage-integrity.md	| Audit lines | 1669 (CREATE 535, MKDIRS 337, DELETE 327, INIT 255, OPEN 126, RENAME 41, APPEND 23, COPYFROMLOCAL 20, CONCAT 4, SETATTR 1) |	evidence-m44/contract-audit-summary.txt	audit lines: 1669
+docs/milestone-4-storage-integrity.md	| Audit lines | 1669 (CREATE 535, MKDIRS 337, DELETE 327, INIT 255, OPEN 126, RENAME 41, APPEND 23, COPYFROMLOCAL 20, CONCAT 4, SETATTR 1) |	evidence-m44/contract-audit-summary.txt	re:535 CREATE
+docs/milestone-4-storage-integrity.md	| Audit lines | 1669 (CREATE 535, MKDIRS 337, DELETE 327, INIT 255, OPEN 126, RENAME 41, APPEND 23, COPYFROMLOCAL 20, CONCAT 4, SETATTR 1) |	evidence-m44/contract-audit-summary.txt	re:337 MKDIRS
+docs/milestone-4-storage-integrity.md	| Audit lines | 1669 (CREATE 535, MKDIRS 337, DELETE 327, INIT 255, OPEN 126, RENAME 41, APPEND 23, COPYFROMLOCAL 20, CONCAT 4, SETATTR 1) |	evidence-m44/contract-audit-summary.txt	re:327 DELETE
+docs/milestone-4-storage-integrity.md	| Audit lines | 1669 (CREATE 535, MKDIRS 337, DELETE 327, INIT 255, OPEN 126, RENAME 41, APPEND 23, COPYFROMLOCAL 20, CONCAT 4, SETATTR 1) |	evidence-m44/contract-audit-summary.txt	re:255 INIT
+docs/milestone-4-storage-integrity.md	| Audit lines | 1669 (CREATE 535, MKDIRS 337, DELETE 327, INIT 255, OPEN 126, RENAME 41, APPEND 23, COPYFROMLOCAL 20, CONCAT 4, SETATTR 1) |	evidence-m44/contract-audit-summary.txt	re:126 OPEN
+docs/milestone-4-storage-integrity.md	| Audit lines | 1669 (CREATE 535, MKDIRS 337, DELETE 327, INIT 255, OPEN 126, RENAME 41, APPEND 23, COPYFROMLOCAL 20, CONCAT 4, SETATTR 1) |	evidence-m44/contract-audit-summary.txt	re:41 RENAME
+docs/milestone-4-storage-integrity.md	| Opens verified | 111 | 109 |	evidence-m44/contract-audit-summary.txt	opens verified: 111   without a record: 15   refused (VERIFY-FAIL): 0   record lines: 283
+docs/milestone-4-storage-integrity.md	| Opens verified | 111 | 109 |	evidence-m44/contract-audit-summary.txt	opens verified: 109   without a record: 7   refused (VERIFY-FAIL): 10   record lines: 263
+docs/milestone-4-storage-integrity.md	| Audit lines | 1669 (CREATE 535, MKDIRS 337, DELETE 327, INIT 255, OPEN 126, RENAME 41, APPEND 23, COPYFROMLOCAL 20, CONCAT 4, SETATTR 1) | 1649 (CREATE 533, MKDIRS 337, DELETE 309, INIT 255, OPEN 116, RENAME 41, APPEND 23, COPYFROMLOCAL 20, VERIFY-FAIL 10, CONCAT 4, SETATTR 1) |	evidence-m44/contract-audit-summary.txt	audit lines: 1649
+docs/milestone-4-storage-integrity.md	1649 (CREATE 533, MKDIRS 337, DELETE 309, INIT 255, OPEN 116, RENAME 41, APPEND 23, COPYFROMLOCAL 20, VERIFY-FAIL 10, CONCAT 4, SETATTR 1)	evidence-m44/contract-audit-summary.txt	re:533 CREATE
+docs/milestone-4-storage-integrity.md	1649 (CREATE 533, MKDIRS 337, DELETE 309, INIT 255, OPEN 116, RENAME 41, APPEND 23, COPYFROMLOCAL 20, VERIFY-FAIL 10, CONCAT 4, SETATTR 1)	evidence-m44/contract-audit-summary.txt	re:309 DELETE
+docs/milestone-4-storage-integrity.md	1649 (CREATE 533, MKDIRS 337, DELETE 309, INIT 255, OPEN 116, RENAME 41, APPEND 23, COPYFROMLOCAL 20, VERIFY-FAIL 10, CONCAT 4, SETATTR 1)	evidence-m44/contract-audit-summary.txt	re:116 OPEN
+docs/milestone-4-storage-integrity.md	1649 (CREATE 533, MKDIRS 337, DELETE 309, INIT 255, OPEN 116, RENAME 41, APPEND 23, COPYFROMLOCAL 20, VERIFY-FAIL 10, CONCAT 4, SETATTR 1)	evidence-m44/contract-audit-summary.txt	re:10 VERIFY-FAIL
+docs/milestone-4-storage-integrity.md	| Reads refused (VERIFY-FAIL) | 0 | 10 |	evidence-m44/contract-audit-summary.txt	refused (VERIFY-FAIL): 10
+docs/milestone-4-storage-integrity.md	Against run 8's job it has the same 1041 entries; exactly three classes differ	evidence-m44/job-compare-m44.txt	entries: old 1041, new 1041
+docs/milestone-4-storage-integrity.md	(`AttestedHdfsFileSystem`, `HashingOutputStream`, `VerifyingInputStream`)	evidence-m44/job-compare-m44.txt	AttestedHdfsFileSystem.class
+docs/milestone-4-storage-integrity.md	(`AttestedHdfsFileSystem`, `HashingOutputStream`, `VerifyingInputStream`)	evidence-m44/job-compare-m44.txt	HashingOutputStream.class
+docs/milestone-4-storage-integrity.md	(`AttestedHdfsFileSystem`, `HashingOutputStream`, `VerifyingInputStream`)	evidence-m44/job-compare-m44.txt	VerifyingInputStream.class
+docs/milestone-4-storage-integrity.md	| step 4.4 | `dea47c6d41729bef` | 1041 |	evidence-m44/job-compare-m44.txt	entries: old 1041, new 1041
+docs/milestone-4-storage-integrity.md	| step 4.4 | `dea47c6d41729bef` | 1041 |	evidence-m44/job-fingerprints.txt	run 8 job: 
+docs/milestone-4-storage-integrity.md	fake HDFS 91 of 91, MapReduce 12 of 12, hashing 18 of 18, Java and Python agree on 9 sizes, real HDFS 90 of 90	evidence-m44/m44b-test.txt	ALL-PASS (91 of 91 checks passed) mode=fake
+docs/milestone-4-storage-integrity.md	fake HDFS 91 of 91, MapReduce 12 of 12, hashing 18 of 18, Java and Python agree on 9 sizes, real HDFS 90 of 90	evidence-m44/m44b-test.txt	ALL-PASS (12 of 12 checks passed) mode=mr-fake
+docs/milestone-4-storage-integrity.md	fake HDFS 91 of 91, MapReduce 12 of 12, hashing 18 of 18, Java and Python agree on 9 sizes, real HDFS 90 of 90	evidence-m44/m44b-test.txt	ALL-PASS (18 of 18 checks passed) mode=hash
+docs/milestone-4-storage-integrity.md	fake HDFS 91 of 91, MapReduce 12 of 12, hashing 18 of 18, Java and Python agree on 9 sizes, real HDFS 90 of 90	evidence-m44/m44b-test.txt	JAVA-AND-PYTHON-AGREE (9 sizes)
+docs/milestone-4-storage-integrity.md	fake HDFS 91 of 91, MapReduce 12 of 12, hashing 18 of 18, Java and Python agree on 9 sizes, real HDFS 90 of 90	evidence-m44/m44b-test.txt	ALL-PASS (90 of 90 checks passed) mode=hdfs
+docs/milestone-4-storage-integrity.md	`contract-m44-attempt1-compile-failed/compile.txt`	evidence-m44/contract-m44-attempt1-compile-failed/compile.txt	2 errors
+docs/milestone-4-storage-integrity.md	`PathHandle` and `VectoredRead` are parameterized tests whose constructors take arguments	evidence-m44/contract-m44-attempt1-compile-failed/compile.txt	required: String,HandleOpt[],boolean
+docs/milestone-4-storage-integrity.md	`PathHandle` and `VectoredRead` are parameterized tests whose constructors take arguments	evidence-m44/contract-m44-attempt1-compile-failed/compile.txt	AbstractContractVectoredReadTest
+docs/milestone-4-storage-integrity.md	| `evidence-m44.tar.gz` | 31 | `5abecb377dfc` |	evidence-m44.tar.gz.sha256	5abecb377dfc
+docs/milestone-4-storage-integrity.md	| `evidence-m44.tar.gz` | 31 | `5abecb377dfc` |	lines:evidence-m44/SHA256SUMS.txt	31
+docs/milestone-4-storage-integrity.md	`m44b-expected.sha` (33 lines)	lines:evidence-m44/m44b-expected.sha	33
+docs/milestone-4-storage-integrity.md	Commits: `26da09f1c` (the wrapper fix) and `e72d1ed05` (the tests).	@git-log	26da09f
+docs/milestone-4-storage-integrity.md	Commits: `26da09f1c` (the wrapper fix) and `e72d1ed05` (the tests).	@git-log	e72d1ed
+docs/milestone-4-storage-integrity.md	The wrapper fix, `26da09f1c` (4 files):	@git-files:26da09f	4
+docs/milestone-4-storage-integrity.md	The contract tests, `e72d1ed05` (22 files):	@git-files:e72d1ed	22
+docs/milestone-4-storage-integrity.md	`createFile` and `appendFile` return builders that call the wrapper's own `create` and `append`	@repo:src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	createDataOutputStreamBuilder(this, path).create().overwrite(true)
+docs/milestone-4-storage-integrity.md	`createFile` and `appendFile` return builders that call the wrapper's own `create` and `append`	@repo:src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	createDataOutputStreamBuilder(this, path).append()
+docs/milestone-4-storage-integrity.md	The streams pass on the real stream's I/O statistics	@repo:src/java/org/apache/nutch/attested/HashingOutputStream.java	IOStatisticsSource
+docs/milestone-4-storage-integrity.md	The streams pass on the real stream's I/O statistics	@repo:src/java/org/apache/nutch/attested/VerifyingInputStream.java	IOStatisticsSource
+docs/milestone-4-storage-integrity.md	The input stream supports `unbuffer` and reports that capability	@repo:src/java/org/apache/nutch/attested/VerifyingInputStream.java	CanUnbuffer
+docs/milestone-4-storage-integrity.md	`/user/rishabsdp17/contract-tests-m44`	@repo:ops/attested/contract-tests.sh	contract-tests-m44
+docs/milestone-4-storage-integrity.md	(an absolute path of at least three parts whose last part contains "contract-tests")	@repo:ops/attested/contract/AttestedHdfsContract.java	parts[parts.length - 1].contains("contract-tests")
+docs/milestone-4-storage-integrity.md	the root-directory option is off in the options file	@repo:ops/attested/contract/resources/contract/attested-hdfs.xml	re:root-tests-enabled</name>\s*<value>false
+docs/cluster-configuration.md	`/user/rishabsdp17/contract-tests-m44`	@repo:ops/attested/contract-tests.sh	contract-tests-m44
+docs/cluster-configuration.md	`dea47c6d41729bef` (the fixed wrapper, saved as `job-m44.job`)	evidence-m44/job-fingerprints.txt	new job:   dea47c6d41729bef
+docs/milestone-4-storage-integrity.md	| `ops/attested/AttestedFsSmoke.java` | `bcc72cbd53fbfd6b` |	zip-sha:evidence-m44/m44b-files.zip#m44b/ops/attested/AttestedFsSmoke.java	bcc72cbd53fbfd6b
+docs/milestone-4-storage-integrity.md	| `ops/attested/contract-tests.sh` | `c4587c9a9667276f` |	zip-sha:evidence-m44/m44b-files.zip#m44b/ops/attested/contract-tests.sh	c4587c9a9667276f
+docs/milestone-4-storage-integrity.md	| `ops/attested/contract/AttestedHdfsContract.java` | `68a4f5f667c9d832` |	zip-sha:evidence-m44/m44b-files.zip#m44b/ops/attested/contract/AttestedHdfsContract.java	68a4f5f667c9d832
+docs/milestone-4-storage-integrity.md	| `ops/attested/contract/ContractRunner.java` | `a09e4385c1f268af` |	zip-sha:evidence-m44/m44b-files.zip#m44b/ops/attested/contract/ContractRunner.java	a09e4385c1f268af
+docs/milestone-4-storage-integrity.md	| `ops/attested/contract/TestAttestedContractAppend.java` | `6863e125eb893c7d` |	zip-sha:evidence-m44/m44b-files.zip#m44b/ops/attested/contract/TestAttestedContractAppend.java	6863e125eb893c7d
+docs/milestone-4-storage-integrity.md	| `ops/attested/contract/TestAttestedContractConcat.java` | `e1f72836f57a3cff` |	zip-sha:evidence-m44/m44b-files.zip#m44b/ops/attested/contract/TestAttestedContractConcat.java	e1f72836f57a3cff
+docs/milestone-4-storage-integrity.md	| `ops/attested/contract/TestAttestedContractContentSummary.java` | `c8c3a197ece421ec` |	zip-sha:evidence-m44/m44b-files.zip#m44b/ops/attested/contract/TestAttestedContractContentSummary.java	c8c3a197ece421ec
+docs/milestone-4-storage-integrity.md	| `ops/attested/contract/TestAttestedContractCopyFromLocal.java` | `f61e3655e4935f88` |	zip-sha:evidence-m44/m44b-files.zip#m44b/ops/attested/contract/TestAttestedContractCopyFromLocal.java	f61e3655e4935f88
+docs/milestone-4-storage-integrity.md	| `ops/attested/contract/TestAttestedContractCreate.java` | `b36c6d4d6541c37e` |	zip-sha:evidence-m44/m44b-files.zip#m44b/ops/attested/contract/TestAttestedContractCreate.java	b36c6d4d6541c37e
+docs/milestone-4-storage-integrity.md	| `ops/attested/contract/TestAttestedContractDelete.java` | `9782dfe16bd60da8` |	zip-sha:evidence-m44/m44b-files.zip#m44b/ops/attested/contract/TestAttestedContractDelete.java	9782dfe16bd60da8
+docs/milestone-4-storage-integrity.md	| `ops/attested/contract/TestAttestedContractEtag.java` | `d6ed42710b7e6b88` |	zip-sha:evidence-m44/m44b-files.zip#m44b/ops/attested/contract/TestAttestedContractEtag.java	d6ed42710b7e6b88
+docs/milestone-4-storage-integrity.md	| `ops/attested/contract/TestAttestedContractGetFileStatus.java` | `2b85d8a2f4b2629b` |	zip-sha:evidence-m44/m44b-files.zip#m44b/ops/attested/contract/TestAttestedContractGetFileStatus.java	2b85d8a2f4b2629b
+docs/milestone-4-storage-integrity.md	| `ops/attested/contract/TestAttestedContractMkdir.java` | `b582856745cdf0bd` |	zip-sha:evidence-m44/m44b-files.zip#m44b/ops/attested/contract/TestAttestedContractMkdir.java	b582856745cdf0bd
+docs/milestone-4-storage-integrity.md	| `ops/attested/contract/TestAttestedContractOpen.java` | `e8a1e67c496e9265` |	zip-sha:evidence-m44/m44b-files.zip#m44b/ops/attested/contract/TestAttestedContractOpen.java	e8a1e67c496e9265
+docs/milestone-4-storage-integrity.md	| `ops/attested/contract/TestAttestedContractPathHandle.java` | `f043645c33171ab9` |	zip-sha:evidence-m44/m44b-files.zip#m44b/ops/attested/contract/TestAttestedContractPathHandle.java	f043645c33171ab9
+docs/milestone-4-storage-integrity.md	| `ops/attested/contract/TestAttestedContractRename.java` | `579fd8cd486ce0f1` |	zip-sha:evidence-m44/m44b-files.zip#m44b/ops/attested/contract/TestAttestedContractRename.java	579fd8cd486ce0f1
+docs/milestone-4-storage-integrity.md	| `ops/attested/contract/TestAttestedContractSeek.java` | `bd33f1e6e38a5fd4` |	zip-sha:evidence-m44/m44b-files.zip#m44b/ops/attested/contract/TestAttestedContractSeek.java	bd33f1e6e38a5fd4
+docs/milestone-4-storage-integrity.md	| `ops/attested/contract/TestAttestedContractSetTimes.java` | `5d0b8138022c9d6f` |	zip-sha:evidence-m44/m44b-files.zip#m44b/ops/attested/contract/TestAttestedContractSetTimes.java	5d0b8138022c9d6f
+docs/milestone-4-storage-integrity.md	| `ops/attested/contract/TestAttestedContractStreamIOStatistics.java` | `b50249324f1e2b28` |	zip-sha:evidence-m44/m44b-files.zip#m44b/ops/attested/contract/TestAttestedContractStreamIOStatistics.java	b50249324f1e2b28
+docs/milestone-4-storage-integrity.md	| `ops/attested/contract/TestAttestedContractUnbuffer.java` | `f90fa403e5024cba` |	zip-sha:evidence-m44/m44b-files.zip#m44b/ops/attested/contract/TestAttestedContractUnbuffer.java	f90fa403e5024cba
+docs/milestone-4-storage-integrity.md	| `ops/attested/contract/TestAttestedContractVectoredRead.java` | `0c0696ae5fa9ff99` |	zip-sha:evidence-m44/m44b-files.zip#m44b/ops/attested/contract/TestAttestedContractVectoredRead.java	0c0696ae5fa9ff99
+docs/milestone-4-storage-integrity.md	| `ops/attested/contract/resources/contract/attested-hdfs.xml` | `03c92bead0302ba9` |	zip-sha:evidence-m44/m44b-files.zip#m44b/ops/attested/contract/resources/contract/attested-hdfs.xml	03c92bead0302ba9
+docs/milestone-4-storage-integrity.md	| `ops/attested/contract_compare.py` | `ece2afb1263e910b` |	zip-sha:evidence-m44/m44b-files.zip#m44b/ops/attested/contract_compare.py	ece2afb1263e910b
+docs/milestone-4-storage-integrity.md	| `src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java` | `3e7bcb81ad26467d` |	zip-sha:evidence-m44/m44b-files.zip#m44b/src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	3e7bcb81ad26467d
+docs/milestone-4-storage-integrity.md	| `src/java/org/apache/nutch/attested/HashingOutputStream.java` | `94de417078879f14` |	zip-sha:evidence-m44/m44b-files.zip#m44b/src/java/org/apache/nutch/attested/HashingOutputStream.java	94de417078879f14
+docs/milestone-4-storage-integrity.md	| `src/java/org/apache/nutch/attested/VerifyingInputStream.java` | `45e938a63ae7e1ab` |	zip-sha:evidence-m44/m44b-files.zip#m44b/src/java/org/apache/nutch/attested/VerifyingInputStream.java	45e938a63ae7e1ab
