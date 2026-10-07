@@ -26,6 +26,10 @@ Times are UTC.
 | 018 | The storage audit is the proof that the wrapper was used | Accepted |
 | 019 | Build and test in scratch folders; commit exactly what ran | Accepted |
 | 020 | Defer the re-measurement until the job next changes | Accepted (mentor confirmation asked) |
+| 021 | Keep each file's record next to the file | Accepted (mentor confirmation asked) |
+| 022 | Records come from the wrapper when a file is closed, not from the commit hook | Accepted (mentor question 13 open) |
+| 023 | A file without a record is allowed but logged, for now | Accepted (provisional) |
+| 024 | Naming, the commit gate, and checking assumptions against real samples | Accepted |
 
 ---
 
@@ -179,3 +183,35 @@ Times are UTC.
 - **Decision:** do not reboot now. Re-measure, from a clean boot, when the job next changes; the next milestone changes it. Until then, record that run 6 is not covered by the chain and keep running `check-unchanged.sh` to show the measured tree is intact.
 - **Why:** a measurement now would cover a state that is about to be replaced, at the price of a reboot's risks; the Gate A measurement item already passed in Milestone 1.
 - **Consequences:** run 6 is not in the chain, and the documents say so. The next measurement points `NUTCH_DIR` at the build folder that holds the hashing layer.
+
+## ADR-021: Keep each file's record next to the file
+
+- **Date:** 7 October 2026. **Status:** accepted by the author and the maintainer; the mentor is asked to confirm.
+- **Context:** verifying a read needs the file's record at read time, on any machine, and the record must survive the renames Hadoop performs while committing output. There is no ledger and no signing yet (Stage C).
+- **Decision:** a hidden companion file `.NAME.attested` in the same folder, written when the file is closed (format `ATTEST01`: length, chunk size, the hash of every chunk and the Merkle root). The wrapper moves it when the file is renamed (a renamed folder carries it along), deletes it with the file, drops it when the file is appended to, truncated or concatenated, and hides it from its own listings.
+- **Why:** it is the pattern of Hadoop's own `.NAME.crc` files; it follows renames without a central index; any machine can read it. Alternatives were a central record store (it needs a rename-aware index, and the Stage C ledger will hold the hashes anyway) and records only in local logs (other machines cannot read them).
+- **Consequences:** plain HDFS tools list the companion files. Until records are signed, rewriting a file and its record together is accepted (a test states this). If the mentor prefers another store, the read and write code of `AttestedSidecar` is what changes; the format is versioned so that signing adds fields.
+
+## ADR-022: Records come from the wrapper when a file is closed, not from the commit hook
+
+- **Date:** 7 October 2026. **Status:** accepted by the author; to be put to the mentor as question 13 (not asked yet).
+- **Context:** the handoff has the task's output committer sign the record. Step 4.1 found that Nutch's fetch, parse and WARC outputs are written directly to their final path, and that the parse output creates its own committer, so the committer hook set by configuration does not see every file.
+- **Decision:** the wrapper makes a record for every file when it is closed, tagged with host, process, job id and the task attempt id read from the task's configuration. The committer stays an optional extra for manifests.
+- **Why:** the wrapper is the one place that sees every file, whatever output format wrote it.
+- **Consequences:** a file whose writer is killed before closing it has no record; the completeness of a job's outputs (step 4.7) has to come from the per-attempt records and Hadoop's counters. If the mentor wants the committer as the main source, a custom committer is needed for the parse output (medium effort), and the wrapper's records can stay as a second line of defence.
+
+## ADR-023: A file without a record is allowed but logged, for now
+
+- **Date:** 7 October 2026. **Status:** accepted (provisional).
+- **Context:** some data is put into HDFS by the command-line client (the seed file), which does not use the wrapper; the crawl has to run, and the first goal is to find which paths lack a record.
+- **Decision:** the setting `attested.verify.missing` defaults to `warn`: the open is logged as `verify=missing` and the file is read unverified. The verification summary lists such reads, and each use of its allow list needs a stated reason (run 8: the seed folder). The default becomes `fail` when every writer goes through the wrapper.
+- **Why:** it keeps runs going while the gaps are found, and every gap is visible.
+- **Consequences:** until the default is `fail`, a file that has no record, or whose companion file was removed with plain tools, is read unverified; the summary shows it.
+
+## ADR-024: Naming, the commit gate, and checking assumptions against real samples
+
+- **Date:** 7 October 2026. **Status:** accepted.
+- **Context:** the working labels B0 to B5 confused the author; a tamper demo and several expected values were wrong because they were written from assumptions about other tools' output and tested with stand-ins built from the same assumptions; code and documents must match what actually ran.
+- **Decision:** (1) names are Milestone N and Step N.k with a descriptive title, runs are numbered, and the handoff's item numbers stay as references. (2) A commit gate: committed programs and scripts are checked identical, by fingerprint, to the files that ran, on the cluster, on the laptop and in a fresh clone from GitHub; on any difference the commit and push are aborted. The documents are checked against the procedure followed and against the evidence (`docs_facts_check.py`). (3) Before a check depends on another tool's real output, a read-only sample of that output is read; proofs rely on what our own code writes (audit lines, records).
+- **Why:** unverified assumptions cost hours of repeated steps on 7 October.
+- **Consequences:** a little slower per step and much fewer repeats; each milestone has a facts file that ties the documents' numbers to the evidence.

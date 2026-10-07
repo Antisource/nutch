@@ -27,6 +27,11 @@ resolved, which instructions turned out to be wrong, and why the key decisions w
     (India Standard Time, UTC+5:30). Convert before writing "UTC".
 13. **Keep test artefacts in a named folder**, not `/tmp`, which is cleared when a VM restarts.
 
+14. **Read a real sample before writing a check that depends on another tool's output.** Run one read-only command, look at what it prints, then write the check. (The first tamper demo looked for an error text that the client never prints, and assumed `hdfs dfs -ls` prints absolute paths.)
+15. **Do not test a check only against stand-ins you wrote from the same assumption.** Such a test cannot find the assumption. Prefer evidence that our own code writes (audit lines, records), and run the check on real logs.
+16. **Move files in one pack, with a printed fingerprint, and verify it on arrival.** Look at the unpacked folder (`pwd`, `ls`) before running anything from it. Several browser downloads in a row lost files; a small web server in Cloud Shell (`python3 -m http.server 8080`, opened through Web Preview) worked.
+17. **Commit gate and documents.** Before any commit, check that the files are identical (by fingerprint) to the files that ran, in the cluster folders, on the laptop and in a fresh clone; abort on any difference. Write the documents after the code ran, from a fresh copy of the branch, and check their numbers against the evidence (`docs_facts_check.py`).
+
 ## 2. Mistake log
 
 | # | Where | What happened | Cause | Resolution | Prevention |
@@ -76,6 +81,15 @@ resolved, which instructions turned out to be wrong, and why the key decisions w
 | 43 | Predictions | Two guesses were wrong: that HDFS byte counters might read zero through the wrapper (they read normally), and that a live site "changes on every fetch" (it changes when it is redeployed; runs 3 to 5 were identical) | Explaining a difference before testing it | Settled by counting the counters, by the control runs, and by the page's own deployment identifier | Run a control before explaining a difference; compare live pages only with a contemporaneous control or on static pages |
 | 44 | Comparison | A comparison of the crawl database statistics reported every line as different because the log timestamps were part of the compared text | Timestamps in compared output | Timestamps stripped | Strip timestamps and ids before diffing logs |
 | 45 | Build | A job built from a clean clone lacked a file that the measured job has (the untracked `conf/effective_tld_names.dat`) | The measured tree is not a clean checkout | Found by comparing the two job files entry by entry; the file was copied into the clone | Compare job files entry by entry before comparing crawls |
+| 46 | Master | The copy meant to keep run 6's job file was already the rebuilt job, so run 6's job bytes are lost | The command copied to a fixed name with no guard, and the build step had probably run twice (not verified) | The fingerprint (`ddc415a5d87c9e6b`), the entry count and the comparison outputs remain; later jobs are compared with the measured run 5 job; the copy is kept under a clear name | Use `cp -n` and check the fingerprint before copying; keep each run's job under its own name |
+| 47 | Master | `chmod` and the build script failed with "No such file" | The zip unpacked into an extra top folder (`m4b1/`) | Changed into the inner folder; the 15 fingerprints had matched | `pwd` and `ls` after unpacking; the instructions name the folder (rule 16) |
+| 48 | Laptop | Four downloads in a row: only the last file arrived; later the Cloud Shell download button produced nothing | The browser accepted one automatic download and dropped the rest (inference) | One pack with a printed fingerprint, served with `python3 -m http.server 8080` and Web Preview | Rule 16 |
+| 49 | Laptop | The verify script printed "PACK MISMATCH" when the file was only missing | It treated any non-match, including an empty hash, as a mismatch | The script now says "FILE NOT FOUND" separately | A script must name the real failure |
+| 50 | Predictions | Several expected values were wrong: 44 task logs instead of 22 (run 7's logs were still kept), 56 applications instead of 54, and "18 WARC files" (there are 9 WARC and 9 index files, 18 data files) | Expected values were stated before a real sample was read | Counted again, restricted to the right applications; the folder listing was read | Rule 14 |
+| 51 | Tests | The first tamper demo printed `FAIL` although the wrapper had refused the changed file; its path label also showed a relative path | The script looked for the error text in the client's console, where it is never printed, and assumed `hdfs dfs -ls` prints absolute paths; its stand-in tests were written from the same assumptions | The reason was proved from the worker's audit log with `tamper_verify.py`; the demo was rerun with a fixed script; the label flaw is documented, not fixed in the committed script | Rules 14 and 15 |
+| 52 | Tests | A check for carriage returns flagged two files | The shell used did not interpret `$'\r'`, so the pattern matched the text `$r` | A byte-level check found no carriage returns | Check for bytes with a program, not with a shell pattern |
+| 53 | Process | A design draft was written before the code the author wanted | Documents were written ahead of the build | The draft was kept uncommitted and the build was done first | Code first; documents after, each with a gate (rule 17) |
+| 54 | Documents | A local copy of the repository used as the base for these documents lacked the latest documents commit (ADR-020) | The copy had been fetched earlier and was not refreshed | A fresh clone of the branch head was used | Refresh before editing (rule 17) |
 
 ## 3. Corrections to earlier working instructions
 
@@ -189,10 +203,10 @@ Decisions from 5 October 2026 onward are kept in [decisions.md](decisions.md). T
 | Capture run 2 file sizes | Open |
 | RTMR3 extension and measurement of the stack | **Done** 5 to 6 October for both nodes ([milestone-1-code-measurement.md](milestone-1-code-measurement.md)) |
 | Encrypt and authenticate node-to-node traffic | **Partly done** 6 October: WireGuard mesh and host firewall ([milestone-2-wireguard-mesh.md](milestone-2-wireguard-mesh.md)). Not done: a real third-machine test, IPv6, persistence across reboot, attested peer admission |
-| Re-measure after a reboot (run 6's job and the new scripts are outside the measured set) | Open: deferred until the job next changes (ADR-020) |
+| Re-measure after a reboot (the jobs of runs 6 to 8 and the new scripts are outside the measured set) | Deferred (ADR-020): at the end of Milestone 4 (step 4.8), with the firewall rules saved first; one new crawl on measured code follows |
 | Make the job reproducible from a clean checkout (`conf/effective_tld_names.dat` is untracked) | Open |
-| Chunk hashing on write, verification on read, metadata from records (handoff Stage B) | Open: the next milestone |
+| Chunk hashing on write, verification on read, metadata from records (handoff Stage B) | **Partly done** 7 October (Milestone 4, steps 4.2 and 4.3): hashing at close and verified reads ([milestone-4-storage-integrity.md](milestone-4-storage-integrity.md)). Open: metadata from records (step 4.5), task records and manifests (step 4.7) |
 | The NodeManager reads the job file through plain HDFS | Open: decide how to cover it (handoff Stage B, item 6) |
 | An independent audit of reads, from the NameNode's own audit log | Open |
-| Hadoop's file-system contract tests against the wrapper | Not done (planned for Option A only) |
+| Hadoop's file-system contract tests against the wrapper | Open: Milestone 4, step 4.4 (the wrapper replaced Option A) |
 | Larger worker disk | Open: about 5.4 GB usable by HDFS limits scale |

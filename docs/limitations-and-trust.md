@@ -98,6 +98,31 @@ Details: [milestone-3-hdfs-wrapper.md](milestone-3-hdfs-wrapper.md), [decisions.
 | 23 | Unchanged: the job file and the new classes are not covered by a measurement yet; re-measurement (which needs a reboot) is deferred until the job next changes (ADR-020) | milestone-3 §12 |
 | 39 to 44 | New rows (table C below) | this section |
 
+## Update, 7 October 2026 (after Milestone 4, steps 4.1 to 4.3)
+
+Details: [milestone-4-storage-integrity.md](milestone-4-storage-integrity.md), [decisions.md](decisions.md) (ADR-021 to ADR-024).
+
+- **Now shown.**
+  - Every file written through the wrapper in runs 7 and 8 is hashed when it is closed (SHA-256 per 16,384-byte chunk, Merkle root). In both runs 54 of 54 files left under the crawl folder have a matching record, and an independent program that re-reads the real files agrees on all 54.
+  - Since run 8 a record is kept next to each file and every read through the wrapper is checked against it: 156 of 157 opens were verified, with 0 failures. The one unverified read is the seed file put there by the command-line client.
+  - A one-byte change made with the plain HDFS client to a real crawl data file makes the next job that reads it fail, with a `VERIFY-FAIL` line in the worker's audit log; with the original bytes put back the job succeeds again.
+  - The storage audit stayed clean (322 paths added in run 8, all explained).
+- **Still not shown.**
+  - Records are not signed: a file and its record rewritten together pass.
+  - Length, existence and listings still come from storage.
+  - There are no task records or job manifests; the job file is not checked at task start; the NodeManager still reads it through plain HDFS.
+  - `copyToLocalFile`, opening by path handle and unwrapped programs are not verified; a file created through the builder API would not be hashed (none occurred).
+  - Runs 6 to 8 are not covered by the measurement; one new crawl on measured code is needed after the re-measurement.
+  - One file and one kind of change were tampered with on the cluster.
+
+| Row | What changed | Where |
+|---|---|---|
+| 44 | Partly addressed: hashing at close and verified reads exist; signing, metadata from records and manifests do not | milestone-4 §6, §10, §13 |
+| 41 | Partly addressed for reads through the wrapper: each OPEN line of the audit now says how the read was verified. Reads by unwrapped programs and same-size changes outside the wrapper are still outside | milestone-4 §10 |
+| 23 | Unchanged: runs 6 to 8 are not covered by the measurement (ADR-020) | milestone-4 §13 |
+| 26 | Unchanged: records and outputs are not signed | milestone-4 §13 |
+| 45 to 52 | New rows (table C below) | this section |
+
 ## Evidence legend (first-party, "our runs")
 
 | Code | What it shows | Repo documents |
@@ -169,7 +194,15 @@ Details: [milestone-3-hdfs-wrapper.md](milestone-3-hdfs-wrapper.md), [decisions.
 | 41 | The audit does not cover reads, a change that keeps size and modification time, or files created and deleted between the two listings | Medium | Add an independent source (the NameNode's own audit log); record sizes in the wrapper's log | New | Tool tested with planted faults; run 6 clean. our runs [milestone-3-hdfs-wrapper.md §10] | Our tests |
 | 42 | The wrapper's log and the before and after listings are plain files on the provider's machines | High (author judgement) | In the final design the records are signed inside the TD and the ledger is witnessed (handoff Stage C) | New | Logs in `/tmp/attested-audit` on each node. our runs [milestone-3-hdfs-wrapper.md §12] | By design |
 | 43 | The measured job cannot be rebuilt from a clean checkout: an untracked file, `conf/effective_tld_names.dat`, enters it | Medium | Track the file or generate it deterministically; build the image from a clean checkout | New | Job comparison: 1029 against 1032 entries before the file was copied. our runs [milestone-3-hdfs-wrapper.md §8] | Our runs |
-| 44 | Nothing yet protects storage integrity: the wrapper forwards and logs but does not hash or verify | Expected at this stage | Handoff Stage B, items 4 to 6 | Known | By scope. our runs [milestone-3-hdfs-wrapper.md §12] | By design |
+| 44 | Storage integrity is only partly protected: files are hashed at close and every read is checked against a record (Milestone 4, steps 4.2 and 4.3), but records are not signed, metadata still comes from storage and there are no task records or manifests | Medium (author judgement) | Handoff Stage B, items 4 to 6 (steps 4.4 to 4.7 remain), then signing (Stage C) | Partly addressed, 7 October 2026 | Runs 7 and 8 and the tamper test. our runs [milestone-4-storage-integrity.md §9 to §11, §13] | Handoff section 6 |
+| 45 | Records are not signed: a file and its record rewritten together pass the check | High (author judgement) | Sign each record inside the TD with a quote-bound key and anchor the roots in a witnessed log (handoff Stage C) | New | Stated as a test (a known limit); not tried on the cluster. our runs [milestone-4-storage-integrity.md §13] | Inference from our runs |
+| 46 | Some read paths are not verified: `copyToLocalFile` (marked `verify=bypassed`), opening by path handle, and every program that does not use the wrapper | Medium | Route `copyToLocalFile` through the verifying open; refuse plain access to crawl data; audit reads from the NameNode's own log | New | `copyToLocalFile` was not used in run 8 (no bypassed read). our runs [milestone-4-storage-integrity.md §10, §13] | Our runs |
+| 47 | Files created through the builder API (`createFile`) are not hashed, so they get no record | Medium | Implement the builder through the wrapper's create; the records check already reports such files | New | None in runs 7 and 8: every kept file has a record and a companion file. our runs [milestone-4-storage-integrity.md §10] | Our runs |
+| 48 | A file without a record is read with a warning; a file whose writer was killed before closing it has none | Medium | Set `attested.verify.missing=fail` once every writer goes through the wrapper | New | Run 8: 1 of 157 opens (the seed file, on the allow list). our runs [milestone-4-storage-integrity.md §10] | Our runs |
+| 49 | Metadata (length, existence, listings) still comes from storage: an operator can still hide or add files that no read touches | High (author judgement) | Step 4.5: answer metadata from records; step 4.7: job manifests | Known | The length is compared with the record at open, so a shortened or lengthened file that is read fails. our runs [milestone-4-storage-integrity.md §13] | Handoff section 6, piece 3 |
+| 50 | Companion files are visible to plain HDFS tools and to consumers that list directories without skipping hidden files | Low | Document it; consumers skip names that start with a dot, as Hadoop's input formats do | New | The command-line wildcard fetch copied them (18 hidden files with 18 data files). our runs [milestone-4-storage-integrity.md §10] | Our runs |
+| 51 | The hasher keeps every chunk's hash while a file is written (32 bytes per chunk) | Low at this scale | A larger chunk size for large files; a streaming record format | New | Calculated, not measured: the 134.8 MB job file is about 8,227 chunks, 263 KB of hashes. our runs [milestone-4-storage-integrity.md §12] | Inference from our runs |
+| 52 | The cost of verification was measured once: 10 min 57 s against 10 min 43 s; CPU use was not measured | Low | Repeat with and without verification; measure CPU per GB (handoff item 12) | New | Runs 6 to 8. our runs [milestone-4-storage-integrity.md §12] | Our runs |
 
 ### D. Host, availability and platform
 
@@ -327,7 +360,7 @@ GCP `c3-standard` uses Sapphire Rapids. The 2026 Google/Intel review also left "
 7. Simulate host maintenance and compare MRTD and RTMRs after restart.
 8. Sign the evidence bundle inside the TD before export.
 9. Done on 3 October 2026 (see [quote-verification.md](quote-verification.md) section 6): `td_attributes` is all zeros and `tee_tcb_svn` shows minor SVN 0x0F in all four quotes. Still open: why `td_attributes` differs from Google's example value 0x10000000, and recording the TCB status string the verifier reports.
-10. Pass-through file layer in front of HDFS (handoff Gate A, item 2). **Done 6 October 2026** (Milestone 3): the wrapper behind `hdfs://` (both lookups, the real client built directly), a full crawl through it (run 6), and a clean storage audit. Next: chunk hashing on write and verification on read, metadata from records, and the job file checked at load (handoff Stage B).
+10. Pass-through file layer in front of HDFS (handoff Gate A, item 2). **Done 6 October 2026** (Milestone 3): the wrapper behind `hdfs://` (both lookups, the real client built directly), a full crawl through it (run 6), and a clean storage audit. Then **partly done 7 October 2026** (Milestone 4, steps 4.2 and 4.3): chunk hashing at close and verified reads (runs 7 and 8) and a tamper test. Next: contract tests, metadata from records, the job file checked at task start, and task records and manifests (steps 4.4 to 4.7).
 
 ## Verification status
 

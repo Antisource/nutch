@@ -234,3 +234,18 @@ How a wrapped crawl is run (every step is a script in `ops/attested/`, `ops/run-
 
 Undo: run the original `ops/run-crawl.sh` (no wrapper); remove `/tmp/attested-audit` and `/tmp/attested-audit-old` on each node.
 Report: [milestone-3-hdfs-wrapper.md](milestone-3-hdfs-wrapper.md).
+
+## 12. Storage records after Milestone 4 (7 October 2026)
+
+| Item | Value |
+|---|---|
+| Settings (defaults are in the code, so `ops/run-crawl-attested.sh` is unchanged) | `attested.hash.enabled` (true), `attested.hash.chunk.size` (16384), `attested.sidecar.enabled` (true), `attested.verify.reads` (true), `attested.verify.missing` (warn), `attested.records.dir` (`/tmp/attested-records`) |
+| Record logs | `/tmp/attested-records/<host>-<pid>-<start>.tsv` on each node, one per JVM; old logs are moved aside by `ATTESTED_AUDIT_DIR=/tmp/attested-records audit.sh rotate` to `/tmp/attested-records-old/<time>/` |
+| Companion files | hidden files `.NAME.attested` beside every file written through the wrapper; plain HDFS tools list them, the wrapper's listings hide them; Hadoop's input formats skip names that start with a dot |
+| Audit log | each OPEN line ends with `verify=ok`, `verify=missing`, `verify=skipped`, `verify=off` or `verify=bypassed`; a refused read writes `VERIFY-FAIL`; the start-up line shows the settings |
+| Build and test folders (not measured) | `~/m3-build` (the build clone, kept under its Milestone 3 name), `~/m4-b1` and `~/m4-b2` (unpacked test zips); jobs `8fdd7cdadd6a7e11` (run 7) and `a092d5fab91d4b73` (run 8), saved as `job-run7.job` and `job-run8.job` in `~/evidence-m3` |
+| Not covered | as in section 11, and `copyToLocalFile` and opening by path handle are not verified |
+
+How a verified crawl is run: section 15 of [milestone-4-storage-integrity.md](milestone-4-storage-integrity.md).
+
+Undo: pass `-D attested.verify.reads=false -D attested.sidecar.enabled=false -D attested.hash.enabled=false`, or run the original `ops/run-crawl.sh`; remove `/tmp/attested-records` and `/tmp/attested-records-old` on each node. Companion files already in HDFS can stay (Hadoop's input formats ignore them) or be removed with `hdfs dfs -rm`.

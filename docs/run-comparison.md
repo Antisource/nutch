@@ -22,6 +22,8 @@ Runs 3 and 4 (5 October 2026) are compared with run 2 in section 9, run 5 (6 Oct
 - [9. Runs 3 and 4 (added 6 October 2026)](#9-runs-3-and-4-added-6-october-2026)
   - [9.1 Run 5 over the mesh (added 6 October 2026)](#91-run-5-over-the-mesh-added-6-october-2026)
   - [9.2 Run 6 through the hdfs:// wrapper (added 6 October 2026)](#92-run-6-through-the-hdfs-wrapper-added-6-october-2026)
+  - [9.3 Run 7 with hashing (added 7 October 2026)](#93-run-7-with-hashing-added-7-october-2026)
+  - [9.4 Run 8 with verified reads (added 7 October 2026)](#94-run-8-with-verified-reads-added-7-october-2026)
 
 ## 1. Side by side
 
@@ -219,3 +221,45 @@ Run 6 repeats the crawl of run 5 with every HDFS request of the Nutch jobs going
 - The new page has two more links that are not build assets (`/mcp/`, `/skills-and-plugins/`), which matches the two extra URLs in count; they were not traced individually.
 
 What it shows: routing the crawl's storage requests through the wrapper did not change what the crawler fetched or how it counted it; the one difference comes from the website. What it does not show: a contemporaneous unwrapped run was not done, so the explanation rests on the control runs and the page's own evidence; and the same limits as sections 6 and 9 apply.
+
+### 9.3 Run 7 with hashing (added 7 October 2026)
+
+Run 7 repeats the crawl of run 6 with every file written through the wrapper also hashed when it is closed (observe only; nothing is verified). Report: [milestone-4-storage-integrity.md](milestone-4-storage-integrity.md), section 9.
+
+| Item | Run 6 | Run 7 |
+|---|---|---|
+| Date and duration | 6 Oct, 13:41:59 to 13:52:41 (10 min 42 s) | 7 Oct, 07:25:08 to 07:35:51 (10 min 43 s) |
+| What the wrapper does | forwards and logs | forwards, logs, and hashes every file at close (SHA-256 per 16,384-byte chunk, Merkle root) |
+| Job file | `ddc415a5d87c9e6b`, 1033 entries | `8fdd7cdadd6a7e11`, 1036 entries; against the measured run 5 job: 7 more entries (the wrapper's folder and six classes), nothing else differs |
+| Pages fetched | 8 | the same 8 URLs (`SAME-PAGES`) |
+| Page content (payload fingerprints) | | 7 of 8 identical; `www.zyte.com` differs |
+| Crawl database (total, unfetched, fetched, redirects) | 259, 249, 8, 2 | 259, 249, 8, 2 |
+| Plugin lines in the master's log | okhttp 19, old 0 | okhttp 19, old 0 |
+| Worker task logs | 22 list okhttp, 0 the old plugin | 22 and 0 |
+| Storage audit | `AUDIT-CLEAN` (963 to 1150 paths) | `AUDIT-CLEAN` (1182 to 1369 paths) |
+| Records | none | 54 of 54 files left under the crawl folder have a matching record; an independent re-hash agrees on all 54 |
+| Evidence | `evidence-run6.tar.gz`, `evidence-run6-audit.tar.gz` | `evidence-run7.tar.gz`, `evidence-run7-audit.tar.gz` |
+
+**The one different page.** `www.zyte.com` again has a new content fingerprint (run 6 `sha1:N6BMXVA...`, run 7 `sha1:Z4NYZYD...`). Its deployment identifier changed from `dpl_6K3MMTWXqBLaBfG2FGJjgYif2oA4` (fetched 6 Oct 13:50:01) to `dpl_J25tWhywpx6QetrVxFP7wgdX7PPC` (fetched 7 Oct 07:33:11), and the live site at 07:55 served the newer one. The page's links, apart from build assets, are the same. What it shows: hashing every written file did not change what the crawler fetched or how it counted it; the difference comes from the website. Not repeated for this run: the `WARC-IP-Address` check and the HDFS byte counters.
+
+### 9.4 Run 8 with verified reads (added 7 October 2026)
+
+Run 8 repeats the crawl with a record kept next to each file and every read checked against it. Report: [milestone-4-storage-integrity.md](milestone-4-storage-integrity.md), section 10.
+
+| Item | Run 7 | Run 8 |
+|---|---|---|
+| Date and duration | 7 Oct, 07:25:08 to 07:35:51 (10 min 43 s) | 7 Oct, 09:16:02 to 09:26:59 (10 min 57 s) |
+| What the wrapper does | forwards, logs, hashes at close | the same, keeps a companion record next to each file, and verifies every read against it |
+| Job file | `8fdd7cdadd6a7e11`, 1036 entries | `a092d5fab91d4b73`, 1041 entries; five new classes and three changed classes, nothing else differs |
+| Pages fetched | 8 | the same 8 URLs (`SAME-PAGES`) |
+| Data files fetched for the evidence | 18 | 18, each with a hidden companion file |
+| Page content (payload fingerprints) | | 7 of 8 identical; `www.zyte.com` differs |
+| Crawl database (total, unfetched, fetched, redirects) | 259, 249, 8, 2 | 259, 249, 8, 2 |
+| Plugin lines in the master's log | okhttp 19, old 0 | okhttp 19, old 0 |
+| Worker task logs (the 27 applications of the run) | 22 and 0 | 22 list okhttp, 0 the old plugin, 0 a verification failure |
+| Storage audit | `AUDIT-CLEAN` (1182 to 1369 paths) | `AUDIT-CLEAN`: 1377 to 1699 paths, 322 added, all explained |
+| Records and companion files | 54 of 54 files have a record | 54 of 54 have a record and a companion file; the independent re-hash agrees on all 54 |
+| How reads were verified | not applicable | 157 opens: 156 verified, 1 without a record (the seed file), 0 verification failures |
+| Evidence | `evidence-run7.tar.gz`, `evidence-run7-audit.tar.gz` | `evidence-run8.tar.gz`, `evidence-run8-audit.tar.gz` |
+
+**The one different page.** `www.zyte.com` differs once more (run 7 `sha1:Z4NYZYD...`, run 8 `sha1:XX7YZPKK...`). Its deployment identifier changed from `dpl_J25tWhywpx6QetrVxFP7wgdX7PPC` (fetched 7 Oct 07:33:11) to `dpl_2HdZ2H4ohADyL4QEFsb3pBbNMGvT` (fetched 09:24:12), and the live site at 12:06 served the newer one. What it shows: keeping records and verifying reads did not change what the crawler fetched or how it counted it. Not repeated for this run: the `WARC-IP-Address` check and the HDFS byte counters.

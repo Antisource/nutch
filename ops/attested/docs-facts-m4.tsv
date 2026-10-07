@@ -1,0 +1,172 @@
+# Facts of the Milestone 4 documents: document <TAB> text in the document <TAB> evidence source <TAB> evidence text
+docs/milestone-4-storage-integrity.md	07:25:08 to 07:35:51 (10 min 43 s)	evidence-run7/crawl-run7.log	07:25:08 UTC 2026 : Iteration 1 of 3
+docs/milestone-4-storage-integrity.md	07:25:08 to 07:35:51 (10 min 43 s)	evidence-run7/crawl-run7.log	07:35:51 UTC 2026 : Finished loop with 3 iterations
+docs/milestone-4-storage-integrity.md	09:16:02 to 09:26:59 (10 min 57 s)	evidence-run8/crawl-run8.log	09:16:02 UTC 2026 : Iteration 1 of 3
+docs/milestone-4-storage-integrity.md	09:16:02 to 09:26:59 (10 min 57 s)	evidence-run8/crawl-run8.log	09:26:59 UTC 2026 : Finished loop with 3 iterations
+docs/run-comparison.md	7 Oct, 07:25:08 to 07:35:51 (10 min 43 s)	evidence-run7/crawl-run7.log	07:35:51 UTC 2026 : Finished loop with 3 iterations
+docs/run-comparison.md	7 Oct, 09:16:02 to 09:26:59 (10 min 57 s)	evidence-run8/crawl-run8.log	09:26:59 UTC 2026 : Finished loop with 3 iterations
+docs/run-comparison.md	6 Oct, 13:41:59 to 13:52:41 (10 min 42 s)	evidence-run6/crawl-run6.log	13:41:59 UTC 2026 : Iteration 1 of 3
+docs/milestone-4-storage-integrity.md	| 4.2 | 47 of 47 | 8 of 8 | 18 of 18 | 46 of 46 |	evidence-run7/m4-b1-test.txt	ALL-PASS (47 of 47 checks passed) mode=fake
+docs/milestone-4-storage-integrity.md	| 4.2 | 47 of 47 | 8 of 8 | 18 of 18 | 46 of 46 |	evidence-run7/m4-b1-test.txt	ALL-PASS (8 of 8 checks passed) mode=mr-fake
+docs/milestone-4-storage-integrity.md	| 4.2 | 47 of 47 | 8 of 8 | 18 of 18 | 46 of 46 |	evidence-run7/m4-b1-test.txt	ALL-PASS (18 of 18 checks passed) mode=hash
+docs/milestone-4-storage-integrity.md	| 4.2 | 47 of 47 | 8 of 8 | 18 of 18 | 46 of 46 |	evidence-run7/m4-b1-test.txt	JAVA-AND-PYTHON-AGREE (9 sizes)
+docs/milestone-4-storage-integrity.md	| 4.2 | 47 of 47 | 8 of 8 | 18 of 18 | 46 of 46 |	evidence-run7/m4-b1-test.txt	ALL-PASS (46 of 46 checks passed) mode=hdfs
+docs/milestone-4-storage-integrity.md	| 4.3 | 85 of 85 | 12 of 12 | 18 of 18 | 84 of 84 |	evidence-run8/m4-b2-test.txt	ALL-PASS (85 of 85 checks passed) mode=fake
+docs/milestone-4-storage-integrity.md	| 4.3 | 85 of 85 | 12 of 12 | 18 of 18 | 84 of 84 |	evidence-run8/m4-b2-test.txt	ALL-PASS (12 of 12 checks passed) mode=mr-fake
+docs/milestone-4-storage-integrity.md	| 4.3 | 85 of 85 | 12 of 12 | 18 of 18 | 84 of 84 |	evidence-run8/m4-b2-test.txt	ALL-PASS (18 of 18 checks passed) mode=hash
+docs/milestone-4-storage-integrity.md	| 4.3 | 85 of 85 | 12 of 12 | 18 of 18 | 84 of 84 |	evidence-run8/m4-b2-test.txt	JAVA-AND-PYTHON-AGREE (9 sizes)
+docs/milestone-4-storage-integrity.md	| 4.3 | 85 of 85 | 12 of 12 | 18 of 18 | 84 of 84 |	evidence-run8/m4-b2-test.txt	ALL-PASS (84 of 84 checks passed) mode=hdfs
+docs/milestone-4-storage-integrity.md	the listing grew from 1182 to 1369 paths	evidence-run7-audit/audit-result.txt	paths before: 1182   after: 1369
+docs/milestone-4-storage-integrity.md	`AUDIT-CLEAN`; the listing grew	evidence-run7-audit/audit-result.txt	AUDIT-CLEAN
+docs/run-comparison.md	`AUDIT-CLEAN` (1182 to 1369 paths)	evidence-run7-audit/audit-result.txt	paths before: 1182   after: 1369
+docs/milestone-4-storage-integrity.md	the listing grew from 1377 to 1699 paths; 322 added, 0 removed, 0 changed	evidence-run8-audit/audit-result.txt	paths before: 1377   after: 1699
+docs/milestone-4-storage-integrity.md	the listing grew from 1377 to 1699 paths; 322 added, 0 removed, 0 changed	evidence-run8-audit/audit-result.txt	changes: added 322, removed 0, changed 0
+docs/milestone-4-storage-integrity.md	the listing grew from 1377 to 1699 paths; 322 added, 0 removed, 0 changed	evidence-run8-audit/audit-result.txt	AUDIT-CLEAN
+docs/run-comparison.md	`AUDIT-CLEAN`: 1377 to 1699 paths, 322 added, all explained	evidence-run8-audit/audit-result.txt	explained by the log: added 322, removed 0, changed 0
+docs/limitations-and-trust.md	322 paths added in run 8, all explained	evidence-run8-audit/audit-result.txt	explained by the log: added 322, removed 0, changed 0
+docs/milestone-4-storage-integrity.md	54 files left under `crawl-run7`, 54 with a matching record	evidence-run7-audit/records-result.txt	files judged: 54   with a matching record: 54
+docs/milestone-4-storage-integrity.md	54 of 54 files have a matching record; none without a companion file	evidence-run8-audit/records-result.txt	files judged: 54   with a matching record: 54
+docs/milestone-4-storage-integrity.md	54 of 54 files have a matching record; none without a companion file	evidence-run8-audit/records-result.txt	files with no record file next to them: 0
+docs/milestone-4-storage-integrity.md	54 of 54 files have a matching record; none without a companion file	evidence-run8-audit/records-result.txt	RECORDS-COMPLETE
+docs/limitations-and-trust.md	In both runs 54 of 54 files left under the crawl folder have a matching record	evidence-run7-audit/records-result.txt	files judged: 54   with a matching record: 54
+docs/limitations-and-trust.md	In both runs 54 of 54 files left under the crawl folder have a matching record	evidence-run8-audit/records-result.txt	files judged: 54   with a matching record: 54
+docs/milestone-4-storage-integrity.md	| Independent re-hash | 54 verified, 0 mismatched |	evidence-run7/records-verify-run7.txt	verified: 54   mismatched: 0
+docs/milestone-4-storage-integrity.md	| Independent re-hash | 54 verified, 0 mismatched |	evidence-run8/records-verify-run8.txt	verified: 54   mismatched: 0
+docs/milestone-4-storage-integrity.md	300 in 111 programs; hashing on, chunk 16384 in all 300	evidence-run7-audit/init-check.txt	start-up lines: 300
+docs/milestone-4-storage-integrity.md	300 in 111 programs; hashing on, chunk 16384 in all 300	evidence-run7-audit/init-check.txt	hashing on, chunk 16384: 300
+docs/milestone-4-storage-integrity.md	300 in 111 programs; sidecar, verify and policy `warn` in all 300	evidence-run8-audit/init-check.txt	start-up lines: 300
+docs/milestone-4-storage-integrity.md	300 in 111 programs; sidecar, verify and policy `warn` in all 300	evidence-run8-audit/init-check.txt	records, verification on, policy warn: 300
+docs/milestone-4-storage-integrity.md	300 in 111 programs; sidecar, verify and policy `warn` in all 300	files:evidence-run8-audit/audit/master	19
+docs/milestone-4-storage-integrity.md	300 in 111 programs; sidecar, verify and policy `warn` in all 300	files:evidence-run8-audit/audit/worker	92
+docs/milestone-4-storage-integrity.md	300 in 111 programs; hashing on, chunk 16384 in all 300	files:evidence-run7-audit/audit/master	19
+docs/milestone-4-storage-integrity.md	300 in 111 programs; hashing on, chunk 16384 in all 300	files:evidence-run7-audit/audit/worker	92
+docs/milestone-4-storage-integrity.md	391 records and 3,498.8 MB; of these, job staging 297 files and 3,498.4 MB	evidence-run7-audit/records-stats.txt	records written: 391 files, 3498.8 MB hashed in all; of these job staging: 297 files, 3498.4 MB; other flags: 0
+docs/milestone-4-storage-integrity.md	157 opens: 156 verified, 1 without a record	evidence-run8-audit/verify-summary.txt	opens in total: 157
+docs/milestone-4-storage-integrity.md	157 opens: 156 verified, 1 without a record	evidence-run8-audit/verify-summary.txt	re:verify=ok\s+156
+docs/milestone-4-storage-integrity.md	157 opens: 156 verified, 1 without a record	evidence-run8-audit/verify-summary.txt	re:verify=missing\s+1\b
+docs/milestone-4-storage-integrity.md	157 opens: 156 verified, 1 without a record	evidence-run8-audit/verify-summary.txt	verification failures: 0
+docs/milestone-4-storage-integrity.md	157 opens: 156 verified, 1 without a record	evidence-run8-audit/verify-summary.txt	/user/rishabsdp17/seeds-run8/seed.txt
+docs/milestone-4-storage-integrity.md	157 opens: 156 verified, 1 without a record	evidence-run8-audit/verify-summary.txt	VERIFY-CLEAN
+docs/limitations-and-trust.md	156 of 157 opens were verified, with 0 failures	evidence-run8-audit/verify-summary.txt	opens in total: 157
+docs/limitations-and-trust.md	156 of 157 opens were verified, with 0 failures	evidence-run8-audit/verify-summary.txt	re:verify=ok\s+156
+docs/run-comparison.md	157 opens: 156 verified, 1 without a record (the seed file), 0 verification failures	evidence-run8-audit/verify-summary.txt	verification failures: 0
+docs/milestone-4-storage-integrity.md	| 7 | `8fdd7cdadd6a7e11` | 1036 |	evidence-run7/job-compare-run7.txt	run 7 job: 8fdd7cdadd6a7e11
+docs/milestone-4-storage-integrity.md	| 7 | `8fdd7cdadd6a7e11` | 1036 |	evidence-run7/job-compare-run7.txt	entries: old 1029, new 1036
+docs/milestone-4-storage-integrity.md	| 5 (measured) | `bbd30ad90d357ca1` | 1029 |	evidence-run7/job-compare-run7.txt	run 5 job (measured tree): bbd30ad90d357ca1
+docs/milestone-4-storage-integrity.md	| 8 | `a092d5fab91d4b73` | 1041 |	evidence-run8/job-compare-run8.txt	run 8 job: a092d5fab91d4b73
+docs/milestone-4-storage-integrity.md	| 8 | `a092d5fab91d4b73` | 1041 |	evidence-run8/job-compare-run8.txt	entries: old 1036, new 1041
+docs/milestone-4-storage-integrity.md	| 8 | `a092d5fab91d4b73` | 1041 |	evidence-run8/job-compare-run8.txt	AttestedSidecar.class
+docs/milestone-4-storage-integrity.md	| 8 | `a092d5fab91d4b73` | 1041 |	evidence-run8/job-compare-run8.txt	VerifyingInputStream.class
+docs/run-comparison.md	`8fdd7cdadd6a7e11`, 1036 entries; against the measured run 5 job	evidence-run7/job-compare-run7.txt	entries: old 1029, new 1036
+docs/run-comparison.md	`a092d5fab91d4b73`, 1041 entries; five new classes	evidence-run8/job-compare-run8.txt	entries: old 1036, new 1041
+docs/cluster-configuration.md	`8fdd7cdadd6a7e11` (run 7) and `a092d5fab91d4b73` (run 8)	evidence-run8/job-compare-run8.txt	run 7 job: 8fdd7cdadd6a7e11
+docs/milestone-4-storage-integrity.md	259 URLs, 249 unfetched, 8 fetched, 2 redirects (read in the tamper test's control step)	evidence-run8/crawldb-stats-run8.txt	re:TOTAL urls:\s+259
+docs/milestone-4-storage-integrity.md	259 URLs, 249 unfetched, 8 fetched, 2 redirects (read in the tamper test's control step)	evidence-run8/crawldb-stats-run8.txt	re:status 1 \(db_unfetched\):\s+249
+docs/milestone-4-storage-integrity.md	259 URLs, 249 unfetched, 8 fetched, 2 redirects (read in the tamper test's control step)	evidence-run8/crawldb-stats-run8.txt	re:status 2 \(db_fetched\):\s+8
+docs/milestone-4-storage-integrity.md	259 URLs, 249 unfetched, 8 fetched, 2 redirects (read in the tamper test's control step)	evidence-run8/crawldb-stats-run8.txt	re:status 5 \(db_redir_perm\):\s+2
+docs/milestone-4-storage-integrity.md	| Crawl database | 259 URLs, 249 unfetched, 8 fetched, 2 redirects, as in run 6 |	evidence-run7/crawldb-stats-run7.txt	re:run 7: TOTAL urls:\s+259
+docs/milestone-4-storage-integrity.md	| Crawl database | 259 URLs, 249 unfetched, 8 fetched, 2 redirects, as in run 6 |	evidence-run7/crawldb-stats-run7.txt	re:run 6: TOTAL urls:\s+259
+docs/milestone-4-storage-integrity.md	`dpl_6K3M...` to `dpl_J25tWhywpx6QetrVxFP7wgdX7PPC`	evidence-run7/zyte-deployment-check-run7.txt	dpl_6K3MMTWXqBLaBfG2FGJjgYif2oA4
+docs/milestone-4-storage-integrity.md	`dpl_6K3M...` to `dpl_J25tWhywpx6QetrVxFP7wgdX7PPC`	evidence-run7/zyte-deployment-check-run7.txt	dpl_J25tWhywpx6QetrVxFP7wgdX7PPC
+docs/milestone-4-storage-integrity.md	`dpl_J25t...` to `dpl_2HdZ2H4ohADyL4QEFsb3pBbNMGvT`	evidence-run8/zyte-deployment-check-run8.txt	dpl_J25tWhywpx6QetrVxFP7wgdX7PPC
+docs/milestone-4-storage-integrity.md	`dpl_J25t...` to `dpl_2HdZ2H4ohADyL4QEFsb3pBbNMGvT`	evidence-run8/zyte-deployment-check-run8.txt	dpl_2HdZ2H4ohADyL4QEFsb3pBbNMGvT
+docs/milestone-4-storage-integrity.md	the live site at 12:06 served the newer one	evidence-run8/zyte-deployment-check-run8.txt	live site now (2026-10-07T12:06:41Z)
+docs/run-comparison.md	fetched 7 Oct 07:33:11	evidence-run7/zyte-deployment-check-run7.txt	run 7 page: 2026-10-07T07:33:11Z
+docs/run-comparison.md	(fetched 09:24:12)	evidence-run8/zyte-deployment-check-run8.txt	run 8 page: 2026-10-07T09:24:12Z
+docs/run-comparison.md	(fetched 6 Oct 13:50:01)	evidence-run7/zyte-deployment-check-run7.txt	run 6 page: 2026-10-06T13:50:01Z
+docs/milestone-4-storage-integrity.md	22 worker task logs (from the 27 applications) list okhttp, 0 the old plugin, 0 a verification failure	evidence-run8-audit/worker-tasklog-check-run8.txt	started since 09:15 (run 8): 27
+docs/milestone-4-storage-integrity.md	22 worker task logs (from the 27 applications) list okhttp, 0 the old plugin, 0 a verification failure	evidence-run8-audit/worker-tasklog-check-run8.txt	run 8 task logs mentioning okhttp: 22
+docs/milestone-4-storage-integrity.md	22 worker task logs (from the 27 applications) list okhttp, 0 the old plugin, 0 a verification failure	evidence-run8-audit/worker-tasklog-check-run8.txt	run 8 task logs mentioning the old http plugin: 0
+docs/milestone-4-storage-integrity.md	22 worker task logs (from the 27 applications) list okhttp, 0 the old plugin, 0 a verification failure	evidence-run8-audit/worker-tasklog-check-run8.txt	run 8 task logs mentioning a verification failure: 0
+docs/milestone-4-storage-integrity.md	The worker's 56 kept applications include earlier ones	evidence-run8-audit/worker-tasklog-check-run8.txt	applications kept on this node: 56
+docs/milestone-4-storage-integrity.md	22 worker task logs list okhttp, 0 the old plugin	evidence-run7-audit/worker-tasklog-check-run7.txt	task logs mentioning okhttp: 22
+docs/milestone-4-storage-integrity.md	22 worker task logs list okhttp, 0 the old plugin	evidence-run7-audit/worker-tasklog-check-run7.txt	task logs mentioning the old http plugin: 0
+docs/milestone-4-storage-integrity.md	| 1 | first version (`49cd6eb3...`) |	zip-sha:evidence-run8/m4b2-files.zip#m4b2/ops/attested/tamper-demo.sh	49cd6eb3
+docs/milestone-4-storage-integrity.md	| 1 | first version (`49cd6eb3...`) |	evidence-run8/tamper-attempt1/verdict.txt	TAMPER-TEST: FAIL
+docs/milestone-4-storage-integrity.md	| 1 | first version (`49cd6eb3...`) |	evidence-run8/tamper-attempt1/verdict.txt	tampered must fail: FAILED
+docs/milestone-4-storage-integrity.md	job `job_1791273797493_0123`	evidence-run8/tamper-attempt1/tampered.log	job_1791273797493_0123
+docs/milestone-4-storage-integrity.md	job `job_1791273797493_0126`	evidence-run8/tamper-attempt2/verdict.txt	job_1791273797493_0126
+docs/milestone-4-storage-integrity.md	| 2 | committed version (`bbb2892e...`) |	evidence-run8/tamper-attempt2/verdict.txt	TAMPER-TEST (client side): PASS
+docs/milestone-4-storage-integrity.md	| 2 | committed version (`bbb2892e...`) |	evidence-run8/tamper-attempt2/verdict.txt	restored fingerprint equals original: yes
+docs/milestone-4-storage-integrity.md	(25,681 bytes, fingerprint `106b0314d29c1212`)	evidence-run8/tamper-attempt2/verdict.txt	25681 bytes, fingerprint 106b0314d29c1212
+docs/milestone-4-storage-integrity.md	(byte 12,840, inside chunk 0)	evidence-run8/tamper-attempt2/tamper-run8-final-console.txt	changed byte 12840 of 25681
+docs/milestone-4-storage-integrity.md	`TAMPER-PROVEN` (job `job_1791273797493_0123`)	evidence-run8-audit/tamper1/tamper-verify-attempt1.txt	TAMPER-PROVEN
+docs/milestone-4-storage-integrity.md	What the logs show, in both attempts	evidence-run8-audit/tamper1/tamper-verify-attempt1.txt	VERIFY-FAIL lines for it: 1
+docs/milestone-4-storage-integrity.md	What the logs show, in both attempts	evidence-run8-audit/tamper1/tamper-verify-attempt1.txt	VERIFY-FAIL lines for any other path: 0
+docs/milestone-4-storage-integrity.md	What the logs show, in both attempts	evidence-run8-audit/tamper1/tamper-verify-attempt1.txt	verified opens of the tampered file (control and restored read): 3
+docs/milestone-4-storage-integrity.md	What the logs show, in both attempts	evidence-run8-audit/tamper2/tamper-verify.txt	TAMPER-PROVEN
+docs/milestone-4-storage-integrity.md	What the logs show, in both attempts	evidence-run8-audit/tamper2/tamper-verify.txt	VERIFY-FAIL lines for it: 1
+docs/milestone-4-storage-integrity.md	What the logs show, in both attempts	evidence-run8-audit/tamper2/tamper-verify.txt	verified opens of the tampered file (control and restored read): 3
+docs/milestone-4-storage-integrity.md	`chunk=0 hash does not match the record`	dirhas:evidence-run8-audit/tamper1/audit-worker	chunk=0 hash does not match the record
+docs/milestone-4-storage-integrity.md	`chunk=0 hash does not match the record`	dirhas:evidence-run8-audit/tamper2/audit-worker	chunk=0 hash does not match the record
+docs/milestone-4-storage-integrity.md	54 files, 333,948 bytes in all; 32 files under 1 KB, 22 between 1 KB and 1 MB, none above 1 MB	m4-offline-recon.txt	files: 54, total bytes: 333948
+docs/milestone-4-storage-integrity.md	54 files, 333,948 bytes in all; 32 files under 1 KB, 22 between 1 KB and 1 MB, none above 1 MB	m4-offline-recon.txt	sizes: < 1 KB: 32, 1 KB to 1 MB: 22, 1 to 16 MB: 0
+docs/milestone-4-storage-integrity.md	the largest is about 81 KB	m4-offline-recon.txt	81388
+docs/milestone-4-storage-integrity.md	270 of 364 creates	m4-offline-recon.txt	re:job staging \(client upload\)\s+270
+docs/milestone-4-storage-integrity.md	37 into the crawl database and 15 into the link database	m4-offline-recon.txt	re:crawldb\s+10\s+37
+docs/milestone-4-storage-integrity.md	37 into the crawl database and 15 into the link database	m4-offline-recon.txt	re:linkdb\s+3\s+15
+docs/milestone-4-storage-integrity.md	| `evidence-run7.tar.gz` | 41 | `039bf4e444a1` |	evidence-run7.tar.gz.sha256	039bf4e444a1
+docs/milestone-4-storage-integrity.md	| `evidence-run7.tar.gz` | 41 | `039bf4e444a1` |	lines:evidence-run7/SHA256SUMS.txt	41
+docs/milestone-4-storage-integrity.md	| `evidence-run7-audit.tar.gz` | 231 | `cff63506b114` |	evidence-run7-audit.tar.gz.sha256	cff63506b114
+docs/milestone-4-storage-integrity.md	| `evidence-run7-audit.tar.gz` | 231 | `cff63506b114` |	lines:evidence-run7-audit/SHA256SUMS.txt	231
+docs/milestone-4-storage-integrity.md	| `evidence-run8.tar.gz` | 71 | `5b06c2117a7c` |	evidence-run8.tar.gz.sha256	5b06c2117a7c
+docs/milestone-4-storage-integrity.md	| `evidence-run8.tar.gz` | 71 | `5b06c2117a7c` |	lines:evidence-run8/SHA256SUMS.txt	71
+docs/milestone-4-storage-integrity.md	| `evidence-run8-audit.tar.gz` | 299 | `72a754d5cf9f` |	evidence-run8-audit.tar.gz.sha256	72a754d5cf9f
+docs/milestone-4-storage-integrity.md	| `evidence-run8-audit.tar.gz` | 299 | `72a754d5cf9f` |	lines:evidence-run8-audit/SHA256SUMS.txt	299
+docs/milestone-4-storage-integrity.md	Commits: `686c277ae` (step 4.2, 9 files) and `67c56f5a7` (step 4.3, 10 files)	@git-log	686c277
+docs/milestone-4-storage-integrity.md	Commits: `686c277ae` (step 4.2, 9 files) and `67c56f5a7` (step 4.3, 10 files)	@git-log	67c56f5
+docs/milestone-4-storage-integrity.md	Commits: `686c277ae` (step 4.2, 9 files) and `67c56f5a7` (step 4.3, 10 files)	@git-files:686c277	9
+docs/milestone-4-storage-integrity.md	Commits: `686c277ae` (step 4.2, 9 files) and `67c56f5a7` (step 4.3, 10 files)	@git-files:67c56f5	10
+docs/milestone-4-storage-integrity.md	| `attested.hash.chunk.size` | 16384 |	@repo:src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	HASH_ENABLED_KEY = "attested.hash.enabled"
+docs/milestone-4-storage-integrity.md	| `attested.hash.chunk.size` | 16384 |	@repo:src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	CHUNK_SIZE_KEY = "attested.hash.chunk.size"
+docs/milestone-4-storage-integrity.md	| `attested.hash.chunk.size` | 16384 |	@repo:src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	DEFAULT_CHUNK_SIZE = 16384
+docs/milestone-4-storage-integrity.md	| `attested.hash.chunk.size` | 16384 |	@repo:src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	SIDECAR_KEY = "attested.sidecar.enabled"
+docs/milestone-4-storage-integrity.md	| `attested.hash.chunk.size` | 16384 |	@repo:src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	VERIFY_KEY = "attested.verify.reads"
+docs/milestone-4-storage-integrity.md	| `attested.hash.chunk.size` | 16384 |	@repo:src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	MISSING_KEY = "attested.verify.missing"
+docs/milestone-4-storage-integrity.md	| `attested.hash.chunk.size` | 16384 |	@repo:src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	conf.get(MISSING_KEY, "warn")
+docs/milestone-4-storage-integrity.md	| `attested.hash.chunk.size` | 16384 |	@repo:src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	conf.getBoolean(SIDECAR_KEY, true)
+docs/milestone-4-storage-integrity.md	| `attested.hash.chunk.size` | 16384 |	@repo:src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	conf.getBoolean(VERIFY_KEY, true)
+docs/milestone-4-storage-integrity.md	| `attested.hash.chunk.size` | 16384 |	@repo:src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	conf.getBoolean(HASH_ENABLED_KEY, true)
+docs/milestone-4-storage-integrity.md	| `attested.records.dir` | `/tmp/attested-records` |	@repo:src/java/org/apache/nutch/attested/AttestedRecords.java	DEFAULT_DIR = "/tmp/attested-records"
+docs/cluster-configuration.md	`attested.records.dir` (`/tmp/attested-records`)	@repo:src/java/org/apache/nutch/attested/AttestedRecords.java	DEFAULT_DIR = "/tmp/attested-records"
+docs/milestone-4-storage-integrity.md	format `ATTEST01`	@repo:src/java/org/apache/nutch/attested/AttestedSidecar.java	"ATTEST01"
+docs/milestone-4-storage-integrity.md	| `src/java/org/apache/nutch/attested/AttestedAudit.java` | `65cfaf7b3ad30312` |	zip-sha:evidence-run8/m4b2-files.zip#m4b2/src/java/org/apache/nutch/attested/AttestedAudit.java	65cfaf7b3ad30312
+docs/milestone-4-storage-integrity.md	| `src/java/org/apache/nutch/attested/AttestedAudit.java` | `65cfaf7b3ad30312` |	zip-sha:evidence-run8-audit/m4b2-files.zip#m4b2/src/java/org/apache/nutch/attested/AttestedAudit.java	65cfaf7b3ad30312
+docs/milestone-4-storage-integrity.md	| `src/java/org/apache/nutch/attested/AttestedHdfs.java` | `da8f232f3f4ab477` |	zip-sha:evidence-run8/m4b2-files.zip#m4b2/src/java/org/apache/nutch/attested/AttestedHdfs.java	da8f232f3f4ab477
+docs/milestone-4-storage-integrity.md	| `src/java/org/apache/nutch/attested/AttestedHdfs.java` | `da8f232f3f4ab477` |	zip-sha:evidence-run8-audit/m4b2-files.zip#m4b2/src/java/org/apache/nutch/attested/AttestedHdfs.java	da8f232f3f4ab477
+docs/milestone-4-storage-integrity.md	| `src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java` | `b196c0c86158b2b9` |	zip-sha:evidence-run8/m4b2-files.zip#m4b2/src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	b196c0c86158b2b9
+docs/milestone-4-storage-integrity.md	| `src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java` | `b196c0c86158b2b9` |	zip-sha:evidence-run8-audit/m4b2-files.zip#m4b2/src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	b196c0c86158b2b9
+docs/milestone-4-storage-integrity.md	| `src/java/org/apache/nutch/attested/AttestedRecords.java` | `b6299279c91da363` |	zip-sha:evidence-run8/m4b2-files.zip#m4b2/src/java/org/apache/nutch/attested/AttestedRecords.java	b6299279c91da363
+docs/milestone-4-storage-integrity.md	| `src/java/org/apache/nutch/attested/AttestedRecords.java` | `b6299279c91da363` |	zip-sha:evidence-run8-audit/m4b2-files.zip#m4b2/src/java/org/apache/nutch/attested/AttestedRecords.java	b6299279c91da363
+docs/milestone-4-storage-integrity.md	| `src/java/org/apache/nutch/attested/AttestedSidecar.java` | `913e1e5e5b754e7d` |	zip-sha:evidence-run8/m4b2-files.zip#m4b2/src/java/org/apache/nutch/attested/AttestedSidecar.java	913e1e5e5b754e7d
+docs/milestone-4-storage-integrity.md	| `src/java/org/apache/nutch/attested/AttestedSidecar.java` | `913e1e5e5b754e7d` |	zip-sha:evidence-run8-audit/m4b2-files.zip#m4b2/src/java/org/apache/nutch/attested/AttestedSidecar.java	913e1e5e5b754e7d
+docs/milestone-4-storage-integrity.md	| `src/java/org/apache/nutch/attested/HashingOutputStream.java` | `12c3f3b1a75b69ae` |	zip-sha:evidence-run8/m4b2-files.zip#m4b2/src/java/org/apache/nutch/attested/HashingOutputStream.java	12c3f3b1a75b69ae
+docs/milestone-4-storage-integrity.md	| `src/java/org/apache/nutch/attested/HashingOutputStream.java` | `12c3f3b1a75b69ae` |	zip-sha:evidence-run8-audit/m4b2-files.zip#m4b2/src/java/org/apache/nutch/attested/HashingOutputStream.java	12c3f3b1a75b69ae
+docs/milestone-4-storage-integrity.md	| `src/java/org/apache/nutch/attested/MerkleHasher.java` | `2857e6b82be8a071` |	zip-sha:evidence-run8/m4b2-files.zip#m4b2/src/java/org/apache/nutch/attested/MerkleHasher.java	2857e6b82be8a071
+docs/milestone-4-storage-integrity.md	| `src/java/org/apache/nutch/attested/MerkleHasher.java` | `2857e6b82be8a071` |	zip-sha:evidence-run8-audit/m4b2-files.zip#m4b2/src/java/org/apache/nutch/attested/MerkleHasher.java	2857e6b82be8a071
+docs/milestone-4-storage-integrity.md	| `src/java/org/apache/nutch/attested/VerifyingInputStream.java` | `199d84d5f26c96e2` |	zip-sha:evidence-run8/m4b2-files.zip#m4b2/src/java/org/apache/nutch/attested/VerifyingInputStream.java	199d84d5f26c96e2
+docs/milestone-4-storage-integrity.md	| `src/java/org/apache/nutch/attested/VerifyingInputStream.java` | `199d84d5f26c96e2` |	zip-sha:evidence-run8-audit/m4b2-files.zip#m4b2/src/java/org/apache/nutch/attested/VerifyingInputStream.java	199d84d5f26c96e2
+docs/milestone-4-storage-integrity.md	| `ops/run-crawl-attested.sh` | `b689ba5185081f1e` |	zip-sha:evidence-run8/m4b2-files.zip#m4b2/ops/run-crawl-attested.sh	b689ba5185081f1e
+docs/milestone-4-storage-integrity.md	| `ops/run-crawl-attested.sh` | `b689ba5185081f1e` |	zip-sha:evidence-run8-audit/m4b2-files.zip#m4b2/ops/run-crawl-attested.sh	b689ba5185081f1e
+docs/milestone-4-storage-integrity.md	| `ops/attested/AttestedFsSmoke.java` | `a3e2e030809d7b09` |	zip-sha:evidence-run8/m4b2-files.zip#m4b2/ops/attested/AttestedFsSmoke.java	a3e2e030809d7b09
+docs/milestone-4-storage-integrity.md	| `ops/attested/AttestedFsSmoke.java` | `a3e2e030809d7b09` |	zip-sha:evidence-run8-audit/m4b2-files.zip#m4b2/ops/attested/AttestedFsSmoke.java	a3e2e030809d7b09
+docs/milestone-4-storage-integrity.md	| `ops/attested/audit.sh` | `83276048b8beaf27` |	zip-sha:evidence-run8/m4b2-files.zip#m4b2/ops/attested/audit.sh	83276048b8beaf27
+docs/milestone-4-storage-integrity.md	| `ops/attested/audit.sh` | `83276048b8beaf27` |	zip-sha:evidence-run8-audit/m4b2-files.zip#m4b2/ops/attested/audit.sh	83276048b8beaf27
+docs/milestone-4-storage-integrity.md	| `ops/attested/audit_compare.py` | `94f41044346888c8` |	zip-sha:evidence-run8/m4b2-files.zip#m4b2/ops/attested/audit_compare.py	94f41044346888c8
+docs/milestone-4-storage-integrity.md	| `ops/attested/audit_compare.py` | `94f41044346888c8` |	zip-sha:evidence-run8-audit/m4b2-files.zip#m4b2/ops/attested/audit_compare.py	94f41044346888c8
+docs/milestone-4-storage-integrity.md	| `ops/attested/build-and-test.sh` | `8f3545b7cdf0960a` |	zip-sha:evidence-run8/m4b2-files.zip#m4b2/ops/attested/build-and-test.sh	8f3545b7cdf0960a
+docs/milestone-4-storage-integrity.md	| `ops/attested/build-and-test.sh` | `8f3545b7cdf0960a` |	zip-sha:evidence-run8-audit/m4b2-files.zip#m4b2/ops/attested/build-and-test.sh	8f3545b7cdf0960a
+docs/milestone-4-storage-integrity.md	| `ops/attested/job_compare.py` | `a20960a0cc1aa3a1` |	zip-sha:evidence-run8/m4b2-files.zip#m4b2/ops/attested/job_compare.py	a20960a0cc1aa3a1
+docs/milestone-4-storage-integrity.md	| `ops/attested/job_compare.py` | `a20960a0cc1aa3a1` |	zip-sha:evidence-run8-audit/m4b2-files.zip#m4b2/ops/attested/job_compare.py	a20960a0cc1aa3a1
+docs/milestone-4-storage-integrity.md	| `ops/attested/merkle_root.py` | `9fdda6bcdd3aa0eb` |	zip-sha:evidence-run8/m4b2-files.zip#m4b2/ops/attested/merkle_root.py	9fdda6bcdd3aa0eb
+docs/milestone-4-storage-integrity.md	| `ops/attested/merkle_root.py` | `9fdda6bcdd3aa0eb` |	zip-sha:evidence-run8-audit/m4b2-files.zip#m4b2/ops/attested/merkle_root.py	9fdda6bcdd3aa0eb
+docs/milestone-4-storage-integrity.md	| `ops/attested/records_expected.py` | `adb615a374067e70` |	zip-sha:evidence-run8/m4b2-files.zip#m4b2/ops/attested/records_expected.py	adb615a374067e70
+docs/milestone-4-storage-integrity.md	| `ops/attested/records_expected.py` | `adb615a374067e70` |	zip-sha:evidence-run8-audit/m4b2-files.zip#m4b2/ops/attested/records_expected.py	adb615a374067e70
+docs/milestone-4-storage-integrity.md	| `ops/attested/records_verify.sh` | `37aeab6185cb6e35` |	zip-sha:evidence-run8/m4b2-files.zip#m4b2/ops/attested/records_verify.sh	37aeab6185cb6e35
+docs/milestone-4-storage-integrity.md	| `ops/attested/records_verify.sh` | `37aeab6185cb6e35` |	zip-sha:evidence-run8-audit/m4b2-files.zip#m4b2/ops/attested/records_verify.sh	37aeab6185cb6e35
+docs/milestone-4-storage-integrity.md	| `ops/attested/tamper-demo.sh` | `bbb2892e47221725` |	zip-sha:evidence-run8/m4b2-update1.zip#update1/ops/attested/tamper-demo.sh	bbb2892e47221725
+docs/milestone-4-storage-integrity.md	| `ops/attested/tamper-demo.sh` | `bbb2892e47221725` |	zip-sha:evidence-run8-audit/m4b2-update1.zip#update1/ops/attested/tamper-demo.sh	bbb2892e47221725
+docs/milestone-4-storage-integrity.md	| `ops/attested/tamper_verify.py` | `75954a6cd66703dc` |	zip-sha:evidence-run8/m4b2-update1.zip#update1/ops/attested/tamper_verify.py	75954a6cd66703dc
+docs/milestone-4-storage-integrity.md	| `ops/attested/tamper_verify.py` | `75954a6cd66703dc` |	zip-sha:evidence-run8-audit/m4b2-update1.zip#update1/ops/attested/tamper_verify.py	75954a6cd66703dc
+docs/milestone-4-storage-integrity.md	| `ops/attested/verify_summary.py` | `3e8ac8a8c1edf95f` |	zip-sha:evidence-run8/m4b2-files.zip#m4b2/ops/attested/verify_summary.py	3e8ac8a8c1edf95f
+docs/milestone-4-storage-integrity.md	| `ops/attested/verify_summary.py` | `3e8ac8a8c1edf95f` |	zip-sha:evidence-run8-audit/m4b2-files.zip#m4b2/ops/attested/verify_summary.py	3e8ac8a8c1edf95f
