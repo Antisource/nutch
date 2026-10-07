@@ -37,12 +37,14 @@ Everything the mentor may change sits behind a setting (section 6), and the reco
 | 4.2 | Hash every written file and record its Merkle root (observe only) | 4 | 4.1 | Done | Run 7; commit `686c277ae` (sections 9, 15) |
 | 4.3 | Keep a record next to each file and verify every read against it | 4 | 4.2 | Done | Run 8 and the tamper test; commit `67c56f5a7` (sections 10, 11, 15) |
 | 4.4 | Run Hadoop's file-system contract tests against the wrapper | 4 | none | Done | Section 18; the wrapper fix `26da09f1c` and the tests `e72d1ed05` (section 15) |
-| 4.5 | Answer length, existence and listings from records, never from storage | 4 | 4.3 | Open | |
-| 4.6 | Check the job file and configuration digests at the start of each task | 6 | 4.2 | Open | |
+| 4.5 | Answer length, existence and listings from records, never from storage | 4 | 4.3 | Open | Baby steps: 4.5.1 metadata from records; 4.5.2 the NameNode's audit log turned on and compared with the wrapper's log (the mentor, 7 October; ADR-026) |
+| 4.6 | Check the job file and configuration digests at the start of each task | 6 | 4.2 | Open | Changed by the mentor on 7 October (ADR-027): a task hashing its own job file is not a security check, so the digests are checked where the NodeManager reads the files. Baby steps: 4.6.1 the wrapper's classes on Hadoop's classpath on both nodes; 4.6.2 both lookups set as final in the site configuration, with a switch back to the plain configuration; 4.6.3 the NodeManager's read of the job file is checked against its record |
 | 4.7 | Task records and job manifests; speculative execution off | 5 | 4.3 | Open | Depends on the answer to question 13 |
-| 4.8 | Milestone report; re-measure after a reboot (ADR-020) | | 4.4 to 4.7 | Open | Firewall rules must be saved first |
+| 4.8 | Milestone report; re-measure after a reboot (ADR-020) | | 4.4 to 4.7 | Open | Firewall rules must be saved first; nothing unmeasured is described as measured (ADR-029); the crawl that follows is run as a pair with an unwrapped control in the same hour (ADR-028) |
 
 Old working labels: B0 = 4.4, B1 = 4.2, B2 = 4.3, B3 = 4.5, B4 = 4.6, B5 = 4.7.
+
+Order of the open steps after the mentor's answers of 7 October (ADR-026; the whole plan is in [milestone-plan.md](milestone-plan.md)): 4.6 first, so that files put in by command-line tools have records and the plain configuration is one switch away; then 4.5 (the NameNode audit log, 4.5.2, can be turned on at any time); then 4.7; then 4.8.
 
 ## 5. Recon findings
 
@@ -183,8 +185,8 @@ A known cosmetic fault remains in the committed script: its console label "absol
 - **Files created through the builder API** (`createFile`) were not hashed at the time of runs 7 and 8; none occurred (every kept file has a record). Step 4.4 fixed this (section 18).
 - **A file without a record** is read with a warning (policy `warn`). In run 8 only the seed file was read that way. A file whose writer was killed before closing it has no record.
 - **Metadata still comes from storage** (step 4.5). The length is compared with the record at open, which catches a shortened or lengthened file, but listings and existence are storage's.
-- **No task records or job manifests** (step 4.7) and no job-file digest check (step 4.6).
-- **The NodeManager still reads the job file through plain HDFS.**
+- **No task records or job manifests** (step 4.7). The job file is not checked in a security-relevant way yet: step 4.6 was changed by the mentor on 7 October (ADR-027) and is not done.
+- **The NodeManager still reads the job file through plain HDFS** until step 4.6 is done.
 - **Plain tools see the companion files**, and consumers that list directories without skipping hidden files will see them.
 - **The logs and records are plain files** on the provider's machines.
 - **Runs 6 to 8 are not covered by the measurement** (ADR-020). The measured set is unchanged. One new crawl on measured code is needed after the re-measurement; the earlier runs stay as development history.
@@ -239,7 +241,7 @@ How a verified crawl is run (every step is a script): rotate the logs on both no
 
 ## 16. Decisions taken at this milestone
 
-ADR-021 (keep the record next to the file), ADR-022 (records from the wrapper when a file is closed), ADR-023 (a file without a record is allowed but logged for now), ADR-024 (naming, the commit gate, and verifying assumptions before writing checks), ADR-025 (rehearse code with the real libraries; documents and programs in separate commits). See [decisions.md](decisions.md).
+ADR-021 (keep the record next to the file), ADR-022 (records from the wrapper when a file is closed), ADR-023 (a file without a record is allowed but logged for now), ADR-024 (naming, the commit gate, and verifying assumptions before writing checks), ADR-025 (rehearse code with the real libraries; documents and programs in separate commits), ADR-026 to ADR-029 (the mentor's answers of 7 October). See [decisions.md](decisions.md).
 
 ## 17. Lessons from this milestone
 

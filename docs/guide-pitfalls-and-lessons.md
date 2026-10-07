@@ -214,10 +214,12 @@ Decisions from 5 October 2026 onward are kept in [decisions.md](decisions.md). T
 | Capture run 2 file sizes | Open |
 | RTMR3 extension and measurement of the stack | **Done** 5 to 6 October for both nodes ([milestone-1-code-measurement.md](milestone-1-code-measurement.md)) |
 | Encrypt and authenticate node-to-node traffic | **Partly done** 6 October: WireGuard mesh and host firewall ([milestone-2-wireguard-mesh.md](milestone-2-wireguard-mesh.md)). Not done: a real third-machine test, IPv6, persistence across reboot, attested peer admission |
-| Re-measure after a reboot (the jobs of runs 6 to 8 and the new scripts are outside the measured set) | Deferred (ADR-020): at the end of Milestone 4 (step 4.8), with the firewall rules saved first; one new crawl on measured code follows |
+| Re-measure after a reboot (the jobs of runs 6 to 8 and the new scripts are outside the measured set) | Deferred (ADR-020; accepted by the mentor on 7 October as long as nothing unmeasured is described as measured, ADR-029): at the end of Milestone 4 (step 4.8), with the firewall rules saved first; one new crawl on measured code follows |
 | Make the job reproducible from a clean checkout (`conf/effective_tld_names.dat` is untracked) | Open |
 | Chunk hashing on write, verification on read, metadata from records (handoff Stage B) | **Partly done** 7 October (Milestone 4, steps 4.2 and 4.3): hashing at close and verified reads ([milestone-4-storage-integrity.md](milestone-4-storage-integrity.md)). Open: metadata from records (step 4.5), task records and manifests (step 4.7) |
-| The NodeManager reads the job file through plain HDFS | Open: decide how to cover it (handoff Stage B, item 6) |
-| An independent audit of reads, from the NameNode's own audit log | Open |
+| The NodeManager reads the job file through plain HDFS | Decided by the mentor on 7 October (ADR-027): the wrapper on Hadoop's own classpath with both lookups final; open, step 4.6 |
+| An independent audit of reads, from the NameNode's own audit log | Open: baby step 4.5.2 (the mentor, 7 October) |
+| An unwrapped control in the same hour for every wrapped crawl, with wall time and bytes fetched | A rule for every crawl from now on (the mentor, 7 October; ADR-028); results in step 6.3 |
+| Per-fetch TLS evidence | In scope as teammate S's patch (the mentor, 7 October); step 5.3, see [milestone-plan.md](milestone-plan.md) |
 | Hadoop's file-system contract tests against the wrapper | **Done** 7 October (Milestone 4, step 4.4): 255 tests, identical to plain HDFS; three wrapper defects found and fixed ([milestone-4-storage-integrity.md](milestone-4-storage-integrity.md) section 18) |
 | Larger worker disk | Open: about 5.4 GB usable by HDFS limits scale |

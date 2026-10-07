@@ -263,3 +263,15 @@ Undo: pass `-D attested.verify.reads=false -D attested.sidecar.enabled=false -D 
 | Jobs | `dea47c6d41729bef` (the fixed wrapper, saved as `job-m44.job`) and run 8's `a092d5fab91d4b73` for the sensitivity run |
 
 Run: `EXPECT_JOB=<job fingerprint> EXPECT_FILES=<list> ATTESTED_JOB=<job file> ops/attested/contract-tests.sh <new output folder>` on the master. Undo: nothing persists in HDFS (the tests delete their folder); `~/contract-libs`, `~/contract-build` and the output folders can be removed.
+
+## 14. Planned changes (not applied)
+
+These changes are decided but **not applied**: the cluster is as described in sections 1 to 13.
+
+| Change | Decision | Step | What it will do |
+|---|---|---|---|
+| The wrapper's classes onto Hadoop's own classpath on both nodes, and `fs.hdfs.impl` and `fs.AbstractFileSystem.hdfs.impl` set as final in the site configuration | ADR-027 | 4.6 (baby steps 4.6.1 and 4.6.2) | Every Hadoop process that reads the site configuration, the NodeManager included, uses the wrapper; a job can no longer switch it off |
+| A switch between the wrapped and the plain configuration | ADR-028 | 4.6 (baby step 4.6.2) | The unwrapped control run of each pair |
+| The NameNode's audit log turned on | the mentor, 7 October (ADR-026) | 4.5 (baby step 4.5.2) | An independent record of reads and changes |
+
+Each of them changes the Hadoop installation or configuration, so the measured set changes and the re-measurement (ADR-020, ADR-029) must cover it. Each needs a backup of the files it changes and a rollback before it is applied.

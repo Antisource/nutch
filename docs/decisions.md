@@ -31,6 +31,10 @@ Times are UTC.
 | 023 | A file without a record is allowed but logged, for now | Accepted (provisional) |
 | 024 | Naming, the commit gate, and checking assumptions against real samples | Accepted |
 | 025 | Rehearse code with the real libraries; documents and programs in separate commits | Accepted |
+| 026 | The mentor's answers of 7 October 2026 | Accepted (mentor) |
+| 027 | The wrapper on Hadoop's own classpath, both lookups final | Accepted (mentor) |
+| 028 | Every wrapped crawl has an unwrapped control in the same hour; wall time and bytes fetched are recorded | Accepted (mentor) |
+| 029 | Nothing that is not measured is described as measured | Accepted (mentor) |
 
 ---
 
@@ -224,3 +228,48 @@ Times are UTC.
 - **Decision:** (1) code that depends on real libraries is rehearsed in the development environment with those libraries (or the nearest available versions) before it is sent to the cluster, and the message says what could not be rehearsed. (2) Documents and programs are committed separately, each with its own gate: programs first, each checked identical to the files that ran; then documents, checked against the evidence by the facts checker. A tool's data file (for example a facts list) is committed as a program. The one earlier exception is commit `d4c5489`, which also carried the facts checker.
 - **Why:** the rehearsal found three defects in the wrapper and one in the runner before the cluster run, and a clear separation makes the history easier to read and review.
 - **Consequences:** some libraries are not reachable from the development environment, so a rehearsal can use a different version (AssertJ 3.14.0 instead of 3.12.2) or leave one class out (`VectoredRead`); each such gap is stated in the report.
+
+## ADR-026: The mentor's answers of 7 October 2026
+
+- **Date:** 7 October 2026. **Status:** accepted by the mentor.
+- **Context:** the questions of 6 October (1 to 5 for Gate A, 6 to 12 for Stage B) were answered. The mentor's reply, as relayed by Rishab (the "(teammate S)" is his note):
+
+  > This seems fine. We might have to fix things afterwards
+  >
+  > Gate A accepted. (1) Yes; from Stage B on, run the unwrapped control in the same hour. (2) Yes as scoped; turn on the NameNode audit log in Stage B. (3) Defer, as long as nothing unmeasured is ever described as measured. (4) Apply the handoff corrections now, in one commit with a corrections list at the top. (5) Nothing new until the 16 October list; plan for mid-November to 20 November, 5 pages plus 2.
+  > For Stage B, use your defaults except 6: a task hashing its own job file can be skipped by a swapped job file, so it isn't a security check. Move the wrapper onto Hadoop's own classpath and set both lookups in the site config as final, so the NodeManager uses it too. 11 is Subhi's (teammate S) patch: please coordinate with her on building the job with it. Per Amir, performance is the result that matters most, so start recording wall time and bytes fetched for every wrapped and unwrapped pair.
+
+- **Decision:** the mentor said:
+  1. Gate A is accepted. (1) The evidence for "outputs match" is enough; from Stage B on, run the unwrapped control in the same hour (ADR-028).
+  2. (2) The audit's scope is accepted; turn on the NameNode audit log in Stage B (step 4.5, baby step 4.5.2).
+  3. (3) The re-measurement is deferred, as long as nothing unmeasured is ever described as measured (ADR-029).
+  4. (4) The handoff corrections are applied now, in one commit with a corrections list at the top ([handoff-attested-hadoop-cluster.md](handoff-attested-hadoop-cluster.md)).
+  5. (5) Nothing new until the 16 October list; the workshop paper is planned for mid-November to 20 November, 5 pages plus 2.
+  6. For Stage B our defaults stand (HDFS; a test key behind an interface; hash everything with a path filter; a witness interface with a local stand-in; contract tests first), except question 6, which becomes ADR-027, and question 11, per-fetch TLS evidence, which is teammate S's patch: the job is to be built with it in coordination with her (Milestone 5, step 5.3).
+  7. Per Amir, performance is the result that matters most: wall time and bytes fetched are recorded for every wrapped and unwrapped pair (ADR-028).
+- **Why:** these are the mentor's decisions.
+- **Consequences:** the plan of six milestones is unchanged ([milestone-plan.md](milestone-plan.md)); the changes land inside existing steps as baby steps (4.5.2, 4.6.1 to 4.6.3, 5.3.3). Question 13 (records from the wrapper or from the commit hook, ADR-022) has not been asked yet and keeps its default.
+
+## ADR-027: The wrapper on Hadoop's own classpath, both lookups final
+
+- **Date:** 7 October 2026. **Status:** accepted by the mentor; changes the content of step 4.6.
+- **Context:** step 4.6 was planned as a check of the job file's digest inside the task. The mentor said a task hashing its own job file can be skipped by a swapped job file, so it is not a security check. Until now the wrapper was switched on per job by `-D` options, so the NodeManager (which reads the job file through plain HDFS) and any program without the options bypassed it (ADR-017, ADR-018).
+- **Decision:** the mentor said to move the wrapper onto Hadoop's own classpath and set both lookups in the site configuration as final, so the NodeManager uses it too. (1) The wrapper's classes are put onto Hadoop's classpath on both nodes, built from the same sources as the classes in the job file. (2) `fs.hdfs.impl` and `fs.AbstractFileSystem.hdfs.impl` are set as final in the site configuration on both nodes, so a job cannot override them. (3) The NodeManager's read of the job file then goes through the wrapper and is checked against the record made when the client uploaded it. The step keeps its name; these are its baby steps 4.6.1, 4.6.2 and 4.6.3.
+- **Why:** it removes the fail-open weakness of ADR-017 for everything that reads the site configuration, and it closes the job-loader gap that the handoff left open.
+- **Consequences:** the Hadoop installation and configuration change, so the measured set changes and the re-measurement (ADR-020, ADR-029) must cover them. A failure of the wrapper now affects every client, including the daemons and the command-line tools (whose files get records too), so the change needs a staged rollout, a rollback and a switch between the wrapped and the plain configuration, which the control runs of ADR-028 also need. The settings of the wrapper stay non-final.
+
+## ADR-028: Every wrapped crawl has an unwrapped control in the same hour; wall time and bytes fetched are recorded
+
+- **Date:** 7 October 2026. **Status:** accepted by the mentor.
+- **Context:** run 6 had no contemporaneous unwrapped run. The mentor said that from Stage B on the unwrapped control is run in the same hour, and, per Amir, that performance is the result that matters most.
+- **Decision:** from now on every wrapped crawl is paired with an unwrapped control run in the same hour (the order alternates). For every run the pair table records the wall time, the bytes fetched, and the HDFS bytes read and written. The unwrapped run uses the plain configuration and the measured job. This is a rule for every crawl, not a step; the first pair is the crawl that follows the re-measurement (step 4.8), and the results table belongs to Milestone 6, step 6.3.
+- **Why:** pages change between runs (a live site redeploys), so bytes fetched must be recorded to compare times fairly.
+- **Consequences:** the cluster needs a switch between the wrapped and the plain configuration (baby step 4.6.2); each pair costs about two crawls.
+
+## ADR-029: Nothing that is not measured is described as measured
+
+- **Date:** 7 October 2026. **Status:** accepted by the mentor.
+- **Context:** the re-measurement is deferred (ADR-020); runs 6 and later used jobs outside the measured set. The mentor accepted the deferral as long as nothing unmeasured is ever described as measured.
+- **Decision:** every document, table and sentence of the paper that mentions a run says whether it is covered by the measurement; anything that ran outside the measured set is called "unmeasured" or "not covered by the measurement", never "measured". Here "measured" means covered by the attestation measurement of Milestone 1; timing a run is a different thing, and the documents avoid the word for it.
+- **Why:** the claim of the project is about the exact build that ran.
+- **Consequences:** the facts checks include the phrase for the runs concerned; the re-measurement, when it happens, is described by what it covers.

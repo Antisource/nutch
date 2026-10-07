@@ -8,6 +8,8 @@ Everything here was written from terminal output captured during the work (2 and
 Times are UTC. Timestamps printed by tools on the operator's laptop use India Standard Time (UTC+5:30) and are
 converted where cited. Where something was not observed, the text says so.
 
+**Update, 7 October 2026.** The work has moved from this two-run pilot to a plan of Milestones 0 to 6. Start with [milestone-plan.md](milestone-plan.md); the milestone reports and the decision log are listed below.
+
 ## Documents
 
 | File | What it answers |
@@ -20,6 +22,14 @@ converted where cited. Where something was not observed, the text says so.
 | [limitations-and-trust.md](limitations-and-trust.md) | Updated limitations and challenges table, ranked trust issues, better-TEE comparison, next experiments |
 | [guide-first-principles.md](guide-first-principles.md) | Beginner's master guide: every concept from first principles, and every step of the experiment from first login to last commit |
 | [guide-pitfalls-and-lessons.md](guide-pitfalls-and-lessons.md) | Mistakes made, corrections, decisions taken, and a checklist for repeating the work |
+| [milestone-plan.md](milestone-plan.md) | The plan: Milestones 0 to 6, steps and status, dependencies, teammate S's work, timeline |
+| [milestone-0-clean-baseline.md](milestone-0-clean-baseline.md) | Milestone 0: the clean baseline with CCBot's real HTTP client (run 3) |
+| [milestone-1-code-measurement.md](milestone-1-code-measurement.md) | Milestone 1: measuring the code that runs into the hardware quote |
+| [milestone-2-wireguard-mesh.md](milestone-2-wireguard-mesh.md) | Milestone 2: the WireGuard mesh and a closed ordinary network |
+| [milestone-3-hdfs-wrapper.md](milestone-3-hdfs-wrapper.md) | Milestone 3: the `hdfs://` wrapper and the storage audit |
+| [milestone-4-storage-integrity.md](milestone-4-storage-integrity.md) | Milestone 4: storage integrity (hashing, records, verified reads, contract tests) and the steps still open |
+| [decisions.md](decisions.md) | The decision log, with the mentor's decisions |
+| [handoff-attested-hadoop-cluster.md](handoff-attested-hadoop-cluster.md) | The mentor's handoff, with the corrections of 7 October |
 
 ## Repository map: what was added and why
 

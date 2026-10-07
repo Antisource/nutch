@@ -263,3 +263,7 @@ Run 8 repeats the crawl with a record kept next to each file and every read chec
 | Evidence | `evidence-run7.tar.gz`, `evidence-run7-audit.tar.gz` | `evidence-run8.tar.gz`, `evidence-run8-audit.tar.gz` |
 
 **The one different page.** `www.zyte.com` differs once more (run 7 `sha1:Z4NYZYD...`, run 8 `sha1:XX7YZPKK...`). Its deployment identifier changed from `dpl_J25tWhywpx6QetrVxFP7wgdX7PPC` (fetched 7 Oct 07:33:11) to `dpl_2HdZ2H4ohADyL4QEFsb3pBbNMGvT` (fetched 09:24:12), and the live site at 12:06 served the newer one. What it shows: keeping records and verifying reads did not change what the crawler fetched or how it counted it. Not repeated for this run: the `WARC-IP-Address` check and the HDFS byte counters.
+
+### 9.5 A condition from the mentor (7 October 2026)
+
+Runs 6 to 8 were not paired with an unwrapped control in the same hour: run 6 was compared with run 5, which had been made hours earlier, and runs 7 and 8 were compared with run 6 and with each other. The mentor accepted this evidence and said that from Stage B on the unwrapped control is run in the same hour, with wall time and bytes fetched recorded for each pair (ADR-028). The three durations above (10 min 42 s, 10 min 43 s and 10 min 57 s) are therefore first timings, not a performance result.
