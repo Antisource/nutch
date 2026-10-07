@@ -16,24 +16,34 @@
  */
 package org.apache.nutch.attested;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.ChecksumException;
 import org.apache.hadoop.fs.CreateFlag;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FSDataOutputStreamBuilder;
+import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.FilterFileSystem;
 import org.apache.hadoop.fs.FutureDataInputStreamBuilder;
+import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Options.ChecksumOpt;
 import org.apache.hadoop.fs.Options.Rename;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.PathFilter;
+import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.fs.XAttrSetFlag;
+import org.apache.hadoop.fs.impl.FutureDataInputStreamBuilderImpl;
+import org.apache.hadoop.fs.impl.OpenFileParameters;
 import org.apache.hadoop.fs.permission.AclEntry;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.hdfs.DistributedFileSystem;
@@ -47,8 +57,11 @@ import org.apache.hadoop.util.Progressable;
  * <p>It forwards every request to the real HDFS client and writes one line per
  * request that changes storage to a local audit log ({@link AttestedAudit}).
  * Since stage B1 it also hashes every file it creates (SHA-256 per chunk, Merkle
- * root) and writes one record per file at close ({@link AttestedRecords}). The
- * hashes are only observed: nothing is verified or refused yet.</p>
+ * root) and writes one record per file at close ({@link AttestedRecords}).
+ * Since stage B2 it also keeps each record next to its file ({@link AttestedSidecar})
+ * and checks every read against it ({@link VerifyingInputStream}): a file that
+ * changed after it was written fails the read. Records follow renames, go with
+ * deletes and are hidden from listings.</p>
  *
  * <p>The real HDFS client is constructed directly in {@link #createInner()}.
  * It must never be looked up by scheme (<code>FileSystem.get(...)</code>):
@@ -72,7 +85,16 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
   public static final String CHUNK_SIZE_KEY = "attested.hash.chunk.size";
   public static final long DEFAULT_CHUNK_SIZE = 16384;
 
+  /** Stage B2: keep each file's record next to it, and verify reads against it. */
+  public static final String SIDECAR_KEY = "attested.sidecar.enabled";
+  public static final String VERIFY_KEY = "attested.verify.reads";
+  /** What to do when a file has no record: allow, warn (log it) or fail. */
+  public static final String MISSING_KEY = "attested.verify.missing";
+
   private boolean hashing = true;
+  private boolean sidecars = true;
+  private boolean verifyReads = true;
+  private String missingPolicy = "warn";
   private long chunkSize = DEFAULT_CHUNK_SIZE;
   private String jobId = "";
   private String attemptId = "";
@@ -101,6 +123,18 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
     if (chunkSize < 1) {
       throw new IOException(CHUNK_SIZE_KEY + " must be at least 1, got " + chunkSize);
     }
+    this.sidecars = hashing && conf.getBoolean(SIDECAR_KEY, true);
+    this.verifyReads = conf.getBoolean(VERIFY_KEY, true);
+    this.missingPolicy = conf.get(MISSING_KEY, "warn").trim().toLowerCase();
+    if (!missingPolicy.equals("allow") && !missingPolicy.equals("warn")
+        && !missingPolicy.equals("fail")) {
+      throw new IOException(MISSING_KEY + " must be allow, warn or fail, got "
+          + missingPolicy);
+    }
+    if (sidecars && chunkSize > Integer.MAX_VALUE) {
+      throw new IOException(CHUNK_SIZE_KEY + " must not exceed "
+          + Integer.MAX_VALUE + " when records are kept, got " + chunkSize);
+    }
     this.jobId = conf.get("mapreduce.job.id", "");
     this.attemptId = conf.get("mapreduce.task.attempt.id", "");
     if (hashing) {
@@ -116,7 +150,9 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
     super.initialize(name, conf);
     AttestedAudit.log("INIT", null, null, "uri=" + name + " inner="
         + inner.getClass().getName() + " wrapper=" + getClass().getName()
-        + " hash=" + hashing + " chunk=" + chunkSize + " from=" + where());
+        + " hash=" + hashing + " chunk=" + chunkSize + " sidecar=" + sidecars
+        + " verify=" + verifyReads + " missing=" + missingPolicy
+        + " from=" + where());
   }
 
   private String where() {
@@ -152,7 +188,187 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
       return stream;
     }
     return new FSDataOutputStream(new HashingOutputStream(stream,
-        q(f).toUri().getPath(), chunkSize, jobId, attemptId), null);
+        q(f).toUri().getPath(), chunkSize, jobId, attemptId,
+        sidecars ? this::writeSidecar : null), null);
+  }
+
+  // ------------------------------------------------ records next to files
+
+  private boolean track() {
+    return sidecars || verifyReads;
+  }
+
+  private boolean isPlainFile(Path f) throws IOException {
+    try {
+      return fs.getFileStatus(f).isFile();
+    } catch (FileNotFoundException e) {
+      return false;
+    }
+  }
+
+  private boolean isDir(Path f) throws IOException {
+    try {
+      return fs.getFileStatus(f).isDirectory();
+    } catch (FileNotFoundException e) {
+      return false;
+    }
+  }
+
+  /** Stores a finished record next to its file, with the real HDFS client. */
+  private void writeSidecar(String filePath, long length, long chunk,
+      byte[] root, List<byte[]> leaves) throws IOException {
+    Path sc = AttestedSidecar.pathFor(new Path(filePath));
+    byte[] bytes = AttestedSidecar.encode((int) chunk, length, root, leaves);
+    audit("CREATE", sc, null, "sidecar");
+    try (FSDataOutputStream out = fs.create(sc, true)) {
+      out.write(bytes);
+    }
+  }
+
+  /** The file changed, so its record no longer describes it: remove the record. */
+  private void dropSidecar(Path f) throws IOException {
+    Path sc = AttestedSidecar.pathFor(f);
+    if (fs.exists(sc)) {
+      audit("DELETE", sc, null, "recursive=false sidecar");
+      fs.delete(sc, false);
+    }
+  }
+
+  /** After a file was renamed: move its record along, and clear any old record at the new name. */
+  private void moveSidecar(Path src, Path dst) throws IOException {
+    Path from = AttestedSidecar.pathFor(src);
+    Path to = AttestedSidecar.pathFor(dst);
+    boolean had = fs.exists(from);
+    if (fs.exists(to)) {
+      audit("DELETE", to, null, "recursive=false sidecar");
+      fs.delete(to, false);
+    }
+    if (had) {
+      audit("RENAME", from, to, "sidecar");
+      if (!fs.rename(from, to)) {
+        throw new IOException("Could not move the attested record of " + src
+            + " to " + dst);
+      }
+    }
+  }
+
+  /**
+   * Wraps a freshly opened stream so that every chunk read is checked against the
+   * file's record. Files without a record follow the missing policy; a record that
+   * is damaged or disagrees with the file's length fails the open.
+   */
+  private FSDataInputStream verified(Path f, FSDataInputStream raw, String how)
+      throws IOException {
+    String tag = how == null ? "" : how + " ";
+    if (!verifyReads || AttestedSidecar.isSidecar(f)) {
+      audit("OPEN", f, null, tag + "verify=off");
+      return raw;
+    }
+    AttestedSidecar rec = null;
+    try {
+      rec = AttestedSidecar.read(fs, AttestedSidecar.pathFor(f));
+    } catch (FileNotFoundException e) {
+      rec = null;
+    } catch (IOException e) {
+      raw.close();
+      audit("VERIFY-FAIL", f, null, tag + e.getMessage());
+      throw new ChecksumException("Attested verification failed for " + f
+          + ": " + e.getMessage(), 0);
+    }
+    if (rec == null) {
+      if (missingPolicy.equals("fail")) {
+        raw.close();
+        audit("VERIFY-FAIL", f, null, tag + "no record");
+        throw new IOException("Attested verification failed for " + f
+            + ": the file has no record");
+      }
+      audit("OPEN", f, null, tag + (missingPolicy.equals("warn")
+          ? "verify=missing" : "verify=skipped"));
+      return raw;
+    }
+    long len = fs.getFileStatus(f).getLen();
+    if (rec.length != len) {
+      raw.close();
+      String why = "length is " + len + " in storage but " + rec.length
+          + " in its record";
+      audit("VERIFY-FAIL", f, null, tag + why);
+      throw new ChecksumException("Attested verification failed for " + f
+          + ": " + why, 0);
+    }
+    audit("OPEN", f, null, tag + "verify=ok");
+    return new FSDataInputStream(new VerifyingInputStream(raw, rec, q(f)));
+  }
+
+  /** Listings do not show the records: they are the wrapper's own business. */
+  private static <T extends FileStatus> RemoteIterator<T> hideSidecars(
+      final RemoteIterator<T> it) {
+    return new RemoteIterator<T>() {
+      private T next;
+
+      @Override
+      public boolean hasNext() throws IOException {
+        while (next == null && it.hasNext()) {
+          T s = it.next();
+          if (!AttestedSidecar.isSidecar(s.getPath())) {
+            next = s;
+          }
+        }
+        return next != null;
+      }
+
+      @Override
+      public T next() throws IOException {
+        if (!hasNext()) {
+          throw new java.util.NoSuchElementException();
+        }
+        T s = next;
+        next = null;
+        return s;
+      }
+    };
+  }
+
+  private static FileStatus[] withoutSidecars(FileStatus[] all) {
+    int keep = 0;
+    for (FileStatus s : all) {
+      if (!AttestedSidecar.isSidecar(s.getPath())) {
+        keep++;
+      }
+    }
+    if (keep == all.length) {
+      return all;
+    }
+    FileStatus[] out = new FileStatus[keep];
+    int i = 0;
+    for (FileStatus s : all) {
+      if (!AttestedSidecar.isSidecar(s.getPath())) {
+        out[i++] = s;
+      }
+    }
+    return out;
+  }
+
+  @Override
+  public FileStatus[] listStatus(Path f) throws IOException {
+    return withoutSidecars(super.listStatus(f));
+  }
+
+  @Override
+  public RemoteIterator<FileStatus> listStatusIterator(Path f)
+      throws IOException {
+    return hideSidecars(super.listStatusIterator(f));
+  }
+
+  @Override
+  public RemoteIterator<LocatedFileStatus> listLocatedStatus(Path f)
+      throws IOException {
+    return hideSidecars(super.listLocatedStatus(f));
+  }
+
+  @Override
+  protected RemoteIterator<LocatedFileStatus> listLocatedStatus(Path f,
+      PathFilter filter) throws IOException {
+    return hideSidecars(super.listLocatedStatus(f, filter));
   }
 
   private void audit(String op, Path p1, Path p2, String extra)
@@ -165,21 +381,48 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
 
   @Override
   public FSDataInputStream open(Path f, int bufferSize) throws IOException {
-    audit("OPEN", f, null, null);
-    return super.open(f, bufferSize);
+    return verified(f, super.open(f, bufferSize), null);
   }
 
+  /**
+   * The builder form of open (used by sequence files and others) must come to this
+   * class too, not go straight to the real client, or its reads would not be checked.
+   */
   @Override
   public FutureDataInputStreamBuilder openFile(Path path)
       throws IOException, UnsupportedOperationException {
-    audit("OPEN", path, null, "openFile");
-    return super.openFile(path);
+    return new FutureDataInputStreamBuilderImpl(this, path) {
+      @Override
+      public CompletableFuture<FSDataInputStream> build()
+          throws IllegalArgumentException, UnsupportedOperationException,
+          IOException {
+        OpenFileParameters params = new OpenFileParameters()
+            .withMandatoryKeys(getMandatoryKeys())
+            .withOptionalKeys(getOptionalKeys())
+            .withOptions(getOptions())
+            .withBufferSize(getBufferSize())
+            .withStatus(getStatus());
+        return AttestedHdfsFileSystem.this.openFileWithOptions(getPath(), params);
+      }
+    };
+  }
+
+  @Override
+  protected CompletableFuture<FSDataInputStream> openFileWithOptions(Path path,
+      OpenFileParameters parameters) throws IOException {
+    return super.openFileWithOptions(path, parameters).thenApply(raw -> {
+      try {
+        return verified(path, raw, "openFile");
+      } catch (IOException e) {
+        throw new UncheckedIOException(e);
+      }
+    });
   }
 
   @Override
   public void copyToLocalFile(boolean delSrc, Path src, Path dst)
       throws IOException {
-    audit("OPEN", src, null, "copyToLocalFile");
+    audit("OPEN", src, null, "copyToLocalFile verify=bypassed");
     if (delSrc) {
       audit("DELETE", src, null, "recursive=true copyToLocalFile");
     }
@@ -243,6 +486,9 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
   public FSDataOutputStream append(Path f, int bufferSize,
       Progressable progress) throws IOException {
     audit("APPEND", f, null, null);
+    if (track()) {
+      dropSidecar(f);
+    }
     if (hashing) {
       AttestedRecords.log(jobId, attemptId, q(f).toUri().getPath(), -1,
           chunkSize, 0, "", "append-unhashed");
@@ -269,12 +515,22 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
     }
     audit("CONCAT", f, null, srcs.toString());
     super.concat(f, psrcs);
+    if (track()) {
+      dropSidecar(f);
+      for (Path src : psrcs) {
+        dropSidecar(src);
+      }
+    }
   }
 
   @Override
   public boolean truncate(Path f, long newLength) throws IOException {
     audit("TRUNCATE", f, null, "newLength=" + newLength);
-    return super.truncate(f, newLength);
+    boolean done = super.truncate(f, newLength);
+    if (track()) {
+      dropSidecar(f);
+    }
+    return done;
   }
 
   @Override
@@ -318,20 +574,38 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
   @Override
   public boolean rename(Path src, Path dst) throws IOException {
     audit("RENAME", src, dst, null);
-    return super.rename(src, dst);
+    boolean file = track() && isPlainFile(src);
+    Path target = dst;
+    if (file && isDir(dst)) {
+      target = new Path(dst, src.getName());
+    }
+    boolean ok = super.rename(src, dst);
+    if (ok && file) {
+      moveSidecar(src, target);
+    }
+    return ok;
   }
 
   @Override
   protected void rename(Path src, Path dst, Rename... options)
       throws IOException {
     audit("RENAME", src, dst, "options");
+    boolean file = track() && isPlainFile(src);
     super.rename(src, dst, options);
+    if (file) {
+      moveSidecar(src, dst);
+    }
   }
 
   @Override
   public boolean delete(Path f, boolean recursive) throws IOException {
     audit("DELETE", f, null, "recursive=" + recursive);
-    return super.delete(f, recursive);
+    boolean file = track() && isPlainFile(f);
+    boolean ok = super.delete(f, recursive);
+    if (ok && file) {
+      dropSidecar(f);
+    }
+    return ok;
   }
 
   @Override

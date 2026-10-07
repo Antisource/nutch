@@ -14,12 +14,15 @@ import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Random;
+import java.io.EOFException;
 import java.util.StringTokenizer;
 import java.util.TreeMap;
 import java.util.TreeSet;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.ContentSummary;
+import org.apache.hadoop.fs.FileUtil;
+import org.apache.hadoop.fs.ChecksumException;
 import org.apache.hadoop.fs.CreateFlag;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
@@ -50,6 +53,9 @@ import org.apache.hadoop.security.UserGroupInformation;
  *   AttestedFsSmoke fake            the wrapper over a fake HDFS that keeps its files on local disk
  *   AttestedFsSmoke mr-fake         a small MapReduce job (local runner) through the wrapper
  *   AttestedFsSmoke hash            the hashing: records and Merkle roots against an independent computation
+ *                                   (fake and hdfs also run the verification checks of stage B2: reads are
+ *                                   checked against the records, and changed, shortened or lengthened files,
+ *                                   damaged records and missing records are handled as specified)
  *   AttestedFsSmoke hdfs HOST:PORT  the wrapper over the real HDFS at HOST:PORT
  *
  * The two settings fs.hdfs.impl and fs.AbstractFileSystem.hdfs.impl are the only
@@ -233,6 +239,7 @@ public class AttestedFsSmoke {
         loopRefused);
 
     exercise(conf, base, plain, FakeHdfs.class.getName());
+    verifyChecks(conf, base, plain);
     fileContext(conf, new Path("hdfs://fake:9000" + tmp + "/fc"));
     auditLines(conf, tmp + "/audit", FakeHdfs.class.getName(), work);
     deleteTree(tmp.toFile());
@@ -255,6 +262,7 @@ public class AttestedFsSmoke {
     plain.initialize(uri, new Configuration());
     try {
       exercise(conf, base, plain, DistributedFileSystem.class.getName());
+      verifyChecks(conf, base, plain);
       fileContext(conf, new Path("hdfs://" + authority + work + "-fc"));
       auditLines(conf, tmp + "/audit", DistributedFileSystem.class.getName(),
           work);
@@ -524,9 +532,302 @@ public class AttestedFsSmoke {
         recordCountContaining("/part-r-") > 0);
     check("the audit log shows the job's commit (a rename into the output folder)",
         log.stream().anyMatch(c -> c[3].equals("RENAME") && c[5].contains("/out/")));
+    check("the audit log shows the job's input being read with verification",
+        log.stream().anyMatch(c -> c[3].equals("OPEN") && c[4].contains("/in/") && c[6].contains("verify=ok")));
+
+    // an operator changes one byte of an input file with the plain client: the next job must fail
+    FakeHdfs plainFs = new FakeHdfs();
+    plainFs.initialize(URI.create("hdfs://fake:9000"), new Configuration(false));
+    Path victim = new Path(in, "part0.txt");
+    byte[] orig = readAll(plainFs, victim);
+    byte[] changed = orig.clone();
+    changed[3] ^= 0x20;
+    put(plainFs, victim, changed);
+    check("a job reading a changed input file fails", !runWordCount(conf, in, new Path("hdfs://fake:9000" + tmp + "/out2")));
+    check("the audit log shows the verification failure of the input",
+        auditEntries(tmp + "/audit").stream().anyMatch(c -> c[3].equals("VERIFY-FAIL") && c[4].contains("/in/part0.txt")));
+    put(plainFs, victim, orig);
+    check("with the original bytes put back the same job completes again",
+        runWordCount(conf, in, new Path("hdfs://fake:9000" + tmp + "/out3")));
     deleteTree(tmp.toFile());
   }
 
+  static boolean runWordCount(Configuration conf, Path in, Path out) throws Exception {
+    Job job = Job.getInstance(conf, "attested-wordcount-again");
+    job.setJarByClass(AttestedFsSmoke.class);
+    job.setMapperClass(TokMapper.class);
+    job.setCombinerClass(SumReducer.class);
+    job.setReducerClass(SumReducer.class);
+    job.setOutputKeyClass(Text.class);
+    job.setOutputValueClass(IntWritable.class);
+    FileInputFormat.addInputPath(job, in);
+    FileOutputFormat.setOutputPath(job, out);
+    try {
+      return job.waitForCompletion(false);
+    } catch (IOException e) {
+      return false;
+    }
+  }
+
+  // ------------------------------------------------------ verification (B2)
+
+  static Path sc(Path p) {
+    return new Path(p.getParent(), "." + p.getName() + ".attested");
+  }
+
+  static byte[] data(int n, long seed) {
+    byte[] d = new byte[n];
+    new Random(seed).nextBytes(d);
+    return d;
+  }
+
+  static void put(FileSystem f, Path p, byte[] d) throws IOException {
+    try (FSDataOutputStream o = f.create(p, true)) {
+      o.write(d);
+    }
+  }
+
+  static String lastError;
+
+  static byte[] tryRead(FileSystem fs, Path p) {
+    lastError = null;
+    try {
+      return readAll(fs, p);
+    } catch (IOException e) {
+      lastError = e.toString();
+      return null;
+    }
+  }
+
+  static List<String[]> auditEntries(String dir) throws IOException {
+    List<String[]> out = new ArrayList<>();
+    File[] fs = new File(dir).listFiles((d, n) -> n.endsWith(".tsv"));
+    if (fs != null) {
+      for (File f : fs) {
+        for (String l : Files.readAllLines(f.toPath(), StandardCharsets.UTF_8)) {
+          String[] c = l.split("\t", -1);
+          if (c.length == 7) {
+            out.add(c);
+          }
+        }
+      }
+    }
+    return out;
+  }
+
+  static long auditCount(String dir, String op, String extraPart) throws IOException {
+    return auditEntries(dir).stream()
+        .filter(c -> c[3].equals(op) && c[6].contains(extraPart)).count();
+  }
+
+  /** Stage B2: reads are checked against the records; every way of changing a file is caught. */
+  static void verifyChecks(Configuration conf, Path base, FileSystem plain) throws Exception {
+    FileSystem fs = FileSystem.newInstance(base.toUri(), conf);
+    String auditDir = conf.get(AttestedAudit.DIR_KEY);
+    Path dir = new Path(base, "verify");
+    fs.mkdirs(dir);
+    int[] sizes = { 0, 1, 16383, 16384, 16385, 100000, 3 * 1024 * 1024 + 17 };
+    boolean recordsOk = true, readOk = true, builderOk = true, seekOk = true, lenOk = true;
+    for (int n : sizes) {
+      Path f = new Path(dir, "v" + n);
+      byte[] d = data(n, 500 + n);
+      put(fs, f, d);
+      recordsOk &= plain.exists(sc(f));
+      readOk &= Arrays.equals(d, readAll(fs, f));
+      lenOk &= fs.getFileStatus(f).getLen() == n;
+      try (FSDataInputStream in = fs.openFile(f).build().get()) {
+        byte[] b = new byte[n];
+        in.readFully(b);
+        builderOk &= Arrays.equals(d, b) && in.read() == -1;
+      }
+      if (n >= 16385) {
+        try (FSDataInputStream in = fs.open(f)) {
+          byte[] b = new byte[Math.min(10, n - 16380)];
+          in.seek(16380);
+          in.readFully(b);
+          seekOk &= Arrays.equals(Arrays.copyOfRange(d, 16380, 16380 + b.length), b);
+          if (n >= 30000) {
+            byte[] c = new byte[5000];
+            in.readFully(20000, c);
+            seekOk &= Arrays.equals(Arrays.copyOfRange(d, 20000, 25000), c);
+            seekOk &= in.getPos() == 16380 + b.length;
+          }
+          in.seek(n);
+          seekOk &= in.read() == -1;
+          boolean threw = false;
+          try {
+            in.seek(n + 1L);
+          } catch (EOFException e) {
+            threw = true;
+          }
+          seekOk &= threw;
+        }
+      }
+    }
+    check("every file written through the wrapper has a record next to it (all sizes)", recordsOk);
+    check("reads through the wrapper return the bytes that were written (all sizes)", readOk);
+    check("the builder form of open (openFile) reads and verifies too (all sizes)", builderOk);
+    check("seeks, positioned reads and reads at the end work (all sizes)", seekOk);
+    check("the length reported by the wrapper is unchanged (all sizes)", lenOk);
+    check("listings through the wrapper do not show the records",
+        fs.listStatus(dir).length == sizes.length && plain.listStatus(dir).length == 2 * sizes.length);
+    int viaIterator = 0;
+    RemoteIterator<LocatedFileStatus> it = fs.listFiles(dir, false);
+    while (it.hasNext()) {
+      it.next();
+      viaIterator++;
+    }
+    check("listFiles and glob do not show the records either",
+        viaIterator == sizes.length && fs.globStatus(new Path(dir, "*")).length == sizes.length);
+
+    // the headline test: one byte of a stored file is changed with the plain client
+    Path t = new Path(dir, "v100000");
+    byte[] d = data(100000, 500 + 100000);
+    byte[] bad = d.clone();
+    bad[50000] ^= 0x01;
+    put(plain, t, bad);
+    try (FSDataInputStream in = fs.open(t)) {
+      byte[] head = new byte[49152];
+      in.readFully(head);
+      check("changed byte: the chunks before the changed one still read (checked one by one)",
+          Arrays.equals(Arrays.copyOf(d, 49152), head));
+      boolean failed = false;
+      String msg = "";
+      try {
+        in.readFully(new byte[100000 - 49152]);
+      } catch (ChecksumException e) {
+        failed = true;
+        msg = e.getMessage();
+      }
+      check("changed byte: reading the changed chunk fails with a verification error",
+          failed && msg.contains("chunk 3"));
+    }
+    check("changed byte: reading the whole file fails",
+        tryRead(fs, t) == null && lastError.contains("Attested verification failed"));
+    put(plain, t, d);
+    check("changed byte: with the original bytes put back the file verifies again",
+        Arrays.equals(d, readAll(fs, t)));
+
+    put(plain, t, Arrays.copyOf(d, 99999));
+    check("shortened file: the open fails and says why",
+        tryRead(fs, t) == null && lastError.contains("length is 99999"));
+    boolean viaFuture = false;
+    try {
+      org.apache.hadoop.util.functional.FutureIO.awaitFuture(fs.openFile(t).build());
+    } catch (IOException | RuntimeException e) {
+      viaFuture = String.valueOf(e).contains("Attested verification failed")
+          || String.valueOf(e.getCause()).contains("Attested verification failed");
+    }
+    check("shortened file: the builder form of open (openFile) fails too, with the same message", viaFuture);
+    put(plain, t, Arrays.copyOf(d, 100001));
+    check("lengthened file: the open fails and says why",
+        tryRead(fs, t) == null && lastError.contains("length is 100001"));
+    put(plain, t, d);
+
+    // damaged records
+    byte[] sb = readAll(plain, sc(t));
+    boolean damagedOk = true;
+    byte[][] damaged = new byte[4][];
+    damaged[0] = sb.clone();
+    damaged[0][damaged[0].length - 1] ^= 1;
+    damaged[1] = sb.clone();
+    damaged[1][20] ^= 1;
+    damaged[2] = Arrays.copyOf(sb, sb.length - 5);
+    damaged[3] = new byte[10];
+    for (byte[] dm : damaged) {
+      put(plain, sc(t), dm);
+      damagedOk &= tryRead(fs, t) == null && lastError.contains("record is damaged");
+    }
+    check("a damaged record (changed hash, changed root, cut short, garbage) fails the open", damagedOk);
+    put(plain, sc(t), sb);
+    check("with the original record put back the file verifies again", Arrays.equals(d, readAll(fs, t)));
+
+    // the known limit, stated as a test: file and record rewritten together are accepted
+    byte[] other = data(100000, 999);
+    MerkleHasher mh = new MerkleHasher(16384, true);
+    mh.update(other, 0, other.length);
+    byte[] root = mh.finish();
+    put(plain, t, other);
+    put(plain, sc(t), AttestedSidecar.encode(16384, other.length, root, mh.leaves()));
+    check("known limit until records are signed: a file and its record rewritten together are accepted",
+        Arrays.equals(other, readAll(fs, t)));
+    put(fs, t, d);
+
+    // a missing record follows the policy
+    plain.delete(sc(t), false);
+    check("missing record, default policy (warn): the file reads, unverified",
+        Arrays.equals(d, readAll(fs, t)) && auditCount(auditDir, "OPEN", "verify=missing") > 0);
+    Configuration failConf = new Configuration(conf);
+    failConf.set(AttestedHdfsFileSystem.MISSING_KEY, "fail");
+    FileSystem failFs = FileSystem.newInstance(base.toUri(), failConf);
+    check("missing record, policy fail: the open is refused",
+        tryRead(failFs, t) == null && lastError.contains("has no record"));
+    Configuration allowConf = new Configuration(conf);
+    allowConf.set(AttestedHdfsFileSystem.MISSING_KEY, "allow");
+    FileSystem allowFs = FileSystem.newInstance(base.toUri(), allowConf);
+    check("missing record, policy allow: the file reads and the audit says skipped",
+        Arrays.equals(d, readAll(allowFs, t)) && auditCount(auditDir, "OPEN", "verify=skipped") > 0);
+    put(fs, t, d);
+
+    // verification switched off: the same change goes unnoticed (the control for the setting)
+    Configuration offConf = new Configuration(conf);
+    offConf.setBoolean(AttestedHdfsFileSystem.VERIFY_KEY, false);
+    FileSystem offFs = FileSystem.newInstance(base.toUri(), offConf);
+    put(plain, t, bad);
+    check("verification off: a changed file reads without complaint",
+        Arrays.equals(bad, readAll(offFs, t)));
+    put(fs, t, d);
+
+    // records follow their files
+    Path a = new Path(dir, "ren-a");
+    byte[] da = data(40000, 7);
+    put(fs, a, da);
+    Path b = new Path(dir, "ren-b");
+    check("rename of a file works", fs.rename(a, b));
+    check("rename: its record moved with it", plain.exists(sc(b)) && !plain.exists(sc(a)));
+    check("rename: the renamed file verifies", Arrays.equals(da, readAll(fs, b)));
+    Path into = new Path(dir, "into");
+    fs.mkdirs(into);
+    check("rename into an existing folder works", fs.rename(b, into));
+    Path inb = new Path(into, "ren-b");
+    check("rename into a folder: the record moved and the file verifies",
+        plain.exists(sc(inb)) && !plain.exists(sc(b)) && Arrays.equals(da, readAll(fs, inb)));
+    Path sub = new Path(dir, "sub");
+    fs.mkdirs(sub);
+    put(fs, new Path(sub, "x"), da);
+    Path sub2 = new Path(dir, "sub2");
+    check("rename of a folder works", fs.rename(sub, sub2));
+    check("folder rename: the files in it still verify",
+        Arrays.equals(da, readAll(fs, new Path(sub2, "x"))) && plain.exists(sc(new Path(sub2, "x"))));
+    put(plain, inb, Arrays.copyOf(da, 40000 - 1));
+    check("a changed file is still caught after it was renamed", tryRead(fs, inb) == null);
+    check("delete of a file works", fs.delete(inb, false));
+    check("delete: its record is gone too", !plain.exists(sc(inb)));
+    check("recursive delete of a folder removes the records inside",
+        fs.delete(sub2, true) && !plain.exists(sc(new Path(sub2, "x"))) && !plain.exists(sub2));
+    Path ow = new Path(dir, "ow");
+    put(fs, ow, data(30000, 1));
+    byte[] d2 = data(20000, 2);
+    put(fs, ow, d2);
+    check("writing over a file replaces its record: the new content verifies",
+        Arrays.equals(d2, readAll(fs, ow)));
+    Path copy = new Path(dir, "copy");
+    check("a copy made through the wrapper", FileUtil.copy(fs, t, fs, copy, false, conf));
+    check("the copy has its own record and verifies",
+        plain.exists(sc(copy)) && Arrays.equals(d, readAll(fs, copy)));
+    Path ap = new Path(dir, "ap");
+    put(fs, ap, data(1000, 3));
+    try (FSDataOutputStream o = fs.append(ap)) {
+      o.write(1);
+    }
+    check("append: the old record is removed (the file changed), and it still reads (warn)",
+        !plain.exists(sc(ap)) && readAll(fs, ap).length == 1001);
+
+    check("the audit log has VERIFY-FAIL lines for the changed files and records",
+        auditCount(auditDir, "VERIFY-FAIL", "") >= 8);
+    check("the audit log marks verified opens", auditCount(auditDir, "OPEN", "verify=ok") > 10);
+    plain.delete(dir, true);
+  }
 
   // ------------------------------------------------------------ hashing
 

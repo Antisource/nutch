@@ -38,16 +38,24 @@ final class HashingOutputStream extends OutputStream
   private final String job;
   private final String attempt;
   private final long chunkSize;
+  private final SidecarSink sink;
   private boolean closed;
 
+  /** Receives the finished record of a file so that it can be stored next to the file. */
+  interface SidecarSink {
+    void write(String path, long length, long chunkSize, byte[] root,
+        java.util.List<byte[]> leaves) throws IOException;
+  }
+
   HashingOutputStream(FSDataOutputStream inner, String path, long chunkSize,
-      String job, String attempt) {
+      String job, String attempt, SidecarSink sink) {
     this.inner = inner;
     this.path = path;
     this.chunkSize = chunkSize;
     this.job = job;
     this.attempt = attempt;
-    this.hasher = new MerkleHasher(chunkSize);
+    this.sink = sink;
+    this.hasher = new MerkleHasher(chunkSize, sink != null);
   }
 
   @Override
@@ -97,5 +105,8 @@ final class HashingOutputStream extends OutputStream
     byte[] root = hasher.finish();
     AttestedRecords.log(job, attempt, path, hasher.length(), chunkSize,
         hasher.chunkCount(), MerkleHasher.hex(root), "closed");
+    if (sink != null) {
+      sink.write(path, hasher.length(), chunkSize, root, hasher.leaves());
+    }
   }
 }

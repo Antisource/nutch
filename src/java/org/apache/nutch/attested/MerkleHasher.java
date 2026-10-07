@@ -34,6 +34,8 @@ import java.util.ArrayList;
 public final class MerkleHasher {
 
   private final long chunkSize;
+  private final boolean keepLeaves;
+  private final ArrayList<byte[]> leafList = new ArrayList<>();
   private final MessageDigest leaf = sha256();
   private final MessageDigest node = sha256();
   private final ArrayList<byte[]> hashes = new ArrayList<>();
@@ -44,10 +46,30 @@ public final class MerkleHasher {
   private byte[] root;
 
   public MerkleHasher(long chunkSize) {
+    this(chunkSize, false);
+  }
+
+  /** With keepLeaves, the hash of every chunk is also kept (needed to write a sidecar). */
+  public MerkleHasher(long chunkSize, boolean keepLeaves) {
     if (chunkSize < 1) {
       throw new IllegalArgumentException("chunk size must be at least 1");
     }
     this.chunkSize = chunkSize;
+    this.keepLeaves = keepLeaves;
+  }
+
+  /** Merkle root of chunk hashes that are already known (the same tree as {@link #finish()}). */
+  public static byte[] rootOfLeaves(java.util.List<byte[]> leaves) {
+    MerkleHasher h = new MerkleHasher(1);
+    for (byte[] leaf : leaves) {
+      h.push(leaf, 1);
+    }
+    return h.finish();
+  }
+
+  /** The hash of every chunk, in order; only filled when keepLeaves was set. */
+  public java.util.List<byte[]> leaves() {
+    return leafList;
   }
 
   public void update(byte[] b, int off, int len) {
@@ -75,7 +97,11 @@ public final class MerkleHasher {
   }
 
   private void endChunk() {
-    push(leaf.digest(), 1);
+    byte[] h = leaf.digest();
+    if (keepLeaves) {
+      leafList.add(h);
+    }
+    push(h, 1);
     inChunk = 0;
     chunks++;
   }
