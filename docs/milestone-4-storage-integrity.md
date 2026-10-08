@@ -1,7 +1,7 @@
 # Milestone 4: storage integrity (handoff Stage B)
 
-Date: 7 October 2026. Times are UTC. Status: **steps 4.1 to 4.4 done; steps 4.5 to 4.8 open** (section 4).
-Written when step 4.3 closed and extended when step 4.4 closed (section 18). It is extended as the later steps close.
+Date: 7 October 2026. Times are UTC. Status: **steps 4.1 to 4.5 done; steps 4.6 to 4.8 open** (section 4).
+Written when step 4.3 closed and extended when step 4.4 closed (section 18) and when step 4.5 closed (section 19). It is extended as the later steps close.
 
 ## 1. Goal
 
@@ -37,14 +37,14 @@ Everything the mentor may change sits behind a setting (section 6), and the reco
 | 4.2 | Hash every written file and record its Merkle root (observe only) | 4 | 4.1 | Done | Run 7; commit `686c277ae` (sections 9, 15) |
 | 4.3 | Keep a record next to each file and verify every read against it | 4 | 4.2 | Done | Run 8 and the tamper test; commit `67c56f5a7` (sections 10, 11, 15) |
 | 4.4 | Run Hadoop's file-system contract tests against the wrapper | 4 | none | Done | Section 18; the wrapper fix `26da09f1c` and the tests `e72d1ed05` (section 15) |
-| 4.5 | Answer length, existence and listings from records, never from storage | 4 | 4.3 | Open | Baby steps: 4.5.1 metadata from records; 4.5.2 the NameNode's audit log turned on and compared with the wrapper's log (the mentor, 7 October; ADR-026) |
+| 4.5 | Answer length, existence and listings from records, never from storage | 4 | 4.3 | Done | Baby steps: 4.5.1 metadata from records (`4deed2b33`); 4.5.2 the NameNode's audit log turned on and compared with the wrapper's log (`4ebf7570f`; the mentor, 7 October; ADR-026); section 19 |
 | 4.6 | Check the job file and configuration digests at the start of each task | 6 | 4.2 | Open | Changed by the mentor on 7 October (ADR-027): a task hashing its own job file is not a security check, so the digests are checked where the NodeManager reads the files. Baby steps: 4.6.1 the wrapper's classes on Hadoop's classpath on both nodes; 4.6.2 both lookups set as final in the site configuration, with a switch back to the plain configuration; 4.6.3 the NodeManager's read of the job file is checked against its record |
 | 4.7 | Task records and job manifests; speculative execution off | 5 | 4.3 | Open | Depends on the answer to question 13 |
 | 4.8 | Milestone report; re-measure after a reboot (ADR-020) | | 4.4 to 4.7 | Open | Firewall rules must be saved first; nothing unmeasured is described as measured (ADR-029); the crawl that follows is run as a pair with an unwrapped control in the same hour (ADR-028) |
 
 Old working labels: B0 = 4.4, B1 = 4.2, B2 = 4.3, B3 = 4.5, B4 = 4.6, B5 = 4.7.
 
-Order of the open steps after the mentor's answers of 7 October (ADR-026; the whole plan is in [milestone-plan.md](milestone-plan.md)): 4.6 first, so that files put in by command-line tools have records and the plain configuration is one switch away; then 4.5 (the NameNode audit log, 4.5.2, can be turned on at any time); then 4.7; then 4.8.
+Order of the open steps (after the mentor's answers of 7 October, ADR-026; the whole plan is in [milestone-plan.md](milestone-plan.md)): the numeric order, 4.6, then 4.7, then 4.8. Step 4.5 was done before 4.6 because the two do not depend on each other, and the wrapper's code should be finished before it is put on Hadoop's classpath, where every later change means a redeployment and a restart of daemons.
 
 ## 5. Recon findings
 
@@ -184,7 +184,8 @@ A known cosmetic fault remains in the committed script: its console label "absol
 - **Unverified read paths.** `copyToLocalFile` (marked `verify=bypassed`; not used by the crawl), opening by path handle, and any program that does not use the wrapper.
 - **Files created through the builder API** (`createFile`) were not hashed at the time of runs 7 and 8; none occurred (every kept file has a record). Step 4.4 fixed this (section 18).
 - **A file without a record** is read with a warning (policy `warn`). In run 8 only the seed file was read that way. A file whose writer was killed before closing it has no record.
-- **Metadata still comes from storage** (step 4.5). The length is compared with the record at open, which catches a shortened or lengthened file, but listings and existence are storage's.
+- **Metadata is checked against the records, which are not signed** (step 4.5, section 19). A length that differs from the record, a recorded file that is gone and a file without a record are found; a change that keeps the length is found only by reading the file; someone who rewrites a file and its record together is not caught (step 4.7 and Milestone 5).
+- **The NameNode's audit log is on since 8 October** (section 19.6): reads and changes made behind the wrapper's back are found by comparing it with the wrapper's log. Until step 4.6, the NodeManager's reads of the job file are expected to show as unexplained; this has not yet been seen on a crawl.
 - **No task records or job manifests** (step 4.7). The job file is not checked in a security-relevant way yet: step 4.6 was changed by the mentor on 7 October (ADR-027) and is not done.
 - **The NodeManager still reads the job file through plain HDFS** until step 4.6 is done.
 - **Plain tools see the companion files**, and consumers that list directories without skipping hidden files will see them.
@@ -207,6 +208,8 @@ A known cosmetic fault remains in the committed script: its console label "absol
 | `evidence-run8.tar.gz` | 71 | `5b06c2117a7c` | the 18 WARC and index files and their companion files, the crawl log, both listings, the expected-records list and the independent re-hash, the job comparison, the page and deployment checks, the test log and build log, both tamper attempts with their logs and consoles, the two zips of files that ran |
 | `evidence-run8-audit.tar.gz` | 299 | `72a754d5cf9f` | listings, the three checks (audit, records, verification summary), all audit and record logs of both machines, both tamper attempts' audit logs and task logs and their proofs, the start-up check, the worker's task-log check |
 | `evidence-m44.tar.gz` | 31 | `5abecb377dfc` | both contract runs (with the fixed job, and with run 8's job) with their results, comparisons, libraries and wrapper logs; the failed first attempt; the consoles; the job comparison; the test and build logs; the two zips; the list of fingerprints that the cluster verified |
+| `evidence-m45.tar.gz` | 18 | `c0ce9afbe28c` | the contract run with the new job (results, comparison, libraries, wrapper logs), its console and audit summary, the job comparison, the unit-test logs (also from inside the job file), the build log, the zip and its list, both job fingerprints |
+| `evidence-m452.tar.gz` | 41 | `73be072ddce3` | the NameNode audit log's `status`, `check` and `on` outputs, the whole probe folder (ground truth, the NameNode's real lines, the wrapper's logs, the comparison), the tool's tests, the change to `hadoop-env.sh`, a summary of the audit log, the three zips and their lists |
 
 Each bundle was compared on the laptop with its `.sha256` file (`MATCH`) and unpacked into `tdx-evidence\extracted` (16 folders now).
 
@@ -237,11 +240,13 @@ Commits: `686c277ae` (step 4.2, 9 files) and `67c56f5a7` (step 4.3, 10 files). B
 
 Step 4.4 added two more code commits, kept apart from the documents: `26da09f1c` (the wrapper fix, 4 files) and `e72d1ed05` (the contract tests, 22 files); section 18 lists their files and fingerprints.
 
+Step 4.5 added two more code commits, kept apart from the documents: `4deed2b33` (baby step 4.5.1, 3 files) and `4ebf7570f` (baby step 4.5.2, 4 new scripts); section 19 lists their files and fingerprints.
+
 How a verified crawl is run (every step is a script): rotate the logs on both nodes; put the seeds into HDFS; take the "before" listing; run `ops/run-crawl-attested.sh`; take the "after" listing; check the worker's task logs; copy both listings and both nodes' audit and record logs to Cloud Shell; run `audit_compare.py`, `records_expected.py` (with `--require-sidecars`) and `verify_summary.py` (with `--allow-missing` for the seed folder); copy `expected.tsv` back and run `records_verify.sh` on the master. The tamper test follows (rotate the logs first), then `tamper_verify.py` on the collected logs.
 
 ## 16. Decisions taken at this milestone
 
-ADR-021 (keep the record next to the file), ADR-022 (records from the wrapper when a file is closed), ADR-023 (a file without a record is allowed but logged for now), ADR-024 (naming, the commit gate, and verifying assumptions before writing checks), ADR-025 (rehearse code with the real libraries; documents and programs in separate commits), ADR-026 to ADR-029 (the mentor's answers of 7 October). See [decisions.md](decisions.md).
+ADR-021 (keep the record next to the file), ADR-022 (records from the wrapper when a file is closed), ADR-023 (a file without a record is allowed but logged for now), ADR-024 (naming, the commit gate, and verifying assumptions before writing checks), ADR-025 (rehearse code with the real libraries; documents and programs in separate commits), ADR-026 to ADR-029 (the mentor's answers of 7 October), ADR-030 (the checks of answers about files). See [decisions.md](decisions.md).
 
 ## 17. Lessons from this milestone
 
@@ -389,3 +394,107 @@ Before each commit the files were checked identical to the list the cluster had 
 - A check is only trusted after it has caught a known fault; here, the old job.
 - A file list is verified by the script that uses it, not by a pasted command.
 - The mistakes are in [guide-pitfalls-and-lessons.md](guide-pitfalls-and-lessons.md) (mistake log 55 to 62).
+
+## 19. Step 4.5: answers about files come from the records, and the NameNode's audit log
+
+Date: 8 October 2026. Status: **done**. Commits: `4deed2b33` (baby step 4.5.1, the checks in the wrapper) and `4ebf7570f` (baby step 4.5.2, the NameNode's audit log and its comparison).
+
+### 19.1 What it is, in plain words
+
+Imagine asking a warehouse clerk how long a roll of cloth is. A dishonest clerk can shorten the roll or hide it, and nobody notices until someone unrolls it. Until now the wrapper answered "how long is this file?" and "does it exist?" from HDFS, which is the party we do not trust; it only read a file's record when the file was opened. **Baby step 4.5.1** makes the wrapper ask the notary, the file's record, which stores its length, and complain when HDFS disagrees. **Baby step 4.5.2** switches on the NameNode's own audit log. Every request to HDFS passes the NameNode, so its log shows what happened whoever did it, and a request that bypassed the wrapper shows up there even though the wrapper never saw it.
+
+### 19.2 Baby step 4.5.1: how the wrapper answers
+
+| Situation | What the wrapper does |
+|---|---|
+| A file's length in HDFS differs from its record | Refuses the answer (setting `attested.metadata.mismatch`, default `fail`), whichever way it was asked: `getFileStatus`, `exists`, any listing or glob |
+| A record exists but its file is gone | Refuses in the same way; it looks again after 25 ms, so a delete that is just finishing is not a false alarm |
+| A file exists with no record | Allowed and logged once, following the existing setting `attested.verify.missing` (default `warn`) |
+| A directory, or a change made through the wrapper | Never a finding; the remembered length is dropped when the wrapper changes a record |
+| Another program rewrote the file and its record | Not a finding: before refusing on a mismatch the wrapper reads the record again |
+
+The settings are `attested.metadata.check` (default true), `attested.metadata.mismatch` (default `fail`) and `attested.metadata.cache.seconds` (default 10, the time a record's length is remembered when no listing can vouch for it). Findings go to the audit log as `META-FAIL`, `META-MISSING` and `META-ORPHAN`, once per file per program (a refusal under `fail` is logged each time).
+
+Only `getFileStatus`, `listStatus`, `listStatusIterator` and the two `listLocatedStatus` methods needed changing: Hadoop's `exists`, `isFile`, `isDirectory`, `getContentSummary`, `listFiles` and `globStatus` are inherited from `FileSystem` and go through them (checked on the 3.4.1 client classes). A check reads only the first 20 bytes of a record (the new `AttestedSidecar.readLength`); a listing is read in full before it is returned, so that the records in it can be seen; a path that is not found costs one more check.
+
+### 19.3 Tests
+
+In the development environment (a fake HDFS and Hadoop's real contract-test classes; not part of the evidence) the wrapper's tests and a rehearsal of the contract tests passed first. On the master the wrapper's tests ran on 8 October with 26 new checks:
+
+| Mode | Result |
+|---|---|
+| fake HDFS | 117 of 117 (the earlier 91 and the 26 new checks) |
+| MapReduce on the fake HDFS | 12 of 12 |
+| hashing | 18 of 18; Java and Python agree on 9 sizes |
+| real HDFS | 116 of 116 (the earlier 90 and the 26 new checks) |
+
+The same counts passed again with the wrapper classes taken from inside the new job file. The 26 new checks tamper through the plain client and require the wrapper to refuse or log it: a changed length, a removed file, a file slipped in; they also cover each setting and the off switch, rename, delete and rewrite through the wrapper (no false findings), and a rewrite by another program.
+
+### 19.4 The job
+
+The new job `901f01df3423857a` was built on 8 October from the 33 verified files. Against the previous job (`dea47c6d41729bef`) it has 1043 entries instead of 1041: two classes added (`AttestedHdfsFileSystem$3` and `AttestedHdfsFileSystem$CachedLength`), four changed (`AttestedHdfsFileSystem`, `AttestedHdfsFileSystem$1`, `AttestedHdfsFileSystem$2` and `AttestedSidecar`), none removed. This was predicted before the build by compiling the old and the new sources.
+
+### 19.5 Hadoop's contract tests with the new job
+
+| Item | Result |
+|---|---|
+| Tests per mode | 255 |
+| Passed, failed, skipped | 238 / 16 / 1 in both modes, the same as in step 4.4 |
+| Passed on plain HDFS but failed through the wrapper | 0; verdict `CONTRACT-SAME-AS-HDFS` |
+| Wrapper audit lines | 1680 (1669 with the previous job); the difference is 11 `META-MISSING` lines |
+| Opens | 126; 111 verified; 0 refused |
+
+The 11 `META-MISSING` lines are all explained: eight come from the four `testChanged` tests (each asks about two files that were appended to through the builder, which drops the record by design), one from `testSyncable` (a file asked about while it was still being written), and two from the files `target` and `renamed` of the append tests. There was no `META-FAIL` and no `META-ORPHAN`. The rehearsal had shown 13; two tests (`testCreatedFileIsVisibleOnFlush`, `testCreatedFileIsImmediatelyVisible`) fail on the real cluster at the create because of the block-size minimum (section 18.6), so they never wrote a file. This run shows that the checks raise no false alarm on Hadoop's own tests; that they catch tampering is shown by the 116 checks above.
+
+### 19.6 Baby step 4.5.2: the NameNode's audit log
+
+Before the change the running NameNode carried the logger `INFO,NullAppender`, which discards the log (Hadoop's default). The definition of the file appender `RFAAUDIT` (writing `hdfs-audit.log` in the logs folder, up to 20 files of 256 MB) was already in `log4j.properties`, so the change is one setting in `hadoop-env.sh`, `HDFS_AUDIT_LOGGER=INFO,RFAAUDIT`, and a NameNode restart. The script `nn-audit.sh` does it with `status`, `check`, `on` and `off`: `on` refuses if a YARN application is running, HDFS is in safe mode or no DataNode is live; it backs up `hadoop-env.sh` and the NameNode's metadata folder (9384 KB), restarts the NameNode, verifies the logger, `ls /`, the DataNode count, a line in the audit log and `fsck`, and rolls back by itself if any of it fails. It was rehearsed in the development environment with stand-ins for `hdfs`, `yarn` and `ps` (23 checks, including each failure path; not part of the evidence).
+
+On the master, `check` printed `NN-AUDIT-CHECK-OK` with one live DataNode, which is by design (the worker is the only DataNode; replication is 1), and `on` printed `NN-AUDIT-ON-OK: the NameNode runs with INFO,RFAAUDIT; 1 DataNode(s) are back; fsck is HEALTHY`. The change to `hadoop-env.sh` is exactly four added lines (a blank line, our marker, the export and our end marker). The real log's format is tab-separated: `timestamp INFO FSNamesystem.audit: allowed=true`, then `ugi=`, `ip=`, `cmd=`, `src=`, `dst=`, `perm=` and `proto=rpc`, in UTC. The first 12 minutes produced 120 lines: `getfileinfo` 67, `rename` 11, `open` 11, `safemode_get` 9, `create` 8, `datanodeReport` 5, `delete` 4 and `listStatus` 2, with `mkdirs`, `fsck` and `slowDataNodesReport` once each.
+
+### 19.7 The probe and the comparison
+
+Every client on the master shows in the NameNode's log with the same user (`rishabsdp17`) and address (`10.10.0.1`), so wrapper and plain requests cannot be told apart by those fields. The comparison tool `nn_audit_compare.py` therefore matches by operation, path and time: a NameNode event (an open of a data file, a create, append, truncate, concat, delete, rename, mkdirs or set call) is explained when the wrapper logged the same operation on the same path within 3000 ms, and each wrapper line explains one event only; the wrapper's reads of its own record files are skipped. The probe script `nn-audit-probe.sh` plays a known workload in one folder: 8 operations through the wrapper and 5 straight through the plain client.
+
+The real result: the probe ran 13 operations without failure. The tool read 97 NameNode lines and 18 wrapper lines and compared 25 events: 18 were explained and **7 were unexplained, exactly the plain operations**: the open of `w-read`, the create and rename of `p-new`, the create, rename and delete of `p-gone`, and the rename of `w-renamed-dst` to `p-moved` (a `-put` is a create of a `._COPYING_` file and a rename). The other 62 `getfileinfo` and 1 `listStatus` lines were only counted. There was no false alarm and no wrapper line left over. The tool's 18 tests, which use a data set in the real format, also passed on the master.
+
+### 19.8 What it changes elsewhere
+
+`hadoop-env.sh` is part of the Hadoop configuration, so the measured set changes and the re-measurement (step 4.8, ADR-020, ADR-029) must cover it; the post-run check that the measured files are unchanged is expected to report that file, and has not been run since. The NameNode audit log is now on for every later run, wrapped or not, so they stay comparable with each other; runs 6 to 8 had none.
+
+### 19.9 Limits of this step
+
+- The records are not signed: a file and its record rewritten together are accepted. A change that keeps the length is found only by reading the file.
+- A listing is read in full before it is returned; `getFileLinkStatus` is not checked (the HDFS paths here have no symbolic links).
+- The comparison needs the machines' clocks to agree within its window (3 s by default) and counts a file of more than ten blocks as several reads, because the HDFS client asks the NameNode again while it reads.
+- The NameNode's log is a plain file on the provider's machine, like the wrapper's logs.
+- Only the probe's workload was run against the tool on the cluster; no crawl has been compared yet. The first crawl compared is expected to show the NodeManager's reads of the job file, which step 4.6 changes.
+- The cost of the checks was not measured: each file question reads a record header (remembered for 10 s) and a missing path costs one more check. The paired runs of ADR-028 measure it.
+
+### 19.10 Evidence and commits
+
+The bundles `evidence-m45.tar.gz` and `evidence-m452.tar.gz` are listed in section 15; both were compared on the laptop (`MATCH`) and unpacked (19 folders in `tdx-evidence\extracted` now). Before each commit the files were checked identical to the lists the cluster verified, on the laptop, and afterwards in a fresh clone from GitHub, which also confirmed that neither commit touches `docs/`.
+
+Baby step 4.5.1, `4deed2b33` (3 files, all modified):
+
+| File | Fingerprint |
+|---|---|
+| `ops/attested/AttestedFsSmoke.java` | `736dca0dd88c89c5` |
+| `src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java` | `5dcbbd3687f7653a` |
+| `src/java/org/apache/nutch/attested/AttestedSidecar.java` | `6b3e8d48a999a2d0` |
+
+Baby step 4.5.2, `4ebf7570f` (4 new scripts):
+
+| File | Fingerprint |
+|---|---|
+| `ops/attested/nn-audit-probe.sh` | `13b0b18437d292dc` |
+| `ops/attested/nn-audit.sh` | `7aed642cfec3fe20` |
+| `ops/attested/nn_audit_compare.py` | `a67893f29ffb7cb0` |
+| `ops/attested/test_nn_audit_compare.py` | `3377b934fc2c8605` |
+
+### 19.11 Lessons from this step
+
+- A read command for this step assumed a file name and a layout that had not been checked; it was caught before it was sent, and the step used the code and a probe that makes its own data instead.
+- A limit was written down before it was tested, and the test showed the tool is stricter than the text said (each wrapper line explains one event only); a stated limit is tested first.
+- Every script is run with `bash -n` and rehearsed with stand-ins before it goes to the master; an apostrophe inside a `${VAR:?message}` was found that way.
+- The mistakes are in [guide-pitfalls-and-lessons.md](guide-pitfalls-and-lessons.md) (mistake log 63 to 69).

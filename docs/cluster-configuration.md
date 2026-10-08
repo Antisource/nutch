@@ -239,10 +239,10 @@ Report: [milestone-3-hdfs-wrapper.md](milestone-3-hdfs-wrapper.md).
 
 | Item | Value |
 |---|---|
-| Settings (defaults are in the code, so `ops/run-crawl-attested.sh` is unchanged) | `attested.hash.enabled` (true), `attested.hash.chunk.size` (16384), `attested.sidecar.enabled` (true), `attested.verify.reads` (true), `attested.verify.missing` (warn), `attested.records.dir` (`/tmp/attested-records`) |
+| Settings (defaults are in the code, so `ops/run-crawl-attested.sh` is unchanged) | `attested.hash.enabled` (true), `attested.hash.chunk.size` (16384), `attested.sidecar.enabled` (true), `attested.verify.reads` (true), `attested.verify.missing` (warn), `attested.metadata.check` (true), `attested.metadata.mismatch` (fail), `attested.metadata.cache.seconds` (10), `attested.records.dir` (`/tmp/attested-records`) |
 | Record logs | `/tmp/attested-records/<host>-<pid>-<start>.tsv` on each node, one per JVM; old logs are moved aside by `ATTESTED_AUDIT_DIR=/tmp/attested-records audit.sh rotate` to `/tmp/attested-records-old/<time>/` |
 | Companion files | hidden files `.NAME.attested` beside every file written through the wrapper; plain HDFS tools list them, the wrapper's listings hide them; Hadoop's input formats skip names that start with a dot |
-| Audit log | each OPEN line ends with `verify=ok`, `verify=missing`, `verify=skipped`, `verify=off` or `verify=bypassed`; a refused read writes `VERIFY-FAIL`; the start-up line shows the settings |
+| Audit log | each OPEN line ends with `verify=ok`, `verify=missing`, `verify=skipped`, `verify=off` or `verify=bypassed`; a refused read writes `VERIFY-FAIL`; a metadata finding writes `META-FAIL`, `META-MISSING` or `META-ORPHAN` (step 4.5); the start-up line shows the settings |
 | Build and test folders (not measured) | `~/m3-build` (the build clone, kept under its Milestone 3 name), `~/m4-b1` and `~/m4-b2` (unpacked test zips); jobs `8fdd7cdadd6a7e11` (run 7) and `a092d5fab91d4b73` (run 8), saved as `job-run7.job` and `job-run8.job` in `~/evidence-m3` |
 | Not covered | as in section 11, and `copyToLocalFile` and opening by path handle are not verified |
 
@@ -266,12 +266,23 @@ Run: `EXPECT_JOB=<job fingerprint> EXPECT_FILES=<list> ATTESTED_JOB=<job file> o
 
 ## 14. Planned changes (not applied)
 
-These changes are decided but **not applied**: the cluster is as described in sections 1 to 13.
+These changes are decided but **not applied**: the cluster is as described in sections 1 to 13 and 15.
 
 | Change | Decision | Step | What it will do |
 |---|---|---|---|
 | The wrapper's classes onto Hadoop's own classpath on both nodes, and `fs.hdfs.impl` and `fs.AbstractFileSystem.hdfs.impl` set as final in the site configuration | ADR-027 | 4.6 (baby steps 4.6.1 and 4.6.2) | Every Hadoop process that reads the site configuration, the NodeManager included, uses the wrapper; a job can no longer switch it off |
 | A switch between the wrapped and the plain configuration | ADR-028 | 4.6 (baby step 4.6.2) | The unwrapped control run of each pair |
-| The NameNode's audit log turned on | the mentor, 7 October (ADR-026) | 4.5 (baby step 4.5.2) | An independent record of reads and changes |
 
 Each of them changes the Hadoop installation or configuration, so the measured set changes and the re-measurement (ADR-020, ADR-029) must cover it. Each needs a backup of the files it changes and a rollback before it is applied.
+
+## 15. NameNode audit log (applied 8 October 2026, step 4.5, baby step 4.5.2)
+
+| Item | Value |
+|---|---|
+| What changed | `hadoop-env.sh` on the master gained four lines (a blank line, the marker `# >>> attested step 4.5.2: NameNode audit log (remove this block to undo)`, `export HDFS_AUDIT_LOGGER=INFO,RFAAUDIT`, and the marker `# <<< attested step 4.5.2`); the NameNode was restarted (about 06:31 UTC, new pid 531076). The worker is unchanged |
+| Where the log is | `~/hadoop/logs/hdfs-audit.log`; the appender `RFAAUDIT` was already defined in `log4j.properties` (up to 20 files of 256 MB) |
+| How it was done | `ops/attested/nn-audit.sh check`, then `on` (it backs up, restarts, verifies and rolls back by itself if the verification fails) |
+| Backups | `~/nn-audit-backup`: `hadoop-env.sh.20261008T063033Z` and `name-20261008T063033Z-0` (the NameNode's metadata folder, 9384 KB); keep them until the step is closed |
+| Undo | `ops/attested/nn-audit.sh off` on the master (restores that `hadoop-env.sh` and restarts the NameNode) |
+| Effect | HDFS was unavailable for under a minute; every later run, wrapped or not, has the log; runs 6 to 8 had none. The measured set changes (`hadoop-env.sh`), so the re-measurement (ADR-020, ADR-029) covers it |
+| How it is used | `ops/attested/nn_audit_compare.py` compares it with the wrapper's logs; `ops/attested/nn-audit-probe.sh` makes a known workload to test that |

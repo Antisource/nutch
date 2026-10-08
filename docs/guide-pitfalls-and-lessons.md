@@ -34,6 +34,8 @@ resolved, which instructions turned out to be wrong, and why the key decisions w
 18. **Rehearse code with the real libraries before sending it.** If the real libraries cannot be had, say in the message exactly what could not be rehearsed. Code checked only against stand-ins written from one's own assumptions fails where the assumptions are wrong (the contract tests, 7 October).
 19. **Documents and programs go in separate commits**, programs first and each gated; a tool's data file counts as a program.
 20. **Test a check against a known fault before trusting its pass.** The contract comparison was run once with the old job, which has known defects, and had to report them.
+21. **Do not rename or add steps.** Steps keep the names already committed; anything new from the mentor goes inside an existing step as a baby step (4.5.2, 4.6.1 to 4.6.3, 5.3.3).
+22. **Do not draft messages to teammates or mentors unless asked.**
 
 ## 2. Mistake log
 
@@ -101,6 +103,13 @@ resolved, which instructions turned out to be wrong, and why the key decisions w
 | 60 | Reports | A pass count was added wrongly (239 instead of 238) | Mental arithmetic | Corrected: 255 − 16 − 1 | Show the sum, or compute it |
 | 61 | Display | The output of a long run scrambled when read inside tmux | The tmux screen redraws over the text | The output was read in a normal shell | tmux for running, a normal shell for reading |
 | 62 | Process | The contract comparison had never been shown to fail on the cluster | A pass means little if the check could not fail | Ran the same suite with the old job: 10 differences (milestone-4 §18.7) | Rule 20 |
+| 63 | Plan | The plan drifted to 10 milestones and to steps 4.9 to 4.11, and step 4.6 was renamed, without being asked | Milestones and steps were split and added as the work became concrete, and I did not say so | Reverted to the six milestones after the pre-flight and to the committed step names; the mentor's items became baby steps | Rule 21 |
+| 64 | Messages | Draft messages to a teammate were written without being asked, twice | The drafting tool was used by habit | Stopped; no drafts unless asked | Rule 22 |
+| 65 | Master | A read-only check printed one live DataNode, and I had written that it should be 2 | An assumption about the cluster; by design the worker is the only DataNode and replication is 1 | The script records the number it finds and does not depend on it; the design is in cluster-configuration.md | Read the configuration document before expecting a number |
+| 66 | Development | The probe script failed `bash -n`: an apostrophe inside `${VAR:?message}` | Quoting inside a parameter expansion | Found in the rehearsal and fixed before it reached the master | Run `bash -n` and a stand-in rehearsal on every script |
+| 67 | Reports | A read command planned for step 4.5 assumed a file name and a layout (the run 8 listing) that I had not checked | The same kind of assumption as in step 4.4 | Caught before it was sent; replaced by reading the code and a probe that makes its own data | Read a real sample first |
+| 68 | Tool | The comparison's documentation said a plain read next to a wrapped read of the same file would be taken for the wrapped one; the test showed the tool is stricter (each wrapper line explains one event) | I described the behaviour before testing it | The test and the text were corrected | Test a stated limit before writing it |
+| 69 | Tests | A test expected the number of findings to stay the same after a run with the policy `fail`, which logs every refusal | The test forgot its own earlier step | The test compares with a count taken just before | Compare with a count taken at the moment |
 
 ## 3. Corrections to earlier working instructions
 
@@ -218,7 +227,7 @@ Decisions from 5 October 2026 onward are kept in [decisions.md](decisions.md). T
 | Make the job reproducible from a clean checkout (`conf/effective_tld_names.dat` is untracked) | Open |
 | Chunk hashing on write, verification on read, metadata from records (handoff Stage B) | **Partly done** 7 October (Milestone 4, steps 4.2 and 4.3): hashing at close and verified reads ([milestone-4-storage-integrity.md](milestone-4-storage-integrity.md)). Open: metadata from records (step 4.5), task records and manifests (step 4.7) |
 | The NodeManager reads the job file through plain HDFS | Decided by the mentor on 7 October (ADR-027): the wrapper on Hadoop's own classpath with both lookups final; open, step 4.6 |
-| An independent audit of reads, from the NameNode's own audit log | Open: baby step 4.5.2 (the mentor, 7 October) |
+| An independent audit of reads, from the NameNode's own audit log | **Done** 8 October (baby step 4.5.2): the log is on and compared with the wrapper's log ([milestone-4-storage-integrity.md](milestone-4-storage-integrity.md) section 19) |
 | An unwrapped control in the same hour for every wrapped crawl, with wall time and bytes fetched | A rule for every crawl from now on (the mentor, 7 October; ADR-028); results in step 6.3 |
 | Per-fetch TLS evidence | In scope as teammate S's patch (the mentor, 7 October); step 5.3, see [milestone-plan.md](milestone-plan.md) |
 | Hadoop's file-system contract tests against the wrapper | **Done** 7 October (Milestone 4, step 4.4): 255 tests, identical to plain HDFS; three wrapper defects found and fixed ([milestone-4-storage-integrity.md](milestone-4-storage-integrity.md) section 18) |

@@ -17,7 +17,7 @@ Date: 7 October 2026. This is the plan made on 6 October 2026: a pre-flight (Mil
 | 1 | Measure the code that runs | We can show which program ran: fingerprints of the code are written into the hardware quote | Gate A, item 3 | Done, 5 to 6 October | [milestone-1](milestone-1-code-measurement.md) |
 | 2 | Mesh for node-to-node traffic | The machines talk to each other only over an encrypted private network | Gate A, item 1 | Done, 6 October, with limits | [milestone-2](milestone-2-wireguard-mesh.md) |
 | 3 | Pass-through wrapper (no crypto yet) | Every storage request goes through our layer, which changes nothing yet | Gate A, item 2 | Done, 6 October | [milestone-3](milestone-3-hdfs-wrapper.md) |
-| 4 | Storage integrity (the first plan called it "sign on write, verify on read") | Storage cannot be changed unnoticed: files are fingerprinted when written and checked when read; the signing comes with step 5.1 | Stage B, items 4 to 6 | In progress: steps 4.1 to 4.4 done, 4.5 to 4.8 open | [milestone-4](milestone-4-storage-integrity.md) |
+| 4 | Storage integrity (the first plan called it "sign on write, verify on read") | Storage cannot be changed unnoticed: files are fingerprinted when written and checked when read; the signing comes with step 5.1 | Stage B, items 4 to 6 | In progress: steps 4.1 to 4.5 done, 4.6 to 4.8 open | [milestone-4](milestone-4-storage-integrity.md) |
 | 5 | Identity, ledger, lockdown | Each machine has a key that only an attested machine can use, the machine cannot be fiddled with, and an outside witness checks an append-only log | Stage C, items 7 to 9 | Not started | none yet |
 | 6 | Verifier and evidence | Anyone can check a crawl, our attacks on our own system are caught, and the cost is known | Stage D, items 10 to 13 | Not started | none yet |
 
@@ -33,7 +33,7 @@ Milestone 4 (the committed names; the report has the dependencies and results):
 | 4.2 | Hash every written file and record its Merkle root (observe only) | Done |
 | 4.3 | Keep a record next to each file and verify every read against it | Done |
 | 4.4 | Run Hadoop's file-system contract tests against the wrapper | Done |
-| 4.5 | Answer length, existence and listings from records, never from storage | Open. Baby steps: 4.5.1 metadata from records; 4.5.2 the NameNode's audit log turned on and compared with the wrapper's log |
+| 4.5 | Answer length, existence and listings from records, never from storage | Done. Baby steps: 4.5.1 metadata from records (done); 4.5.2 the NameNode's audit log turned on and compared with the wrapper's log (done) |
 | 4.6 | Check the job file and configuration digests at the start of each task | Open. Changed by the mentor on 7 October (ADR-027). Baby steps: 4.6.1 the wrapper's classes on Hadoop's classpath; 4.6.2 both lookups set as final, with a switch back to the plain configuration; 4.6.3 the NodeManager's read of the job file checked against its record |
 | 4.7 | Task records and job manifests; speculative execution off | Open |
 | 4.8 | Milestone report; re-measure after a reboot (ADR-020) | Open |
@@ -62,7 +62,7 @@ The decisions are recorded in ADR-026 to ADR-029 of [decisions.md](decisions.md)
 |---|---|
 | Gate A is accepted | Milestones 1 to 3 stand |
 | Run the unwrapped control in the same hour from Stage B on; record wall time and bytes fetched for every wrapped and unwrapped pair (performance matters most, per Amir) | A rule for every crawl from now on (ADR-028). The first pair is the crawl after the re-measurement (step 4.8); the results table is step 6.3 |
-| Turn on the NameNode audit log in Stage B | Baby step 4.5.2 |
+| Turn on the NameNode audit log in Stage B | Baby step 4.5.2 (done 8 October) |
 | Defer the re-measurement, as long as nothing unmeasured is described as measured | Step 4.8 and ADR-029 |
 | A task hashing its own job file is not a security check: move the wrapper onto Hadoop's classpath and set both lookups final | Step 4.6, baby steps 4.6.1 to 4.6.3 (ADR-027) |
 | Per-fetch TLS evidence is teammate S's patch; coordinate on building the job with it | Baby step 5.3.3 |
@@ -100,7 +100,7 @@ The HTTP client is okhttp (`protocol-okhttp`), as the handoff requires; a change
 ## 7. Timeline
 
 - The workshop paper is planned for mid-November to 20 November, 5 pages plus 2 (the mentor, 7 October). Nothing new for the paper is started before the 16 October list.
-- The plan has no dates of its own; the handoff attaches none on purpose. The order of the open steps of Milestone 4 is 4.6, 4.5, 4.7, 4.8, then Milestones 5 and 6. Any dates are proposals until the mentor confirms them.
+- The plan has no dates of its own; the handoff attaches none on purpose. The open steps of Milestone 4 are done in numeric order, 4.6, 4.7, 4.8, then Milestones 5 and 6. Any dates are proposals until the mentor confirms them.
 - The handoff's rule applies: security work is not cut to meet a date. What is not done in time is written down as a limitation, and the paper claims only what exists:
 
 | When it is done | What can honestly be claimed |

@@ -35,6 +35,7 @@ Times are UTC.
 | 027 | The wrapper on Hadoop's own classpath, both lookups final | Accepted (mentor) |
 | 028 | Every wrapped crawl has an unwrapped control in the same hour; wall time and bytes fetched are recorded | Accepted (mentor) |
 | 029 | Nothing that is not measured is described as measured | Accepted (mentor) |
+| 030 | Answers about files are checked against the records; findings fail closed by default | Accepted |
 
 ---
 
@@ -273,3 +274,11 @@ Times are UTC.
 - **Decision:** every document, table and sentence of the paper that mentions a run says whether it is covered by the measurement; anything that ran outside the measured set is called "unmeasured" or "not covered by the measurement", never "measured". Here "measured" means covered by the attestation measurement of Milestone 1; timing a run is a different thing, and the documents avoid the word for it.
 - **Why:** the claim of the project is about the exact build that ran.
 - **Consequences:** the facts checks include the phrase for the runs concerned; the re-measurement, when it happens, is described by what it covers.
+
+## ADR-030: Answers about files are checked against the records; findings fail closed by default
+
+- **Date:** 8 October 2026. **Status:** accepted.
+- **Context:** the handoff wants all metadata from records, never from storage. Until step 4.5 the wrapper compared a file's length with its record only when the file was opened; its listings only hid the records. A file that was shortened, removed or slipped in behind the wrapper's back was noticed only if something read it.
+- **Decision:** (1) `getFileStatus` and the listings are checked against the records: a length that differs from the record, and a record whose file is gone, follow the setting `attested.metadata.mismatch`, default `fail`; a file without a record follows the existing `attested.verify.missing`, default `warn`. (2) The default for a mismatch is to refuse, because a mismatch is the signal this step exists to give; a file without a record stays allowed because files put in by programs that do not use the wrapper, and files still being written, are normal today. (3) A listing is read in full before it is returned, so that the records in it can be seen. (4) A record's length is remembered for 10 seconds and is always read again before a refusal, so that a rewrite by another program is not a finding. (5) A finding is logged once per file per program, and a refusal each time. (6) The NameNode's audit log is switched on (the mentor, ADR-026) and compared with the wrapper's log by operation, path and time, because every client on a machine shows with the same user and address.
+- **Why:** it closes the gap between "the file was checked when read" and "the answer about the file was believed"; the contract tests show no false alarm and the real-HDFS tests show the detection.
+- **Consequences:** one more small read per file question and one more check per missing path, to be measured in the paired runs (ADR-028); listings of very large folders are read in full; the records are still not signed, so someone who rewrites a file and its record together is not caught (step 4.7, Milestone 5).
