@@ -96,6 +96,32 @@ final class AttestedSidecar {
   }
 
   /**
+   * Reads only the first 20 bytes of a record (the header) and returns the length
+   * of the file it describes. Used by the metadata checks, which need no chunk
+   * hashes; a read that verifies a file reads and checks the whole record. Throws
+   * FileNotFoundException when there is no record, and an IOException saying why
+   * when the header is damaged.
+   */
+  static long readLength(FileSystem fs, Path sidecar) throws IOException {
+    try (FSDataInputStream raw = fs.open(sidecar);
+        DataInputStream in = new DataInputStream(raw)) {
+      byte[] magic = new byte[MAGIC.length];
+      in.readFully(magic);
+      if (!Arrays.equals(magic, MAGIC)) {
+        throw new IOException("record is damaged (wrong header)");
+      }
+      int chunk = in.readInt();
+      long length = in.readLong();
+      if (chunk < 1 || length < 0) {
+        throw new IOException("record is damaged (impossible sizes)");
+      }
+      return length;
+    } catch (EOFException e) {
+      throw new IOException("record is damaged (too short)");
+    }
+  }
+
+  /**
    * Reads a record with the given (real, not wrapped) file system. Throws
    * FileNotFoundException when there is none, and an IOException saying why when
    * the record is damaged or does not agree with itself.

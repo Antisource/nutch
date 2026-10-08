@@ -20,8 +20,16 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 import org.apache.hadoop.conf.Configuration;
@@ -91,6 +99,49 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
   /** What to do when a file has no record: allow, warn (log it) or fail. */
   public static final String MISSING_KEY = "attested.verify.missing";
 
+  /**
+   * Step 4.5: answers about files (length, existence, listings) are checked against
+   * the records, so that a file that was cut, extended, removed or slipped in behind
+   * the wrapper's back is noticed without anyone reading it.
+   */
+  public static final String META_KEY = "attested.metadata.check";
+  /** What to do when storage and a record disagree: allow, warn (log it) or fail. */
+  public static final String META_MISMATCH_KEY = "attested.metadata.mismatch";
+  /** How many seconds a record's length is remembered when no listing can vouch for it. */
+  public static final String META_CACHE_KEY = "attested.metadata.cache.seconds";
+  private static final int META_CACHE_MAX = 4096;
+  private static final int META_REPORTED_MAX = 20000;
+
+  private boolean metadataCheck = true;
+  private String mismatchPolicy = "fail";
+  private long cacheNanos = 10L * 1000 * 1000 * 1000;
+
+  /** A record's length as read, with the state of the record file it came from. */
+  private static final class CachedLength {
+    final long length;
+    final long recLen;
+    final long recMtime;
+    final long loadedNanos;
+
+    CachedLength(long length, long recLen, long recMtime, long loadedNanos) {
+      this.length = length;
+      this.recLen = recLen;
+      this.recMtime = recMtime;
+      this.loadedNanos = loadedNanos;
+    }
+  }
+
+  private final Map<String, CachedLength> lengths =
+      new LinkedHashMap<String, CachedLength>(256, 0.75f, true) {
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, CachedLength> e) {
+          return size() > META_CACHE_MAX;
+        }
+      };
+  private final Set<String> reported = new HashSet<>();
+
   private boolean hashing = true;
   private boolean sidecars = true;
   private boolean verifyReads = true;
@@ -131,6 +182,18 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
       throw new IOException(MISSING_KEY + " must be allow, warn or fail, got "
           + missingPolicy);
     }
+    this.metadataCheck = sidecars && conf.getBoolean(META_KEY, true);
+    this.mismatchPolicy = conf.get(META_MISMATCH_KEY, "fail").trim().toLowerCase();
+    if (!mismatchPolicy.equals("allow") && !mismatchPolicy.equals("warn")
+        && !mismatchPolicy.equals("fail")) {
+      throw new IOException(META_MISMATCH_KEY + " must be allow, warn or fail, got "
+          + mismatchPolicy);
+    }
+    long cacheSeconds = conf.getLong(META_CACHE_KEY, 10);
+    if (cacheSeconds < 0) {
+      throw new IOException(META_CACHE_KEY + " must not be negative, got " + cacheSeconds);
+    }
+    this.cacheNanos = cacheSeconds * 1000L * 1000L * 1000L;
     if (sidecars && chunkSize > Integer.MAX_VALUE) {
       throw new IOException(CHUNK_SIZE_KEY + " must not exceed "
           + Integer.MAX_VALUE + " when records are kept, got " + chunkSize);
@@ -218,6 +281,7 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
   private void writeSidecar(String filePath, long length, long chunk,
       byte[] root, List<byte[]> leaves) throws IOException {
     Path sc = AttestedSidecar.pathFor(new Path(filePath));
+    forget(sc);
     byte[] bytes = AttestedSidecar.encode((int) chunk, length, root, leaves);
     audit("CREATE", sc, null, "sidecar");
     try (FSDataOutputStream out = fs.create(sc, true)) {
@@ -228,6 +292,7 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
   /** The file changed, so its record no longer describes it: remove the record. */
   private void dropSidecar(Path f) throws IOException {
     Path sc = AttestedSidecar.pathFor(f);
+    forget(sc);
     if (fs.exists(sc)) {
       audit("DELETE", sc, null, "recursive=false sidecar");
       fs.delete(sc, false);
@@ -238,6 +303,8 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
   private void moveSidecar(Path src, Path dst) throws IOException {
     Path from = AttestedSidecar.pathFor(src);
     Path to = AttestedSidecar.pathFor(dst);
+    forget(from);
+    forget(to);
     boolean had = fs.exists(from);
     if (fs.exists(to)) {
       audit("DELETE", to, null, "recursive=false sidecar");
@@ -299,33 +366,229 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
     return new FSDataInputStream(new VerifyingInputStream(raw, rec, q(f)));
   }
 
-  /** Listings do not show the records: they are the wrapper's own business. */
-  private static <T extends FileStatus> RemoteIterator<T> hideSidecars(
-      final RemoteIterator<T> it) {
-    return new RemoteIterator<T>() {
-      private T next;
+  // ------------------------------------------------------------- metadata (step 4.5)
 
-      @Override
-      public boolean hasNext() throws IOException {
-        while (next == null && it.hasNext()) {
-          T s = it.next();
-          if (!AttestedSidecar.isSidecar(s.getPath())) {
-            next = s;
-          }
+  private void forget(Path sidecar) {
+    synchronized (lengths) {
+      lengths.remove(q(sidecar).toString());
+    }
+  }
+
+  /** Logs a finding once per path and kind in this JVM, so that a repeated question does not flood the log. */
+  private void report(String op, Path p, String why) throws IOException {
+    String key = op + "\t" + q(p) + "\t" + why;
+    synchronized (reported) {
+      if (reported.size() > META_REPORTED_MAX) {
+        reported.clear();
+      }
+      if (!reported.add(key)) {
+        return;
+      }
+    }
+    audit(op, p, null, why);
+  }
+
+  /** Storage and a record disagree: allow, warn or fail, as the setting says. */
+  private void mismatch(Path f, String op, String why) throws IOException {
+    if (mismatchPolicy.equals("allow")) {
+      return;
+    }
+    if (mismatchPolicy.equals("warn")) {
+      report(op, f, why);
+      return;
+    }
+    audit(op, f, null, why);
+    throw new ChecksumException("Attested metadata check failed for " + f + ": " + why, 0);
+  }
+
+  /** A file without a record follows the same setting as a read does. */
+  private void missingRecord(Path f) throws IOException {
+    if (missingPolicy.equals("allow")) {
+      return;
+    }
+    if (missingPolicy.equals("warn")) {
+      report("META-MISSING", f, "no record");
+      return;
+    }
+    audit("META-MISSING", f, null, "no record");
+    throw new IOException("Attested metadata check failed for " + f
+        + ": the file has no record");
+  }
+
+  /**
+   * A record whose file is gone: someone removed the file behind the wrapper's back,
+   * unless a delete through the wrapper is just finishing (it removes the file and
+   * then the record), so look again after a moment before deciding.
+   */
+  private void orphan(Path data) throws IOException {
+    Path rec = AttestedSidecar.pathFor(data);
+    try {
+      Thread.sleep(25);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+    if (fs.exists(data) || !fs.exists(rec)) {
+      return;
+    }
+    mismatch(data, "META-ORPHAN", "the file is missing in storage but its record exists");
+  }
+
+  /**
+   * The length written in f's record, or -1 when f has no record. When the status of
+   * the record file is known (from a listing) a remembered length is used only if
+   * the record file is unchanged; otherwise only for a few seconds.
+   */
+  private long recordLength(Path f, FileStatus recStatus, boolean fresh) throws IOException {
+    Path rec = AttestedSidecar.pathFor(f);
+    String key = q(rec).toString();
+    long now = System.nanoTime();
+    if (!fresh) {
+      CachedLength c;
+      synchronized (lengths) {
+        c = lengths.get(key);
+      }
+      if (c != null) {
+        boolean valid = recStatus != null
+            ? c.recLen == recStatus.getLen() && c.recMtime == recStatus.getModificationTime()
+            : now - c.loadedNanos < cacheNanos;
+        if (valid) {
+          return c.length;
         }
-        return next != null;
+      }
+    }
+    long len;
+    try {
+      len = AttestedSidecar.readLength(fs, rec);
+    } catch (FileNotFoundException e) {
+      synchronized (lengths) {
+        lengths.remove(key);
+      }
+      return -1;
+    }
+    synchronized (lengths) {
+      lengths.put(key, new CachedLength(len, recStatus == null ? -1 : recStatus.getLen(),
+          recStatus == null ? -1 : recStatus.getModificationTime(), now));
+    }
+    return len;
+  }
+
+  /** Compares one file's length in storage with its record. */
+  private void checkFile(Path f, long storageLen, FileStatus recStatus) throws IOException {
+    long rec;
+    try {
+      rec = recordLength(f, recStatus, false);
+    } catch (IOException damaged) {
+      mismatch(f, "META-FAIL", "its record is unreadable: " + damaged.getMessage());
+      return;
+    }
+    if (rec < 0) {
+      missingRecord(f);
+      return;
+    }
+    if (rec != storageLen) {
+      // another task may just have rewritten the file and its record: look at the record afresh
+      try {
+        rec = recordLength(f, recStatus, true);
+      } catch (IOException damaged) {
+        mismatch(f, "META-FAIL", "its record is unreadable: " + damaged.getMessage());
+        return;
+      }
+      if (rec < 0) {
+        missingRecord(f);
+      } else if (rec != storageLen) {
+        mismatch(f, "META-FAIL", "length is " + storageLen + " in storage but " + rec
+            + " in its record");
+      }
+    }
+  }
+
+  /**
+   * Checks what one listing shows against the records in it: a file whose length is
+   * not the one in its record, a file without a record, and a record without a file.
+   */
+  private void checkListing(Path f, FileStatus[] all) throws IOException {
+    if (!metadataCheck || all.length == 0) {
+      return;
+    }
+    if (all.length == 1 && !all[0].isDirectory()
+        && all[0].getPath().toUri().getPath().equals(f.toUri().getPath())) {
+      // the listing of a single file shows the file only, not its record
+      if (!AttestedSidecar.isSidecar(all[0].getPath())) {
+        checkFile(all[0].getPath(), all[0].getLen(), null);
+      }
+      return;
+    }
+    Map<String, FileStatus> byName = new HashMap<>();
+    for (FileStatus s : all) {
+      byName.put(s.getPath().getName(), s);
+    }
+    for (FileStatus s : all) {
+      Path p = s.getPath();
+      String name = p.getName();
+      if (AttestedSidecar.isSidecar(p)) {
+        String dataName = name.substring(1, name.length() - ".attested".length());
+        if (!byName.containsKey(dataName)) {
+          orphan(new Path(p.getParent(), dataName));
+        }
+      } else if (!s.isDirectory()) {
+        FileStatus rec = byName.get("." + name + ".attested");
+        if (rec == null) {
+          missingRecord(p);
+        } else {
+          checkFile(p, s.getLen(), rec);
+        }
+      }
+    }
+  }
+
+  /** The whole listing is read and checked first; the records are then left out, and the caller's filter applied. */
+  private <T extends FileStatus> RemoteIterator<T> checkedIterator(Path dir,
+      RemoteIterator<T> it, final PathFilter filter) throws IOException {
+    List<T> all = new ArrayList<>();
+    while (it.hasNext()) {
+      all.add(it.next());
+    }
+    checkListing(dir, all.toArray(new FileStatus[0]));
+    final List<T> kept = new ArrayList<>();
+    for (T s : all) {
+      if (!AttestedSidecar.isSidecar(s.getPath())
+          && (filter == null || filter.accept(s.getPath()))) {
+        kept.add(s);
+      }
+    }
+    final Iterator<T> kit = kept.iterator();
+    return new RemoteIterator<T>() {
+      @Override
+      public boolean hasNext() {
+        return kit.hasNext();
       }
 
       @Override
-      public T next() throws IOException {
-        if (!hasNext()) {
-          throw new java.util.NoSuchElementException();
+      public T next() {
+        if (!kit.hasNext()) {
+          throw new NoSuchElementException();
         }
-        T s = next;
-        next = null;
-        return s;
+        return kit.next();
       }
     };
+  }
+
+  @Override
+  public FileStatus getFileStatus(Path f) throws IOException {
+    FileStatus st;
+    try {
+      st = super.getFileStatus(f);
+    } catch (FileNotFoundException e) {
+      if (metadataCheck && !AttestedSidecar.isSidecar(f) && f.getParent() != null
+          && fs.exists(AttestedSidecar.pathFor(f))) {
+        orphan(f);
+      }
+      throw e;
+    }
+    if (metadataCheck && st.isFile() && !AttestedSidecar.isSidecar(f)) {
+      checkFile(f, st.getLen(), null);
+    }
+    return st;
   }
 
   private static FileStatus[] withoutSidecars(FileStatus[] all) {
@@ -350,25 +613,28 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
 
   @Override
   public FileStatus[] listStatus(Path f) throws IOException {
-    return withoutSidecars(super.listStatus(f));
+    FileStatus[] all = super.listStatus(f);
+    checkListing(f, all);
+    return withoutSidecars(all);
   }
 
   @Override
   public RemoteIterator<FileStatus> listStatusIterator(Path f)
       throws IOException {
-    return hideSidecars(super.listStatusIterator(f));
+    return checkedIterator(f, super.listStatusIterator(f), null);
   }
 
   @Override
   public RemoteIterator<LocatedFileStatus> listLocatedStatus(Path f)
       throws IOException {
-    return hideSidecars(super.listLocatedStatus(f));
+    return checkedIterator(f, super.listLocatedStatus(f), null);
   }
 
   @Override
   protected RemoteIterator<LocatedFileStatus> listLocatedStatus(Path f,
       PathFilter filter) throws IOException {
-    return hideSidecars(super.listLocatedStatus(f, filter));
+    // read the whole listing without the filter, so that the records are seen, then apply it
+    return checkedIterator(f, super.listLocatedStatus(f), filter);
   }
 
   private void audit(String op, Path p1, Path p2, String extra)

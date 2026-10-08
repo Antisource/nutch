@@ -2,6 +2,7 @@ package org.apache.nutch.attested;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -240,6 +241,7 @@ public class AttestedFsSmoke {
 
     exercise(conf, base, plain, FakeHdfs.class.getName());
     verifyChecks(conf, base, plain);
+    metadataChecks(conf, base, plain);
     fileContext(conf, new Path("hdfs://fake:9000" + tmp + "/fc"));
     auditLines(conf, tmp + "/audit", FakeHdfs.class.getName(), work);
     deleteTree(tmp.toFile());
@@ -263,6 +265,7 @@ public class AttestedFsSmoke {
     try {
       exercise(conf, base, plain, DistributedFileSystem.class.getName());
       verifyChecks(conf, base, plain);
+      metadataChecks(conf, base, plain);
       fileContext(conf, new Path("hdfs://" + authority + work + "-fc"));
       auditLines(conf, tmp + "/audit", DistributedFileSystem.class.getName(),
           work);
@@ -618,6 +621,188 @@ public class AttestedFsSmoke {
   static long auditCount(String dir, String op, String extraPart) throws IOException {
     return auditEntries(dir).stream()
         .filter(c -> c[3].equals(op) && c[6].contains(extraPart)).count();
+  }
+
+
+  /** Findings of the metadata checks in the audit log of this run: op starts with META-, path contains the part. */
+  static long metaCount(String dir, String op, String pathPart) throws IOException {
+    return auditEntries(dir).stream().filter(c -> c[3].startsWith("META-")
+        && (op.isEmpty() || c[3].equals(op)) && c[4].contains(pathPart)).count();
+  }
+
+  static boolean throwsChecksum(java.util.concurrent.Callable<Object> call) {
+    try {
+      call.call();
+      return false;
+    } catch (ChecksumException e) {
+      return true;
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
+  static boolean throwsNotFound(java.util.concurrent.Callable<Object> call) {
+    try {
+      call.call();
+      return false;
+    } catch (FileNotFoundException e) {
+      return true;
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
+  static boolean throwsIo(java.util.concurrent.Callable<Object> call) {
+    try {
+      call.call();
+      return false;
+    } catch (IOException e) {
+      return true;
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
+  static int countOf(RemoteIterator<? extends FileStatus> it) throws IOException {
+    int n = 0;
+    while (it.hasNext()) {
+      it.next();
+      n++;
+    }
+    return n;
+  }
+
+  /** Step 4.5: answers about files (length, existence, listings) are checked against the records. */
+  static void metadataChecks(Configuration conf, Path base, FileSystem plain) throws Exception {
+    final FileSystem fs = FileSystem.newInstance(base.toUri(), conf);
+    final String auditDir = conf.get(AttestedAudit.DIR_KEY);
+    final Path dir = new Path(base, "meta");
+    fs.mkdirs(dir);
+    final byte[] d1 = data(5000, 1);
+    final byte[] d2 = data(40000, 2);
+    final byte[] d3 = data(300, 3);
+    final Path f1 = new Path(dir, "m1");
+    final Path f2 = new Path(dir, "m2");
+    final Path f3 = new Path(dir, "m3");
+    put(fs, f1, d1);
+    put(fs, f2, d2);
+    put(fs, f3, d3);
+
+    // a clean folder: nothing is reported, and every way of asking agrees
+    check("metadata: a clean folder lists three files, and lengths and existence agree with the records",
+        fs.listStatus(dir).length == 3 && fs.getFileStatus(f2).getLen() == d2.length
+            && fs.exists(f1) && fs.getFileStatus(f3).isFile() && fs.getFileStatus(dir).isDirectory());
+    check("metadata: listing one file shows that file and raises no finding",
+        fs.listStatus(f1).length == 1 && fs.listStatus(f1)[0].getLen() == d1.length);
+    check("metadata: listFiles, listLocatedStatus, listStatusIterator and glob agree on a clean folder",
+        countOf(fs.listFiles(dir, false)) == 3 && countOf(fs.listLocatedStatus(dir)) == 3
+            && countOf(fs.listStatusIterator(dir)) == 3 && fs.globStatus(new Path(dir, "m*")).length == 3);
+    check("metadata: a clean folder produces no finding in the audit log",
+        metaCount(auditDir, "", "/meta/") == 0);
+
+    // a file whose length was changed behind the wrapper's back
+    put(plain, f1, data(5001, 9));
+    check("metadata: getFileStatus refuses a file whose length differs from its record",
+        throwsChecksum(() -> fs.getFileStatus(f1)));
+    check("metadata: exists refuses it too",
+        throwsChecksum(() -> fs.exists(f1)) && throwsChecksum(() -> fs.getFileStatus(f1).isFile()));
+    check("metadata: a listing of the folder refuses it, whichever way it is asked",
+        throwsChecksum(() -> fs.listStatus(dir)) && throwsChecksum(() -> countOf(fs.listFiles(dir, false)))
+            && throwsChecksum(() -> countOf(fs.listStatusIterator(dir)))
+            && throwsChecksum(() -> fs.globStatus(new Path(dir, "m*"))));
+    check("metadata: the finding names the two lengths in the audit log",
+        auditEntries(auditDir).stream().anyMatch(c -> c[3].equals("META-FAIL") && c[4].endsWith("/meta/m1")
+            && c[6].contains("length is 5001 in storage but 5000 in its record")));
+    put(plain, f1, d1);
+    check("metadata: once the file is as recorded again, the answers are normal",
+        fs.getFileStatus(f1).getLen() == d1.length && fs.listStatus(dir).length == 3);
+
+    // a file removed behind the wrapper's back (its record is left)
+    plain.delete(f3, false);
+    check("metadata: a recorded file that is gone is a finding, not an ordinary 'not found'",
+        throwsChecksum(() -> fs.getFileStatus(f3)) && throwsChecksum(() -> fs.exists(f3)));
+    check("metadata: a listing refuses a record without its file",
+        throwsChecksum(() -> fs.listStatus(dir)) && throwsChecksum(() -> countOf(fs.listStatusIterator(dir))));
+    check("metadata: the finding is in the audit log",
+        metaCount(auditDir, "META-ORPHAN", "/meta/m3") >= 1);
+    plain.delete(sc(f3), false);
+    check("metadata: without file and record the answers are the ordinary ones",
+        throwsNotFound(() -> fs.getFileStatus(f3)) && !fs.exists(f3) && fs.listStatus(dir).length == 2);
+
+    // a file slipped in without a record: allowed and logged once (policy warn)
+    final Path f4 = new Path(dir, "m4");
+    put(plain, f4, data(77, 4));
+    long m0 = metaCount(auditDir, "META-MISSING", "/meta/m4");
+    check("metadata: a file without a record is listed and answered (policy warn)",
+        fs.listStatus(dir).length == 3 && fs.getFileStatus(f4).getLen() == 77);
+    long m1 = metaCount(auditDir, "META-MISSING", "/meta/m4");
+    fs.listStatus(dir);
+    fs.getFileStatus(f4);
+    check("metadata: it is logged once, not at every question",
+        m1 == m0 + 1 && metaCount(auditDir, "META-MISSING", "/meta/m4") == m1);
+
+    // the settings
+    Configuration failConf = new Configuration(conf);
+    failConf.set(AttestedHdfsFileSystem.MISSING_KEY, "fail");
+    final FileSystem fsFail = FileSystem.newInstance(base.toUri(), failConf);
+    check("metadata: with attested.verify.missing=fail a file without a record is refused",
+        throwsIo(() -> fsFail.getFileStatus(f4)) && throwsIo(() -> fsFail.listStatus(dir)));
+    Configuration allowConf = new Configuration(conf);
+    allowConf.set(AttestedHdfsFileSystem.MISSING_KEY, "allow");
+    final FileSystem fsAllow = FileSystem.newInstance(base.toUri(), allowConf);
+    long a0 = metaCount(auditDir, "META-MISSING", "/meta/m4");
+    fsAllow.listStatus(dir);
+    fsAllow.getFileStatus(f4);
+    check("metadata: with attested.verify.missing=allow the same file raises nothing in that program",
+        metaCount(auditDir, "META-MISSING", "/meta/m4") == a0);
+    plain.delete(f4, false);
+
+    put(plain, f2, data(40001, 5));
+    Configuration warnConf = new Configuration(conf);
+    warnConf.set(AttestedHdfsFileSystem.META_MISMATCH_KEY, "warn");
+    final FileSystem fsWarn = FileSystem.newInstance(base.toUri(), warnConf);
+    long w0 = metaCount(auditDir, "META-FAIL", "/meta/m2");
+    check("metadata: with attested.metadata.mismatch=warn the changed file is answered and logged once",
+        fsWarn.getFileStatus(f2).getLen() == 40001 && fsWarn.listStatus(dir).length == 2
+            && metaCount(auditDir, "META-FAIL", "/meta/m2") == w0 + 1);
+    Configuration allowMismatch = new Configuration(conf);
+    allowMismatch.set(AttestedHdfsFileSystem.META_MISMATCH_KEY, "allow");
+    final FileSystem fsAllowMismatch = FileSystem.newInstance(base.toUri(), allowMismatch);
+    check("metadata: with attested.metadata.mismatch=allow it is answered and not logged",
+        fsAllowMismatch.getFileStatus(f2).getLen() == 40001
+            && metaCount(auditDir, "META-FAIL", "/meta/m2") == w0 + 1);
+    Configuration offConf = new Configuration(conf);
+    offConf.setBoolean(AttestedHdfsFileSystem.META_KEY, false);
+    final FileSystem fsOff = FileSystem.newInstance(base.toUri(), offConf);
+    check("metadata: with attested.metadata.check=false the wrapper does not check",
+        fsOff.getFileStatus(f2).getLen() == 40001 && fsOff.listStatus(dir).length == 2
+            && metaCount(auditDir, "META-FAIL", "/meta/m2") == w0 + 1);
+    put(plain, f2, d2);
+
+    // changes made through the wrapper are not findings
+    long before = metaCount(auditDir, "", "/meta/");
+    fs.getFileStatus(f1);
+    byte[] d1b = data(6000, 11);
+    put(fs, f1, d1b);
+    check("metadata: a rewrite through the wrapper is not a finding (the remembered length is dropped)",
+        fs.getFileStatus(f1).getLen() == d1b.length);
+    final Path f1r = new Path(dir, "m1r");
+    check("metadata: renaming through the wrapper moves the record", fs.rename(f1, f1r)
+        && fs.getFileStatus(f1r).getLen() == d1b.length);
+    check("metadata: after a rename the old name is simply not found (no finding)",
+        throwsNotFound(() -> fs.getFileStatus(f1)));
+    fs.delete(f1r, false);
+    check("metadata: after a delete through the wrapper the name is simply not found (no finding)",
+        throwsNotFound(() -> fs.getFileStatus(f1r)) && !fs.exists(f1r));
+    check("metadata: none of these changes raised a finding", metaCount(auditDir, "", "/meta/") == before);
+
+    // another program rewrote the file and its record while this one remembered the old length
+    final FileSystem other = FileSystem.newInstance(base.toUri(), conf);
+    fs.getFileStatus(f2);
+    put(other, f2, data(1234, 12));
+    check("metadata: a rewrite by another program is not a finding (the record is read afresh)",
+        fs.getFileStatus(f2).getLen() == 1234 && metaCount(auditDir, "", "/meta/") == before);
+    fs.delete(dir, true);
   }
 
   /** Stage B2: reads are checked against the records; every way of changing a file is caught. */
