@@ -22,7 +22,7 @@ die() { echo "NN-PROBE-STOP: $*" >&2; exit 1; }
 [ ! -e "$OUT" ] || die "$OUT already exists; use a new folder"
 DIR="/user/$(id -un)/nn-audit-probe-$(date -u +%Y%m%dT%H%M%SZ)"
 case "$DIR" in *nn-audit-probe-*) ;; *) die "bad probe folder $DIR" ;; esac
-"$H/bin/hdfs" dfs -test -e "$DIR" && die "$DIR already exists"
+"$H/bin/hdfs" dfs -D fs.hdfs.impl=org.apache.hadoop.hdfs.DistributedFileSystem -test -e "$DIR" && die "$DIR already exists"
 mkdir -p "$OUT/wrapper-audit" "$OUT/wrapper-records" "$OUT/local" || die "cannot create $OUT"
 for n in a b c d e; do printf 'probe file %s\n' "$n" > "$OUT/local/$n.txt"; done
 
@@ -32,8 +32,8 @@ W() { HADOOP_CLASSPATH="$JOB" "$H/bin/hadoop" fs \
         -D fs.hdfs.impl=org.apache.nutch.attested.AttestedHdfsFileSystem \
         -D fs.AbstractFileSystem.hdfs.impl=org.apache.nutch.attested.AttestedHdfs \
         -D attested.audit.dir="$OUT/wrapper-audit" -D attested.records.dir="$OUT/wrapper-records" "$@"; }
-# straight through the plain client
-P() { "$H/bin/hdfs" dfs "$@"; }
+# straight through the plain client (explicitly: since step 4.6 a plain "hdfs dfs" goes through the wrapper)
+P() { "$H/bin/hdfs" dfs -D fs.hdfs.impl=org.apache.hadoop.hdfs.DistributedFileSystem "$@"; }
 # do ROUTE OPERATION PATH -- COMMAND...   (writes the ground truth, runs the command, counts failures)
 do_() { local route="$1" op="$2" path="$3"; shift 4
   printf '%s\t%s\t%s\n' "$route" "$op" "$path" >> "$GT"

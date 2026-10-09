@@ -25,6 +25,9 @@ set -uo pipefail
 CRAWL="${1:?usage: tamper-demo.sh CRAWL_DIR OUTDIR}"
 OUT="${2:?usage: tamper-demo.sh CRAWL_DIR OUTDIR}"
 HDFS="${ATTESTED_HDFS:-hdfs}"
+# Since step 4.6 the wrapper is the cluster's default file system, so a plain "hdfs dfs" goes through it.
+# The tamper must be made behind the wrapper's back, so every HDFS call here is plain, so it asks for the plain client.
+PLAIN="-D fs.hdfs.impl=org.apache.hadoop.hdfs.DistributedFileSystem"
 READER="${ATTESTED_READER:-runtime/deploy/bin/nutch readdb}"
 FILE="$CRAWL/crawldb/current/part-r-00000/data"
 mkdir -p "$OUT"
@@ -34,7 +37,7 @@ tampered=0; restored=0
 
 restore() {
   if [ "$tampered" = 1 ] && [ "$restored" = 0 ]; then
-    $HDFS dfs -put -f "$ORIG" "$FILE" && restored=1 && echo "restored the original bytes of $FILE"
+    $HDFS dfs $PLAIN -put -f "$ORIG" "$FILE" && restored=1 && echo "restored the original bytes of $FILE"
   fi
 }
 trap restore EXIT
@@ -50,11 +53,14 @@ run_reader() {  # run_reader LABEL  -> prints the exit code
 }
 reader_ok() { [ "$1" = 0 ] && grep -q 'TOTAL urls' "$OUT/$2.log"; }
 
-$HDFS dfs -get "$FILE" "$ORIG" || { echo "TAMPER-TEST: FAIL - cannot read $FILE"; exit 1; }
+$HDFS dfs $PLAIN -get "$FILE" "$ORIG" || { echo "TAMPER-TEST: FAIL - cannot read $FILE"; exit 1; }
 size=$(wc -c < "$ORIG")
 [ "$size" -gt 100 ] || { echo "TAMPER-TEST: FAIL - $FILE is too small ($size bytes)"; exit 1; }
 sha_orig=$(sha256sum "$ORIG" | cut -c1-16)
-ABS=$($HDFS dfs -ls "$FILE" | awk 'NF>=8{print $NF}' | head -1)
+ABS=$($HDFS dfs $PLAIN -ls "$FILE" | awk 'NF>=8{print $NF}' | head -1)
+# hdfs prints a path as it was typed, and a relative path is relative to the user's home folder: make it absolute
+case "$ABS" in /*) ;; *) ABS="/user/$(id -un)/$ABS" ;; esac
+$HDFS dfs $PLAIN -test -e "$ABS" || { echo "TAMPER-TEST: FAIL - cannot find $ABS"; exit 1; }
 echo "$ABS" > "$OUT/tampered-file-path.txt"
 echo "file: $FILE  size: $size bytes  fingerprint: $sha_orig  absolute path: $ABS"
 
@@ -72,7 +78,7 @@ open(sys.argv[2], "wb").write(d)
 print("   changed byte %d of %d" % (i, len(d)))
 PY
 tampered=1
-$HDFS dfs -put -f "$BAD" "$FILE" || { echo "TAMPER-TEST: FAIL - could not write the changed file"; exit 1; }
+$HDFS dfs $PLAIN -put -f "$BAD" "$FILE" || { echo "TAMPER-TEST: FAIL - could not write the changed file"; exit 1; }
 
 echo "== 3. the same reader job must fail (a task fails; the reason is in the worker's logs)"
 rc2=$(run_reader tampered)
@@ -82,7 +88,7 @@ echo "   exit code $rc2, $c2 (job: ${jobid:-unknown}; failed tasks reported by t
 
 echo "== 4. the original bytes are put back"
 restore
-sha_back=$($HDFS dfs -cat "$FILE" | sha256sum | cut -c1-16)
+sha_back=$($HDFS dfs $PLAIN -cat "$FILE" | sha256sum | cut -c1-16)
 rc3=$(run_reader restored); reader_ok "$rc3" restored && c3=ok || c3=FAILED
 echo "   fingerprint after restore: $sha_back, reader exit code $rc3, $c3"
 

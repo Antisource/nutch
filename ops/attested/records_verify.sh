@@ -8,11 +8,14 @@
 set -uo pipefail
 EXPECTED="${1:?usage: records_verify.sh EXPECTED.tsv}"
 HDFS="${ATTESTED_HDFS:-hdfs}"
+# Since step 4.6 the wrapper is the cluster's default file system, so a plain "hdfs dfs" goes through it.
+# The re-hash must read the bytes as they are stored, not as the wrapper verifies them, so it asks for the plain client.
+PLAIN="-D fs.hdfs.impl=org.apache.hadoop.hdfs.DistributedFileSystem"
 PY="${ATTESTED_MERKLE:-$(dirname "$0")/merkle_root.py}"
 ok=0; bad=0
 while IFS=$'\t' read -r path length chunk chunks root; do
   [ -n "$path" ] || continue
-  out="$($HDFS dfs -cat "$path" | python3 "$PY" "$chunk")"
+  out="$($HDFS dfs $PLAIN -cat "$path" | python3 "$PY" "$chunk")"
   set -- $out
   if [ "${1:-}" = "$root" ] && [ "${2:-}" = "$length" ]; then
     ok=$((ok + 1))

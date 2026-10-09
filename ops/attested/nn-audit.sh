@@ -25,6 +25,10 @@ ENVF="$H/etc/hadoop/hadoop-env.sh"
 LOGDIR="${HADOOP_LOG_DIR:-$H/logs}"
 BK="${NN_AUDIT_BACKUP:-$HOME/nn-audit-backup}"
 HDFS="$H/bin/hdfs"
+# Hadoop's admin tool (hdfs dfsadmin) refuses any file system that is not a DistributedFileSystem, the wrapper
+# included (found on the cluster on 8 October 2026), and this script must not depend on the cluster's mode, so its
+# HDFS calls ask for the plain client.
+ADMIN_D="-D fs.hdfs.impl=org.apache.hadoop.hdfs.DistributedFileSystem"
 YARN="$H/bin/yarn"
 WAIT="${NN_AUDIT_WAIT:-60}"
 BEGIN="# >>> attested step 4.5.2: NameNode audit log (remove this block to undo)"
@@ -36,7 +40,7 @@ say() { echo "== $*"; }
 
 nn_pid() { ps -eo pid,args | awk -v c="$NNCLASS" 'index($0, c) && !/awk/ {print $1; exit}'; }
 nn_logger() { ps -eo args | grep -F "$NNCLASS" | tr ' ' '\n' | grep -E '^-Dhdfs\.audit\.logger=' | head -1 | cut -d= -f2; }
-live_datanodes() { "$HDFS" dfsadmin -report 2>/dev/null | grep -E '^Live datanodes' | grep -oE '[0-9]+' | head -1; }
+live_datanodes() { "$HDFS" dfsadmin $ADMIN_D -report 2>/dev/null | grep -E '^Live datanodes' | grep -oE '[0-9]+' | head -1; }
 
 restart_nn() {
   "$HDFS" --daemon stop namenode >/dev/null 2>&1
@@ -47,7 +51,7 @@ restart_nn() {
   i=0
   while [ -z "$(nn_pid)" ] && [ $i -lt "$WAIT" ]; do sleep 1; i=$((i + 1)); done
   [ -n "$(nn_pid)" ] || { echo "the NameNode did not start within ${WAIT}s"; return 1; }
-  timeout 180 "$HDFS" dfsadmin -safemode wait >/dev/null 2>&1 || { echo "safe mode did not end"; return 1; }
+  timeout 180 "$HDFS" dfsadmin $ADMIN_D -safemode wait >/dev/null 2>&1 || { echo "safe mode did not end"; return 1; }
   return 0
 }
 
@@ -55,7 +59,7 @@ restart_nn() {
 verify_state() {  # verify_state LOGGER EXPECTED_DATANODES WANT_AUDIT_LINE(yes|no)
   local want="$1" dns="$2" audit="$3" i=0 n
   [ "$(nn_logger)" = "$want" ] || { echo "the NameNode runs with logger '$(nn_logger)', not '$want'"; return 1; }
-  "$HDFS" dfs -ls / >/dev/null 2>&1 || { echo "HDFS does not answer 'ls /'"; return 1; }
+  "$HDFS" dfs $ADMIN_D -ls / >/dev/null 2>&1 || { echo "HDFS does not answer 'ls /'"; return 1; }
   while [ $i -lt "${NN_AUDIT_DN_WAIT:-60}" ]; do
     n="$(live_datanodes)"
     [ "${n:-0}" = "$dns" ] && break
@@ -74,7 +78,7 @@ verify_state() {  # verify_state LOGGER EXPECTED_DATANODES WANT_AUDIT_LINE(yes|n
 preconditions() {
   say "preconditions"
   [ -n "$(nn_pid)" ] || die "no NameNode is running here (run this on the master)"
-  "$HDFS" dfsadmin -safemode get 2>/dev/null | grep -q 'OFF' || die "HDFS is in safe mode"
+  "$HDFS" dfsadmin $ADMIN_D -safemode get 2>/dev/null | grep -q 'OFF' || die "HDFS is in safe mode"
   apps="$("$YARN" application -list -appStates RUNNING 2>/dev/null)" || die "cannot ask YARN for running applications (is the ResourceManager up?)"
   napps="$(printf '%s\n' "$apps" | grep -c '^application_')"
   [ "$napps" = 0 ] || die "$napps YARN application(s) are running; wait until none is"
