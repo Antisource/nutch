@@ -1,0 +1,29 @@
+# Facts of the clean-build documents of 9 October 2026 (valid for the documents as committed with them): document <TAB> text in the document <TAB> evidence source <TAB> evidence text
+docs/milestone-4-storage-integrity.md	`BUILD SUCCESSFUL` in 33 seconds	evidence-m46-cleanbuild/clean-build-ant.log	BUILD SUCCESSFUL
+docs/milestone-4-storage-integrity.md	`BUILD SUCCESSFUL` in 33 seconds	evidence-m46-cleanbuild/clean-build-ant.log	Total time: 33 seconds
+docs/milestone-4-storage-integrity.md	a fresh clone of the branch at `30cd062da` on the master (`~/clean-build`, 0 changes in the working tree	evidence-m46-cleanbuild/clean-build-info.txt	clone: 30cd062da
+docs/milestone-4-storage-integrity.md	a fresh clone of the branch at `30cd062da` on the master (`~/clean-build`, 0 changes in the working tree	evidence-m46-cleanbuild/clean-build-info.txt	working tree changes in the clone: 0
+docs/milestone-4-storage-integrity.md	1,043 entries in both jobs; only in the old job: none	evidence-m46-cleanbuild/clean-build-compare.txt	entries: old 1043, new 1043
+docs/milestone-4-storage-integrity.md	1,043 entries in both jobs; only in the old job: none	evidence-m46-cleanbuild/clean-build-compare.txt	only in the OLD job:           none
+docs/milestone-4-storage-integrity.md	only in the new job: none; same name with different content: none	evidence-m46-cleanbuild/clean-build-compare.txt	only in the NEW job:           none
+docs/milestone-4-storage-integrity.md	only in the new job: none; same name with different content: none	evidence-m46-cleanbuild/clean-build-compare.txt	same name, different content:  none
+docs/milestone-4-storage-integrity.md	584 plain entries and 82,875 files inside 360 nested jars in both jobs, 0 differences	evidence-m46-cleanbuild/clean-build-sha-compare.txt	plain entries: old 584, new 584   files inside nested jars: old 82875, new 82875   nested jars: old 360, new 360
+docs/milestone-4-storage-integrity.md	`JOBS-SAME-BY-SHA256`; 61 nested jars differ	evidence-m46-cleanbuild/clean-build-sha-compare.txt	JOBS-SAME-BY-SHA256
+docs/milestone-4-storage-integrity.md	`JOBS-SAME-BY-SHA256`; 61 nested jars differ	evidence-m46-cleanbuild/clean-build-sha-compare.txt	nested jars whose container bytes differ but whose contents are identical: 61
+docs/milestone-4-storage-integrity.md	run 9's job `901f01df3423857a` (134,808,775 bytes) and the clean build's job `962047605787971a` (134,808,756 bytes)	evidence-m46-cleanbuild/clean-build-sha-compare.txt	job files: old 901f01df3423857a, new 962047605787971a
+docs/milestone-4-storage-integrity.md	run 9's job `901f01df3423857a` (134,808,775 bytes) and the clean build's job `962047605787971a` (134,808,756 bytes)	evidence-m46-cleanbuild/clean-build-info.txt	134808775 bytes, sha256 901f01df3423857a
+docs/milestone-4-storage-integrity.md	run 9's job `901f01df3423857a` (134,808,775 bytes) and the clean build's job `962047605787971a` (134,808,756 bytes)	evidence-m46-cleanbuild/clean-build-info.txt	134808756 bytes, sha256 962047605787971a
+docs/milestone-4-storage-integrity.md	SHA-256 `73c95828f5f62a3f...`	evidence-m46-cleanbuild/clean-build-info.txt	tld file in the clone: 73c95828f5f62a3f
+docs/milestone-4-storage-integrity.md	snapshot `2026-09-30_20-56-07_UTC`	@repo:conf/effective_tld_names.dat	VERSION: 2026-09-30_20-56-07_UTC
+docs/cluster-configuration.md	upstream commit `714ac1bf5f2d038161c7419478cc3207431d706d`	@repo:conf/effective_tld_names.dat	COMMIT: 714ac1bf5f2d038161c7419478cc3207431d706d
+docs/milestone-4-storage-integrity.md	It was committed as a new file, mode 100644, in `30cd062da`	@git-log	30cd062 build(nutch): track the public suffix list snapshot
+docs/milestone-4-storage-integrity.md	It was committed as a new file, mode 100644, in `30cd062da`	@git-files:30cd062	1
+docs/milestone-4-storage-integrity.md	(fingerprint `173690075992b57d`)	zip-sha:evidence-m46-cleanbuild/m467-files.zip#m467/ops/attested/job_sha_compare.py	173690075992b57d
+docs/milestone-4-storage-integrity.md	(`5b2b85d0adf5aaed...`, 5 files and its `SHA256SUMS`)	evidence-m46-cleanbuild.sha256	5b2b85d0adf5aaed
+docs/milestone-4-storage-integrity.md	(`5b2b85d0adf5aaed...`, 5 files and its `SHA256SUMS`)	lines:evidence-m46-cleanbuild/SHA256SUMS	5
+docs/cluster-configuration.md	Ant 1.10.12, OpenJDK 11.0.32.1	evidence-m46-cleanbuild/clean-build-info.txt	ant: Apache Ant(TM) version 1.10.12
+docs/cluster-configuration.md	Ant 1.10.12, OpenJDK 11.0.32.1	evidence-m46-cleanbuild/clean-build-info.txt	java: openjdk version "11.0.32.1"
+docs/cluster-configuration.md	334,832 bytes, 16,501 lines	@repo:conf/effective_tld_names.dat	===END PRIVATE DOMAINS===
+docs/cluster-configuration.md	the test build 33 s with a warm one	evidence-m46-cleanbuild/clean-build-ant.log	Total time: 33 seconds
+docs/limitations-and-trust.md	(a fresh clone, `ant runtime` in 33 seconds, 0 differences by SHA-256)	evidence-m46-cleanbuild/clean-build-sha-compare.txt	JOBS-SAME-BY-SHA256
+docs/limitations-and-trust.md	584 files and the 82,875 files inside its 360 plugin jars	evidence-m46-cleanbuild/clean-build-sha-compare.txt	plain entries: old 584, new 584
