@@ -630,3 +630,21 @@ The bundles `evidence-m46-cluster.tar.gz` (`f17d700d...`, 827 files and its `SHA
 - Three of my own new checks were wrong (a substring that missed a parenthesis, a pattern that matched the older leftover, a wrong expected path); the tool was right each time, and the checks were fixed after the output was read.
 - Task logs expire: collect them right after a run.
 - The mistakes are in [guide-pitfalls-and-lessons.md](guide-pitfalls-and-lessons.md) (mistake log 70 to 78).
+
+### 20.11 The branch builds our job (added 9 October 2026)
+
+Teammate S's TLS patch (step 5.3) has to be built into the same job, so the branch must be buildable by someone else. One file stood in the way: `conf/effective_tld_names.dat`, Mozilla's Public Suffix List, was packed into our job but had never been committed (limitations row 43). Nutch treats a file of that name in `conf/` as an optional override of the older list inside one of its libraries, so a build from a clean checkout would silently have used another list. It is one identical file (334,832 bytes, 16,501 lines, SHA-256 `73c95828f5f62a3f...`, snapshot `2026-09-30_20-56-07_UTC`) in the measured tree, in the scratch clone and inside both jobs, so committing it changes nothing about the job. It was committed as a new file, mode 100644, in `30cd062da`, through the usual gate, and checked from a fresh clone of GitHub.
+
+The test: a fresh clone of the branch at `30cd062da` on the master (`~/clean-build`, 0 changes in the working tree, the list present), then `ant runtime`, which finished with `BUILD SUCCESSFUL` in 33 seconds (the warm dependency cache; the first build took 6 min 30 s). Its job was compared with the job of run 9.
+
+| Comparison | Result |
+|---|---|
+| `job_compare.py` (CRC-32 of every entry, nested jars by content) | 1,043 entries in both jobs; only in the old job: none; only in the new job: none; same name with different content: none |
+| `job_sha_compare.py` (SHA-256 of every entry and of every file inside the nested jars) | 584 plain entries and 82,875 files inside 360 nested jars in both jobs, 0 differences: `JOBS-SAME-BY-SHA256`; 61 nested jars differ in their container bytes but not in their contents |
+| The job files themselves | run 9's job `901f01df3423857a` (134,808,775 bytes) and the clean build's job `962047605787971a` (134,808,756 bytes): not byte-identical |
+
+The second tool was added because CRC-32 catches accidental differences, not a deliberate change; it is new in `ops/attested/job_sha_compare.py` (fingerprint `173690075992b57d`) and was rehearsed on made-up jobs before it ran on the real ones.
+
+**What this shows.** Someone who clones the branch and runs `ant runtime` gets, file by file, the job we crawled with. **What it does not show.** The two job files are not byte-identical, which is normal for a rebuild (probably the Nutch plugin jars, rebuilt with new timestamps; that reading is an interpretation, the tool shows only that the 61 differ in container bytes alone): what a rebuild reproduces is the content, and a measurement or a fingerprint of a job belongs to one specific build. The test ran on the master only, with the same Java and Ant versions and a warm cache; a cold build on another machine, and the build by teammate S, were not tried. The jobs of runs 6 to 9 are still not covered by the measurement (ADR-029).
+
+The evidence is the bundle `evidence-m46-cleanbuild.tar.gz` (`5b2b85d0adf5aaed...`, 5 files and its `SHA256SUMS`): the build log, both comparisons, the clone's state with the full fingerprints of both jobs, and the zip of the tool that ran.

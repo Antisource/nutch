@@ -223,7 +223,7 @@ Notes:
 | Audit logs | `/tmp/attested-audit/<host>-<pid>-<start>.tsv` on each node, one per JVM; old logs are moved aside by `audit.sh rotate` to `/tmp/attested-audit-old/<time>/` |
 | Not covered by the wrapper | Until step 4.6 (section 16): the NameNode, DataNode, ResourceManager and NodeManager daemons (the NodeManager reads the job file through plain HDFS), and the crawl script's two `hadoop fs` commands |
 | Build location for run 6 | a scratch clone, `~/m3-build` (not measured); the measured tree `~/ccbot-work/nutch-cc` and its job (`bbd30ad90d357ca1`) were left untouched. Run 6's job is `ddc415a5d87c9e6b` |
-| Known difference of the measured tree | one untracked file, `conf/effective_tld_names.dat`, which is packed into the job; it was copied into the scratch clone |
+| Known difference of the measured tree | until 9 October 2026 one untracked file, `conf/effective_tld_names.dat`, which is packed into the job and was copied into the scratch clone; it is tracked since commit `30cd062da` (section 17) |
 
 How a wrapped crawl was run until step 4.6 (every step is a script in `ops/attested/`, `ops/run-crawl-attested.sh`; the procedure since then is in section 16):
 
@@ -312,3 +312,13 @@ How a wrapped crawl is run since step 4.6 (this replaces the numbered steps of s
 The control run of ADR-028: `cluster-mode.sh plain --restart-yarn` on both nodes, run the unwrapped crawl, then `cluster-mode.sh wrapped --restart-yarn` on both nodes.
 
 To count what the NodeManager read through the wrapper, on the worker: `cat /tmp/attested-audit/*-<NodeManager pid>-*.tsv | awk -F'\t' '$4=="OPEN"{n=split($5,a,"/"); print a[n]}' | sort | uniq -c`. In run 9 it gave 27 each of `job.jar`, `job.xml`, `job.split` and `job.splitmetainfo`.
+
+## 17. Building the job from a clean checkout (9 October 2026)
+
+| Item | Value |
+|---|---|
+| What was missing from the repository | `conf/effective_tld_names.dat`, Mozilla's Public Suffix List (snapshot `2026-09-30_20-56-07_UTC`, upstream commit `714ac1bf5f2d038161c7419478cc3207431d706d`, MPL 2.0, 334,832 bytes, 16,501 lines, SHA-256 `73c95828f5f62a3f...`). Nutch uses a file of that name in `conf/` as an optional override of the older list bundled in one of its libraries; the build does not fetch it. It was one identical file in the measured tree, the scratch clone and inside both jobs |
+| The fix | the file is tracked at `conf/effective_tld_names.dat` (commit `30cd062da`, one new file, mode 100644); `.gitignore` hides only `conf/*.txt` and `conf/*.xml` |
+| How to build the job | `git clone --branch feat/tee-hadoop-cluster https://github.com/Antisource/nutch.git`, then `ant runtime` (Ant 1.10.12, OpenJDK 11.0.32.1); the job is `runtime/deploy/apache-nutch-1.22.job` (1,043 entries). The first build took 6 min 30 s with a cold dependency cache, the test build 33 s with a warm one |
+| How to compare two jobs | `ops/attested/job_compare.py OLD NEW` (CRC-32 of every entry, nested jars by content) and `ops/attested/job_sha_compare.py OLD NEW` (SHA-256 of every entry and of every file inside the nested jars) |
+| Where the test build is | `~/clean-build` and its log `~/clean-build-ant.log` on the master (a scratch folder, not part of the cluster); the evidence is in the bundle `evidence-m46-cleanbuild.tar.gz` ([milestone-4-storage-integrity.md](milestone-4-storage-integrity.md) section 20.11) |
