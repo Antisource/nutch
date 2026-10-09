@@ -1,0 +1,49 @@
+# Facts of the step 4.7 recon documents (valid for the documents as committed with them): document <TAB> text in the document <TAB> evidence source <TAB> evidence text
+docs/milestone-4-storage-integrity.md	72 of the 261 renames have an attempt id in their source	evidence-m47-recon/run9-recon/attempts-recon.txt	RENAME lines: 261; with an attempt id in the source: 72; with _temporary in the source: 72
+docs/milestone-4-storage-integrity.md	the 72 creates inside attempt folders equal the 72 attempt-to-final renames	evidence-m47-recon/run9-recon/attempts-recon.txt	CREATE lines inside an attempt's folder: 72
+docs/milestone-4-storage-integrity.md	21 tasks showed attempt ids in the wrapper's paths, all with attempt number 0	evidence-m47-recon/run9-recon/attempts-recon.txt	tasks seen: 21; highest attempt number per task (number, tasks): {0: 21}
+docs/milestone-4-storage-integrity.md	none had a second attempt	evidence-m47-recon/run9-recon/attempts-recon.txt	tasks with more than one attempt (retry or speculative copy): 0
+docs/milestone-4-storage-integrity.md	The output `_SUCCESS` marker is never created (0 creates, 0 paths in the after-listing)	evidence-m47-recon/run9-recon/attempts-recon.txt	_SUCCESS files created: 0
+docs/milestone-4-storage-integrity.md	The output `_SUCCESS` marker is never created (0 creates, 0 paths in the after-listing)	evidence-m47-recon/run9-recon/success-and-renames.txt	_SUCCESS paths in the after listing: 0
+docs/milestone-4-storage-integrity.md	54 lines, 2 per job over 27 jobs	evidence-m47-recon/run9-recon/success-and-renames.txt	54 CREATE
+docs/milestone-4-storage-integrity.md	54 lines, 2 per job over 27 jobs	evidence-m47-recon/run9-recon/success-and-renames.txt	COMMIT_SUCCESS
+docs/milestone-4-storage-integrity.md	54 deletes of `_temporary` folders, two per job	evidence-m47-recon/run9-recon/attempts-recon.txt	_temporary folders deleted: 54
+docs/milestone-4-storage-integrity.md	(`crawldb/current` to `old` 7 times, `old` to `old.old` 6 times, the new directory to `current` 6 times)	evidence-m47-recon/run9-recon/success-and-renames.txt	crawldb/current  ->  /user/rishabsdp17/crawl-run9/crawldb/old
+docs/milestone-4-storage-integrity.md	(`crawldb/current` to `old` 7 times, `old` to `old.old` 6 times, the new directory to `current` 6 times)	evidence-m47-recon/run9-recon/success-and-renames.txt	crawldb/old  ->  /user/rishabsdp17/crawl-run9/crawldb/old.old
+docs/milestone-4-storage-integrity.md	(`.summary_tmp`, `_conf.xml_tmp` and `.jhist_tmp`, 27 each, records beside them)	evidence-m47-recon/run9-recon/success-and-renames.txt	job_N_J.summary_tmp  ->
+docs/milestone-4-storage-integrity.md	sets `mapreduce.fileoutputcommitter.marksuccessfuljobs` to false and the core jobs repeat it	@repo:conf/nutch-default.xml	re:marksuccessfuljobs</\w+>\s*<value>false</value>
+docs/milestone-4-storage-integrity.md	sets `mapreduce.fileoutputcommitter.marksuccessfuljobs` to false and the core jobs repeat it	@repo:src/java/org/apache/nutch/crawl/CrawlDb.java	marksuccessfuljobs
+docs/milestone-4-storage-integrity.md	off in the fetcher's maps, the indexer's reduces, the injector and the host-database update	@repo:src/java/org/apache/nutch/fetcher/Fetcher.java	mapreduce.map.speculative
+docs/milestone-4-storage-integrity.md	off in the fetcher's maps, the indexer's reduces, the injector and the host-database update	@repo:src/java/org/apache/nutch/indexer/IndexingJob.java	job.setReduceSpeculativeExecution(false);
+docs/milestone-4-storage-integrity.md	off in the fetcher's maps, the indexer's reduces, the injector and the host-database update	@repo:src/java/org/apache/nutch/crawl/Injector.java	job.setSpeculativeExecution(false);
+docs/milestone-4-storage-integrity.md	off in the fetcher's maps, the indexer's reduces, the injector and the host-database update	@repo:src/java/org/apache/nutch/hostdb/UpdateHostDb.java	job.setSpeculativeExecution(false);
+docs/milestone-4-storage-integrity.md	**on** in two places of `Generator2`	@repo:src/java/org/apache/nutch/crawl/Generator2.java	job.setSpeculativeExecution(true);
+docs/milestone-4-storage-integrity.md	(`job_1791450997865_0038`, 600 MB)	evidence-m47-recon/attempt-test-1/attempt-demo-1/verdict.txt	job_1791450997865_0038
+docs/milestone-4-storage-integrity.md	had already finished when `-fail-task` was called at 15:54:25	evidence-m47-recon/attempt-test-1/attempt-demo-1/times.txt	failing it at 15:54:25 UTC
+docs/milestone-4-storage-integrity.md	had already finished when `-fail-task` was called at 15:54:25	evidence-m47-recon/attempt-test-1/attempt-demo-1/fail-task.log	Application state is completed. FinalApplicationStatus=SUCCEEDED
+docs/milestone-4-storage-integrity.md	the demo reported `FAIL` correctly	evidence-m47-recon/attempt-test-1/attempt-demo-1/verdict.txt	first attempt reported FAILED: NO
+docs/milestone-4-storage-integrity.md	The first test run wrote 601,171,960 bytes	evidence-m47-recon/attempt-test-1/attempt-demo-1/job.log	Bytes Written=601171960
+docs/milestone-4-storage-integrity.md	the second 1,502,929,752 bytes	evidence-m47-recon/attempt-test/m/attempt-demo-2/job.log	Bytes Written=1502929752
+docs/milestone-4-storage-integrity.md	(`job_1791450997865_0039`, 1.5 GB): the first attempt was failed at 16:00:25	evidence-m47-recon/attempt-test/m/attempt-demo-2/verdict.txt	job_1791450997865_0039
+docs/milestone-4-storage-integrity.md	(`job_1791450997865_0039`, 1.5 GB): the first attempt was failed at 16:00:25	evidence-m47-recon/attempt-test/m/attempt-demo-2/times.txt	failing it at 16:00:25 UTC
+docs/milestone-4-storage-integrity.md	the job completed and the final file has 1,500,000,000 bytes	evidence-m47-recon/attempt-test/m/attempt-demo-2/verdict.txt	first attempt reported FAILED: yes   job completed: yes
+docs/milestone-4-storage-integrity.md	the job completed and the final file has 1,500,000,000 bytes	evidence-m47-recon/attempt-test/m/attempt-demo-2/verdict.txt	1500000000 bytes (expected 1500000000)
+docs/milestone-4-storage-integrity.md	The wrapper logged 59 lines for the job	evidence-m47-recon/attempt-test/timeline.txt	wrapper lines for job_1791450997865_0039: 59
+docs/milestone-4-storage-integrity.md	attempt 0 has 1 create and 2 deletes, attempt 1 has 2 creates and 2 renames	evidence-m47-recon/attempt-test/timeline.txt	m0 attempt 0: {'CREATE': 1, 'DELETE': 2}
+docs/milestone-4-storage-integrity.md	attempt 0 has 1 create and 2 deletes, attempt 1 has 2 creates and 2 renames	evidence-m47-recon/attempt-test/timeline.txt	m0 attempt 1: {'CREATE': 2, 'RENAME': 2}
+docs/milestone-4-storage-integrity.md	`m0: attempts [0, 1]; committed by [1]; folder deleted for [0]`	evidence-m47-recon/attempt-test/timeline.txt	m0: attempts [0, 1]; committed by [1]; folder deleted for [0]
+docs/milestone-4-storage-integrity.md	creates `COMMIT_STARTED` and `COMMIT_SUCCESS` (job commit)	evidence-m47-recon/attempt-test/timeline.txt	COMMIT_STARTED
+docs/milestone-4-storage-integrity.md	creates `COMMIT_STARTED` and `COMMIT_SUCCESS` (job commit)	evidence-m47-recon/attempt-test/timeline.txt	COMMIT_SUCCESS
+docs/milestone-4-storage-integrity.md	the first attempt was failed at 16:00:25, the task ran again as attempt 1	evidence-m47-recon/attempt-test/m/attempt-demo-2/verdict.txt	the task's second attempt: attempt_1791450997865_0039_m_000000_1
+docs/milestone-4-storage-integrity.md	the task ran again as attempt 1	evidence-m47-recon/attempt-test/tl/application_1791450997865_0039/container_1791450997865_0039_01_000001/syslog	re:attempt_1791450997865_0039_m_000000_0 TaskAttempt Transitioned from NEW to UNASSIGNED
+docs/milestone-4-storage-integrity.md	`ops/attested/attempt_timeline.py` shows what the wrapper logged for the job	zip-sha:evidence-m47-recon/m468b-files.zip#m468b/ops/attested/attempt_timeline.py	f7c75b31b8769091
+docs/milestone-4-storage-integrity.md	| `attempt-failure-demo.sh` | `5c848fb828ab7e3f` |	zip-sha:evidence-m47-recon/m468b-files.zip#m468b/ops/attested/attempt-failure-demo.sh	5c848fb828ab7e3f
+docs/milestone-4-storage-integrity.md	| `attempt_timeline.py` | `f7c75b31b8769091` |	zip-sha:evidence-m47-recon/m468b-files.zip#m468b/ops/attested/attempt_timeline.py	f7c75b31b8769091
+docs/milestone-4-storage-integrity.md	(`a2e6f0aef21df43f...`, 226 files and its `SHA256SUMS`)	evidence-m47-recon.sha256	a2e6f0aef21df43f
+docs/milestone-4-storage-integrity.md	(`a2e6f0aef21df43f...`, 226 files and its `SHA256SUMS`)	lines:evidence-m47-recon/SHA256SUMS	226
+docs/milestone-4-storage-integrity.md	| `attempts_recon.py` (read-only recon of how attempts appear in the wrapper's logs) | `5a546dc0e5f92f70` |	@docs:docs/milestone-4-storage-integrity.md	5a546dc0e5f92f70
+docs/limitations-and-trust.md	21 tasks, all attempt number 0	evidence-m47-recon/run9-recon/attempts-recon.txt	tasks seen: 21; highest attempt number per task (number, tasks): {0: 21}
+docs/limitations-and-trust.md	One failed attempt in `job_1791450997865_0039`	evidence-m47-recon/attempt-test/timeline.txt	m0: attempts [0, 1]; committed by [1]; folder deleted for [0]
+docs/guide-pitfalls-and-lessons.md	| 83 | Counting |	lines:evidence-m47-recon/SHA256SUMS	226
+docs/milestone-4-storage-integrity.md	(mistake log 79 to 83)	@docs:docs/guide-pitfalls-and-lessons.md	| 83 | Counting |
+docs/milestone-plan.md	Recon done on 9 October	@docs:docs/milestone-4-storage-integrity.md	## 21. Step 4.7, recon
