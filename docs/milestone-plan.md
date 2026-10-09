@@ -35,7 +35,7 @@ Milestone 4 (the committed names; the report has the dependencies and results):
 | 4.4 | Run Hadoop's file-system contract tests against the wrapper | Done |
 | 4.5 | Answer length, existence and listings from records, never from storage | Done. Baby steps: 4.5.1 metadata from records (done); 4.5.2 the NameNode's audit log turned on and compared with the wrapper's log (done) |
 | 4.6 | Check the job file and configuration digests at the start of each task | Done (9 October). Changed by the mentor on 7 October (ADR-027). Baby steps: 4.6.1 the wrapper's classes on Hadoop's classpath (done); 4.6.2 both lookups set as final, with a switch back to the plain configuration (done); 4.6.3 the NodeManager's read of the job file checked against its record, and a swapped file refused (done) |
-| 4.7 | Task records and job manifests; speculative execution off | Open |
+| 4.7 | Task records and job manifests; speculative execution off | Open. Recon done on 9 October ([milestone-4](milestone-4-storage-integrity.md) section 21); the build waits for question 13 to the mentor and for the naming agreement with teammate S |
 | 4.8 | Milestone report; re-measure after a reboot (ADR-020) | Open |
 
 Milestone 5 and Milestone 6 (the items of the first plan; their reports will list the details):

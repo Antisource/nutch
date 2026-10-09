@@ -1,7 +1,7 @@
 # Milestone 4: storage integrity (handoff Stage B)
 
-Date: 7 October 2026. Times are UTC. Status: **steps 4.1 to 4.6 done; steps 4.7 and 4.8 open** (section 4).
-Written when step 4.3 closed and extended when step 4.4 closed (section 18) when step 4.5 closed (section 19) and when step 4.6 closed (section 20). It is extended as the later steps close.
+Date: 7 October 2026. Times are UTC. Status: **steps 4.1 to 4.6 done; steps 4.7 and 4.8 open** (section 4); the recon for step 4.7 is done (section 21).
+Written when step 4.3 closed and extended when step 4.4 closed (section 18), when step 4.5 closed (section 19) and when step 4.6 closed (section 20); the recon for step 4.7 is section 21. It is extended as the later steps close.
 
 ## 1. Goal
 
@@ -39,7 +39,7 @@ Everything the mentor may change sits behind a setting (section 6), and the reco
 | 4.4 | Run Hadoop's file-system contract tests against the wrapper | 4 | none | Done | Section 18; the wrapper fix `26da09f1c` and the tests `e72d1ed05` (section 15) |
 | 4.5 | Answer length, existence and listings from records, never from storage | 4 | 4.3 | Done | Baby steps: 4.5.1 metadata from records (`4deed2b33`); 4.5.2 the NameNode's audit log turned on and compared with the wrapper's log (`4ebf7570f`; the mentor, 7 October; ADR-026); section 19 |
 | 4.6 | Check the job file and configuration digests at the start of each task | 6 | 4.2 | Done | Changed by the mentor on 7 October (ADR-027): a task hashing its own job file is not a security check, so the digests are checked where the NodeManager reads the files. Baby steps: 4.6.1 the wrapper's classes on Hadoop's classpath on both nodes (`fcffad09d`); 4.6.2 both lookups set as final in the site configuration, with a switch back to the plain configuration (`fcffad09d`, and `bef3a6452` for the audit tools); 4.6.3 the NodeManager's read is checked against its record and a swapped file is refused (`9ef0f405d`, `28c811ff4`); section 20 |
-| 4.7 | Task records and job manifests; speculative execution off | 5 | 4.3 | Open | Depends on the answer to question 13 |
+| 4.7 | Task records and job manifests; speculative execution off | 5 | 4.3 | Open | Depends on the answer to question 13 and on the naming agreement with teammate S. Recon done on 9 October (section 21): what the wrapper sees of task attempts, and a failed attempt provoked on purpose |
 | 4.8 | Milestone report; re-measure after a reboot (ADR-020) | | 4.4 to 4.7 | Open | Firewall rules must be saved first; nothing unmeasured is described as measured (ADR-029); the crawl that follows is run as a pair with an unwrapped control in the same hour (ADR-028) |
 
 Old working labels: B0 = 4.4, B1 = 4.2, B2 = 4.3, B3 = 4.5, B4 = 4.6, B5 = 4.7.
@@ -648,3 +648,86 @@ The second tool was added because CRC-32 catches accidental differences, not a d
 **What this shows.** Someone who clones the branch and runs `ant runtime` gets, file by file, the job we crawled with. **What it does not show.** The two job files are not byte-identical, which is normal for a rebuild (probably the Nutch plugin jars, rebuilt with new timestamps; that reading is an interpretation, the tool shows only that the 61 differ in container bytes alone): what a rebuild reproduces is the content, and a measurement or a fingerprint of a job belongs to one specific build. The test ran on the master only, with the same Java and Ant versions and a warm cache; a cold build on another machine, and the build by teammate S, were not tried. The jobs of runs 6 to 9 are still not covered by the measurement (ADR-029).
 
 The evidence is the bundle `evidence-m46-cleanbuild.tar.gz` (`5b2b85d0adf5aaed...`, 5 files and its `SHA256SUMS`): the build log, both comparisons, the clone's state with the full fingerprints of both jobs, and the zip of the tool that ran.
+
+## 21. Step 4.7, recon: what the wrapper sees of task attempts (9 October 2026)
+
+Date: 9 October 2026. Status: **the recon is done; the build of step 4.7 is open.** It waits for question 13 to the mentor (may the wrapper be the main source of task records) and for the agreement with teammate S on the naming of her evidence files; both are drafted and were not answered when this was written. The recon changed nothing on the cluster except one deliberate test job (section 21.4).
+
+### 21.1 What step 4.7 needs, in plain words
+
+Step 4.7 asks for **task records** (which task attempt wrote which files, with their hashes), **job manifests** (which files a job's output consists of) and speculative execution off. The open question is where the records come from: the wrapper, which already sees every file operation, or the output committer. Before designing anything, the logs of run 9 and one deliberate failure were read to see what the wrapper already sees.
+
+### 21.2 What run 9's wrapper logs show
+
+| Finding | Value |
+|---|---|
+| How a task's output is committed | 72 of the 261 renames have an attempt id in their source, each moving one file from `.../_temporary/1/_temporary/attempt_.../part-r-N/data` straight to its final folder (`.../part-r-N/data`), and the 72 creates inside attempt folders equal the 72 attempt-to-final renames. Files therefore reach the final folder at **task commit**, which is the version 2 style of Hadoop's output committer (an inference from the shapes; Nutch does not set the version) |
+| The records travel with their files | the `.data.attested` and `.index.attested` companions are renamed beside `data` and `index` |
+| Retries and speculative copies | 21 tasks showed attempt ids in the wrapper's paths, all with attempt number 0, and none had a second attempt: **run 9 had no retry and no speculative copy**, so no failure path had ever appeared in our logs |
+| The job commit | the ApplicationMaster creates `COMMIT_SUCCESS` and its record in each job's staging folder: 54 lines, 2 per job over 27 jobs. The output `_SUCCESS` marker is never created (0 creates, 0 paths in the after-listing), because Nutch's own `nutch-default.xml` sets `mapreduce.fileoutputcommitter.marksuccessfuljobs` to false and the core jobs repeat it |
+| The cleanup | 54 deletes of `_temporary` folders, two per job (the second finds nothing, which is why the NameNode comparison lists deletes that removed nothing) |
+| The 189 renames without an attempt id | the job-history files written by the ApplicationMaster (`.summary_tmp`, `_conf.xml_tmp` and `.jhist_tmp`, 27 each, records beside them) and Nutch's own directory renames that install a new crawl database (`crawldb/current` to `old` 7 times, `old` to `old.old` 6 times, the new directory to `current` 6 times); the saved list shows only the 8 most frequent shapes |
+| A path is not a stable identity | Nutch renames output directories after a job, so a path recorded at task commit is stale a few seconds later; the Merkle root and length of a file are stable |
+| Speculative execution in Nutch's code | off in the fetcher's maps, the indexer's reduces, the injector and the host-database update; **on** in two places of `Generator2` (which turns it off in a third); Hadoop's own default (on) elsewhere. Code in a job can always set it again |
+
+### 21.3 A by-product: the wrapper's record size
+
+The job counters of two runs match the record format exactly: a record is a 56-byte header plus 32 bytes per 16 KiB chunk (the 57-byte seed has an 88-byte record: one chunk). The first test run wrote 601,171,960 bytes (600,000,000 of data and 1,171,960 of record, 36,622 chunks) and the second 1,502,929,752 bytes (1,500,000,000 and 2,929,752, 91,553 chunks); the records cost 0.195 percent in bytes. The counter counts only the committed attempt's bytes.
+
+### 21.4 The failure-injection test
+
+The test uses Hadoop's TeraGen example with one map task that writes one big file through the output committer, fails the first attempt on purpose with `mapred job -fail-task`, and lets the task run again (`ops/attested/attempt-failure-demo.sh`, rehearsed 16 of 16 with stand-ins; `ops/attested/attempt_timeline.py` shows what the wrapper logged for the job, in time order, with the attempts named).
+
+**The first run did not inject a failure.** The job (`job_1791450997865_0038`, 600 MB) had already finished when `-fail-task` was called at 15:54:25: the client reported the application completed and failed trying to reach a job history server, which does not run on this cluster, and the demo reported `FAIL` correctly. The script's guard had checked that the client program was alive, not that the job was running, and the client lived about 30 seconds longer retrying the history server. The guard now asks the cluster, the demo stops with a clear reason if the failing command itself fails, the size went up to 1.5 GB (the job took about 18 seconds for 600 MB, not the minute I had guessed), and the rehearsal has a case that reproduces this exact failure.
+
+**The second run worked** (`job_1791450997865_0039`, 1.5 GB): the first attempt was failed at 16:00:25, the task ran again as attempt 1, the job completed and the final file has 1,500,000,000 bytes. The wrapper logged 59 lines for the job, from five JVMs (the client, the NodeManager, the ApplicationMaster and the two task containers):
+
+| Time into the job | JVM | What the wrapper logged |
+|---|---|---|
+| 0 to 1 s | the client | uploads of the job's files and their records into the staging folder |
+| 1.2 s | the NodeManager | opens of the four job files, verified (as in run 9) |
+| 9.2 s | the task, attempt 0 | creates `part-m-00000` in its own folder; **no record** |
+| 14.3 s and 14.4 s | the ApplicationMaster, then attempt 0's own JVM | **both delete attempt 0's whole folder** |
+| 18.0 s | the task, attempt 1 | creates `part-m-00000` in its own folder |
+| 31.2 s | attempt 1 | creates the record `.part-m-00000.attested` (at close) |
+| 31.3 s | attempt 1 | **renames the data file and its record to the final folder** (task commit) |
+| 31.3 to 31.4 s | the ApplicationMaster | creates `COMMIT_STARTED` and `COMMIT_SUCCESS` (job commit), then the history files |
+| 32.6 s | the ApplicationMaster | deletes the staging folder |
+
+The tool's summary: attempt 0 has 1 create and 2 deletes, attempt 1 has 2 creates and 2 renames, `m0: attempts [0, 1]; committed by [1]; folder deleted for [0]`.
+
+### 21.5 What this means for step 4.7 (a reading, not a decision)
+
+- **An aborted attempt is visible in the wrapper's log**: creates inside its folder without a record and without a rename, then the deletion of the folder. Nothing of it reaches the final folder.
+- **The wrapper can build task records by itself**: at the rename it sees the attempt id (in the source path), the final path and the file's record, which moves with it. A task record has to be written by the task's own JVM at that moment, because the job commit is made by another JVM (the ApplicationMaster) and the wrapper's logs are per JVM.
+- **A job manifest has an observable end**: `COMMIT_SUCCESS` with the job id in its path, created by the ApplicationMaster. The manifest is the union of the committed tasks' records.
+- **Files are identified by Merkle root and length**, with the path at commit time and the later renames taken from the wrapper's own rename lines.
+- **Speculative execution off is about evidence more than about correctness**: only one attempt per task commits, so a duplicate's files never reach the final folder. Nutch's own code and any job can turn speculation on again, so the records must also show uncommitted attempts, which is possible from the same logs.
+- **For teammate S's evidence files**: everything inside an attempt's folder is renamed to the final place with the committed attempt or deleted with a failed one, so evidence files written in the attempt's own work folder with the attempt id in the name share the fate of the data file and its record, and a failed attempt leaves no stray file. This is the naming that was proposed to her.
+
+### 21.6 Limits and what is open
+
+- Only a **failed** attempt was observed. A speculative duplicate or a killed straggler was not, so how it looks in the logs is unshown (limitations row 65).
+- The test used TeraGen, not a Nutch job, and one task; a job with several tasks, reducers and Nutch's own output formats was not tried.
+- The wrapper's records are per file; there is no task record or job manifest yet (limitations row 66), and paths are not stable identities (row 67).
+- The first run's cause was read from its saved log; the container logs of the second run were collected within minutes (they expire after three hours).
+- Question 13 and the speculative-execution question for the mentor, and the naming agreement with teammate S, were drafted and are not answered.
+
+### 21.7 Evidence and commits
+
+The bundle `evidence-m47-recon.tar.gz` (`a2e6f0aef21df43f...`, 226 files and its `SHA256SUMS`) holds the recon's output and the two small checks that had been seen only on screen, both test runs (client logs, verdicts, times), the merged wrapper logs of the second run, its container logs, the timeline and the scripts that ran. Three scripts are new in `ops/attested/`:
+
+| File | Fingerprint |
+|---|---|
+| `attempts_recon.py` (read-only recon of how attempts appear in the wrapper's logs) | `5a546dc0e5f92f70` |
+| `attempt-failure-demo.sh` | `5c848fb828ab7e3f` |
+| `attempt_timeline.py` | `f7c75b31b8769091` |
+
+### 21.8 Lessons from this step
+
+- A search that a claim rests on is never cut with `head`: a statement about which Nutch jobs switch off the success marker was wrong because the output was cut, and was corrected after the full search.
+- A pattern must match what it is meant to: `_SUCCESS` matched the end of `COMMIT_SUCCESS`.
+- A guard must test the thing it guards: the first failure test checked that the client program lived, not that the job ran.
+- A size chosen from a guess is a guess: say so, or measure first.
+- Count every file you add: the bundle had one more file than I predicted.
+- The mistakes are in [guide-pitfalls-and-lessons.md](guide-pitfalls-and-lessons.md) (mistake log 79 to 83).

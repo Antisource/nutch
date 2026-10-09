@@ -41,6 +41,8 @@ resolved, which instructions turned out to be wrong, and why the key decisions w
 25. **Tools that inspect the cluster ask for the plain client themselves.** They must not depend on the cluster's current mode or on the guard they inspect.
 26. **Collect task logs right after a run.** They expire (after 3 hours here, with log aggregation off).
 27. **Say what a number or a label means, from the source.** `allowed=false` on a delete is not "denied"; "about 40 jobs" had no source; a count that includes its own list is not "files listed".
+28. **Never cut a search that a claim rests on.** A `head` hid the lines that made a statement about Nutch false; if the output is cut, say so and do not conclude from it.
+29. **A guard must test the thing it guards.** The failure test checked that the client program was alive, not that the job was running.
 
 ## 2. Mistake log
 
@@ -124,6 +126,11 @@ resolved, which instructions turned out to be wrong, and why the key decisions w
 | 76 | Tests | Three of my own new checks were wrong (a substring that missed a parenthesis, a pattern that matched the older leftover, a wrong expected path) | I wrote the expectation before reading the tool's actual wording and output | The checks were fixed, not the tools, after the output was read | When a new check fails, read the output before deciding which side is wrong |
 | 77 | Evidence | Run 9's container logs had expired before I collected them | Log aggregation is off and YARN deletes them after 3 hours; I did not collect them | Stated as a limit; the procedure collects them right after a run | Collect task logs right after a run |
 | 78 | Counting | I quoted 828 and 354 as the bundles' "files listed" | The totals included the `SHA256SUMS` file itself | Explained after the laptop check (827 and 353 listed) | Say what a count includes |
+| 79 | Claims | I said that Nutch switches the success marker off only in a few non-crawl jobs | The search output was cut with `head` and I did not see the rest; Nutch's own default configuration sets it off for everything | Re-ran the search without the cut and corrected the statement in the same session | Never cut a search that a claim rests on |
+| 80 | Search | A search for `_SUCCESS` returned 54 lines and puzzled me | The pattern matched the end of `COMMIT_SUCCESS` | Read the paths, not only the count: they are the ApplicationMaster's commit markers | Say what a pattern should match, and look at examples |
+| 81 | Test | The first failure-injection run failed the attempt after the job had finished | The guard checked that the client program was alive, not that the job was running (the client lived 30 seconds longer, retrying a job history server that does not run) | A guard that asks the cluster, a clear stop when the failing command fails, and a rehearsal case that reproduces it | A guard must test the thing it guards |
+| 82 | Sizing | I sized the test at 600 MB on a guess about the speed; the job took about 18 seconds | A number from a guess | Measured it, then used 1.5 GB | Say "guess" or measure first |
+| 83 | Counting | I predicted 225 files in the bundle and the count was 226 | I forgot the console file next to the first run's folder | Explained after the check | Count every file you add |
 
 ## 3. Corrections to earlier working instructions
 
@@ -251,3 +258,6 @@ Decisions from 5 October 2026 onward are kept in [decisions.md](decisions.md). T
 | Larger worker disk | Open: about 5.4 GB usable by HDFS limits scale |
 | Turn on the DataNode's client trace at run time before the measured runs | Open: it would give a second look at the reads of the submitting client (limitations row 60) |
 | Re-measure after a reboot with the wrapped configuration | Open: step 4.8; the measured set now includes `core-site.xml` and the library jar |
+| Question 13 and the speculative-execution question for the mentor | Drafted on 9 October 2026 (the wrapper as the main source of task records; whether speculation must be guaranteed off or only made visible); not answered yet |
+| The naming of teammate S's evidence files | Drafted on 9 October 2026 (inside the attempt's own work folder, with the attempt id in the name; her patch's location and how it produces the evidence are asked too); not answered yet |
+| A speculative duplicate and a failure on a Nutch job | Open: not yet provoked (limitations row 65) |

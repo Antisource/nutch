@@ -150,6 +150,13 @@ The mentor's answers are recorded in ADR-026 to ADR-029 of [decisions.md](decisi
 - **Row 43 is addressed:** `conf/effective_tld_names.dat` is tracked, and the branch builds, file by file, the job of run 9 (a fresh clone, `ant runtime` in 33 seconds, 0 differences by SHA-256); the files are not byte-identical, and the build was tried on the master only ([milestone-4-storage-integrity.md](milestone-4-storage-integrity.md) section 20.11).
 - **New rows 59 to 64:** the plain client is still available, the 26 lookups rest on timing, the admin tool and the mesh scripts need plain mode, the NodeManager's open log, run 9's container logs, and the classes that exist twice.
 
+## Update, 9 October 2026 (recon for step 4.7)
+
+- **What the wrapper already sees of task attempts** ([milestone-4-storage-integrity.md](milestone-4-storage-integrity.md) section 21): each file a task writes (the attempt id is in the path), the per-file rename that commits it to its final folder with its record beside it, and the job's own commit marker (`COMMIT_SUCCESS`, created by the ApplicationMaster). Run 9 had no retry and no speculative copy.
+- **A failed attempt was provoked on purpose** (TeraGen, one map, 1.5 GB): the failed attempt left a data file without a record, its folder was deleted by the ApplicationMaster and by its own JVM, and only the second attempt's data file and record reached the final folder.
+- **Not yet shown:** a speculative duplicate or a killed straggler, and any of this on a Nutch job with several tasks.
+- **New rows 65 to 67:** the untested speculative case, the missing task and job records, and paths that are not stable identities.
+
 ## Evidence legend (first-party, "our runs")
 
 | Code | What it shows | Repo documents |
@@ -242,6 +249,9 @@ The mentor's answers are recorded in ADR-026 to ADR-029 of [decisions.md](decisi
 | 62 | The NodeManager keeps its wrapper log open while it runs, so rotating the logs moves a file it still writes | Low to medium | Rotate, then restart the NodeManager before the crawl; `audit.sh rotate` warns about such a process (ADR-032) | New | Found on 8 October (its reads were in the archive, not the clean folder); the warning named pid 180161 on 9 October. our runs [milestone-4-storage-integrity.md §20.7] | Our runs |
 | 63 | Run 9's container logs are not preserved: with log aggregation off, YARN deletes them after 3 hours (its default) and they expired before collection | Low to medium | Collect the container logs right after every run (ADR-032); no setting is changed | New | 0 application folders of run 9 remained in the worker's task logs on 9 October at about 13:50 UTC; they had been checked at 05:24 UTC (184 files, no refusal or exception) and that result is only in the session notes. our runs [milestone-4-storage-integrity.md §20.8] | Our runs |
 | 64 | The wrapper's classes exist twice (the job file and the library jar), and the library copy wins on the classpath | Low to medium | `wrapper-jar.sh verify <job file>` before every crawl; update both together | New | `CLASSES-SAME` (13 classes) for the job of run 9. our runs [milestone-4-storage-integrity.md §20.2] | Our runs |
+| 65 | Only a failed attempt was observed, not a speculative duplicate or a killed straggler, and the failure test used TeraGen (one map task), not a Nutch job | Low to medium | Provoke a speculative duplicate and run the failure on a Nutch job before the records of step 4.7 are called complete; the records must also show uncommitted attempts | New | One failed attempt in `job_1791450997865_0039`; run 9 had no retry and no speculative copy (21 tasks, all attempt number 0). our runs [milestone-4-storage-integrity.md §21.4, §21.6] | Our runs |
+| 66 | There is no task record or job manifest yet: the wrapper's records are per file, its logs are per JVM, and the task commit (the task's JVM) and the job commit (the ApplicationMaster) are made by different JVMs | Medium | Step 4.7: a task record written by the task's own JVM at the rename, and a job manifest at `COMMIT_SUCCESS`; depends on question 13 to the mentor | New | The timeline of the failure test: five JVMs for one job. our runs [milestone-4-storage-integrity.md §21.5] | Our runs |
+| 67 | A file's path is not a stable identity: Nutch renames output directories after a job (`crawldb/N` to `current`, `current` to `old`, `old` to `old.old`), so a path recorded at task commit goes stale | Low to medium | Identify files by Merkle root and length; follow renames through the wrapper's own rename lines (step 4.7) | New | 19 such renames in run 9 (7, 6 and 6). our runs [milestone-4-storage-integrity.md §21.2] | Our runs |
 
 ### D. Host, availability and platform
 
