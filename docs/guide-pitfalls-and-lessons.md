@@ -36,6 +36,11 @@ resolved, which instructions turned out to be wrong, and why the key decisions w
 20. **Test a check against a known fault before trusting its pass.** The contract comparison was run once with the old job, which has known defects, and had to report them.
 21. **Do not rename or add steps.** Steps keep the names already committed; anything new from the mentor goes inside an existing step as a baby step (4.5.2, 4.6.1 to 4.6.3, 5.3.3).
 22. **Do not draft messages to teammates or mentors unless asked.**
+23. **A stand-in must model the real tool's constraints.** A stand-in written from the same assumption as the script cannot find that assumption's error: the admin tool refused the wrapper and the stand-in did not.
+24. **After moving a file, find out where the running writer writes.** A rotation does not stop a process that holds the file open; before saying something was not logged, look in the archive too.
+25. **Tools that inspect the cluster ask for the plain client themselves.** They must not depend on the cluster's current mode or on the guard they inspect.
+26. **Collect task logs right after a run.** They expire (after 3 hours here, with log aggregation off).
+27. **Say what a number or a label means, from the source.** `allowed=false` on a delete is not "denied"; "about 40 jobs" had no source; a count that includes its own list is not "files listed".
 
 ## 2. Mistake log
 
@@ -110,6 +115,15 @@ resolved, which instructions turned out to be wrong, and why the key decisions w
 | 67 | Reports | A read command planned for step 4.5 assumed a file name and a layout (the run 8 listing) that I had not checked | The same kind of assumption as in step 4.4 | Caught before it was sent; replaced by reading the code and a probe that makes its own data | Read a real sample first |
 | 68 | Tool | The comparison's documentation said a plain read next to a wrapped read of the same file would be taken for the wrapped one; the test showed the tool is stricter (each wrapper line explains one event) | I described the behaviour before testing it | The test and the text were corrected | Test a stated limit before writing it |
 | 69 | Tests | A test expected the number of findings to stay the same after a run with the policy `fail`, which logs every refusal | The test forgot its own earlier step | The test compares with a count taken just before | Compare with a count taken at the moment |
+| 70 | Cluster | The first switch to the wrapped file failed (`safe mode did not end`) and rolled back by itself | Hadoop's admin tool refuses any file system that is not a `DistributedFileSystem`; I had not checked it, and the rehearsal's stand-in did not model it | Read the source, put the plain client in the admin calls, corrected the stand-in (the old script then fails 5 checks, as on the cluster) | Model a real constraint in the stand-in; read a tool's source before relying on it |
+| 71 | Development | The rollback printed `ROLLED-BACK` but did not restart a NodeManager that had failed to start | Restart and verification looked only at daemons that were still running | The script notes the node's daemons once before any change; the rehearsal checks it | Verify against the state expected before the change |
+| 72 | Procedure | The NodeManager's reads of the swap demo were missing from the clean log folder | The rotation moved its open log file and it went on writing into the archive | Found in the archive; `audit.sh rotate` warns about running writers; the procedure restarts the NodeManager | Look where a running writer writes before saying something is absent |
+| 73 | Commands | A command of mine printed a second NodeManager pid | `grep` matched my own `awk` command line, which contained the word | Patterns that name the class and cannot match the command itself | Match with a pattern that cannot match your own command |
+| 74 | Tool | The comparison called 81 deletes "DENIED" | HDFS writes the result of a delete into `allowed`, so false means nothing was deleted | Read the source and the data (all deletes, 0 permission errors); the label was fixed with tests | Check what a field means in the source before naming it |
+| 75 | Claims | I wrote that the crawl was "about 40 jobs" | No count behind it | Withdrawn; 27, confirmed by the master's uploads and the NodeManager's reads | Give a number only with its source |
+| 76 | Tests | Three of my own new checks were wrong (a substring that missed a parenthesis, a pattern that matched the older leftover, a wrong expected path) | I wrote the expectation before reading the tool's actual wording and output | The checks were fixed, not the tools, after the output was read | When a new check fails, read the output before deciding which side is wrong |
+| 77 | Evidence | Run 9's container logs had expired before I collected them | Log aggregation is off and YARN deletes them after 3 hours; I did not collect them | Stated as a limit; the procedure collects them right after a run | Collect task logs right after a run |
+| 78 | Counting | I quoted 828 and 354 as the bundles' "files listed" | The totals included the `SHA256SUMS` file itself | Explained after the laptop check (827 and 353 listed) | Say what a count includes |
 
 ## 3. Corrections to earlier working instructions
 
@@ -191,6 +205,9 @@ Decisions from 5 October 2026 onward are kept in [decisions.md](decisions.md). T
 20. Prove the firewall with counted rules: probe the Hadoop ports over the ordinary address and the mesh address, in both directions, and read the drop counters before and after.
 21. Unpack new code into a scratch folder on the master and test it there; commit only files whose fingerprints equal those recorded when they ran, and check them from a fresh clone.
 22. Build the job in a scratch clone, never in the measured tree, and compare it with the measured job entry by entry (`job_compare.py`) before any crawl comparison.
+23. Before a crawl: on the worker rotate the logs and restart the NodeManager; run `wrapper-jar.sh verify <job file>` (it must say `CLASSES-SAME`); right after the crawl pack the container logs.
+24. In wrapped mode use `ops/run-crawl.sh` (no wrapper options); for the unwrapped control switch both nodes with `cluster-mode.sh plain --restart-yarn` and switch back afterwards.
+25. Run the NameNode comparison over a window that starts at the rotation (so that the seed upload is in it), read its `known` lines, and run it once with `--strict` and once with one wrapper log removed.
 23. A wrapped crawl: rotate the logs on both nodes, put the seeds in, list HDFS before, crawl in tmux, list HDFS after, check the worker's task logs before any restart, collect both nodes' logs, run `audit_compare.py` with `--require-hosts` for both nodes.
 24. When two crawls differ, look at the earlier runs (a control) and at the page itself (a deployment identifier, new links) before explaining the difference.
 25. Test any new checking tool with planted faults, and keep timestamps out of compared text.
@@ -232,3 +249,5 @@ Decisions from 5 October 2026 onward are kept in [decisions.md](decisions.md). T
 | Per-fetch TLS evidence | In scope as teammate S's patch (the mentor, 7 October); step 5.3, see [milestone-plan.md](milestone-plan.md) |
 | Hadoop's file-system contract tests against the wrapper | **Done** 7 October (Milestone 4, step 4.4): 255 tests, identical to plain HDFS; three wrapper defects found and fixed ([milestone-4-storage-integrity.md](milestone-4-storage-integrity.md) section 18) |
 | Larger worker disk | Open: about 5.4 GB usable by HDFS limits scale |
+| Turn on the DataNode's client trace at run time before the measured runs | Open: it would give a second look at the reads of the submitting client (limitations row 60) |
+| Re-measure after a reboot with the wrapped configuration | Open: step 4.8; the measured set now includes `core-site.xml` and the library jar |

@@ -228,7 +228,7 @@ This closes job submission, protects the shuffle, and encrypts everything, with 
 **The mesh is necessary but not sufficient.** Three more conditions close the control plane:
 1. **Nothing else in the image.** No SSH, no shell, no other service. Any process inside an attested VM can reach the ResourceManager and the signing key.
 2. **A fixed driver.** The crawl loop is baked into the image and accepts a small typed set of parameters. Operator strings must never reach Hadoop's option parser, which accepts `-D` and `-conf` and could load operator config or code `[A]`.
-3. **Job code and config verified at load.** Workers load the job jar and job config from a staging directory on storage. Put that directory on `attested://`, and record jar and config digests in every task record. Whether Hadoop's loader goes through the wrapper is inferred, not tested. **[Corrections C6, C13, C17 and decision D6: the wrapper goes onto Hadoop's own classpath with both lookups final, so the NodeManager uses it; step 4.6]**
+3. **Job code and config verified at load.** Workers load the job jar and job config from a staging directory on storage. Put that directory on `attested://`, and record jar and config digests in every task record. Whether Hadoop's loader goes through the wrapper was inferred, not tested; **tested on 9 October 2026: the NodeManager's own process opened every job's `job.jar`, `job.xml`, `job.split` and `job.splitmetainfo` through the wrapper (run 9: 27 jobs, 108 verified opens) and refused a swapped file it fetched (step 4.6)**. **[Corrections C6, C13, C17 and decision D6: the wrapper goes onto Hadoop's own classpath with both lookups final, so the NodeManager uses it; step 4.6]**
 
 ## 8. Other requirements the design depends on
 
@@ -260,7 +260,7 @@ If any gate fails, stop and write up why before going further.
 **Stage B: integrity of storage.**
 4. Chunk hashing on write, verification on read, metadata from records. **[Status 8 October 2026: done, with unsigned records: hashing at close and verified reads with records next to the files (steps 4.2 and 4.3, runs 7 and 8), the contract tests (step 4.4), and metadata from records with the NameNode's audit log (step 4.5)]**
 5. Task records and job manifests from the committer; speculative execution off. **[Status 7 October 2026: open (step 4.7); records are made by the wrapper (C19)]**
-6. Staging directory on `attested://`; jar and config digests in records. **[Status 7 October 2026: changed by decision D6 (step 4.6): the wrapper on Hadoop's own classpath with both lookups final; not done yet]**
+6. Staging directory on `attested://`; jar and config digests in records. **[Status 9 October 2026: done as changed by decision D6 (step 4.6): the wrapper is on Hadoop's own classpath with both lookups final; the NodeManager's reads of the job files are verified against records and a swapped file it fetches is refused; digests in task records belong to step 4.7]**
 
 **Stage C: identity and the ledger.**
 7. Per-VM signing key bound to the quote; mesh admission by quote verification. **[Status 7 October 2026: not started (steps 5.1 and 5.2)]**

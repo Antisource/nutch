@@ -1,7 +1,7 @@
 # Milestone 4: storage integrity (handoff Stage B)
 
-Date: 7 October 2026. Times are UTC. Status: **steps 4.1 to 4.5 done; steps 4.6 to 4.8 open** (section 4).
-Written when step 4.3 closed and extended when step 4.4 closed (section 18) and when step 4.5 closed (section 19). It is extended as the later steps close.
+Date: 7 October 2026. Times are UTC. Status: **steps 4.1 to 4.6 done; steps 4.7 and 4.8 open** (section 4).
+Written when step 4.3 closed and extended when step 4.4 closed (section 18) when step 4.5 closed (section 19) and when step 4.6 closed (section 20). It is extended as the later steps close.
 
 ## 1. Goal
 
@@ -38,13 +38,13 @@ Everything the mentor may change sits behind a setting (section 6), and the reco
 | 4.3 | Keep a record next to each file and verify every read against it | 4 | 4.2 | Done | Run 8 and the tamper test; commit `67c56f5a7` (sections 10, 11, 15) |
 | 4.4 | Run Hadoop's file-system contract tests against the wrapper | 4 | none | Done | Section 18; the wrapper fix `26da09f1c` and the tests `e72d1ed05` (section 15) |
 | 4.5 | Answer length, existence and listings from records, never from storage | 4 | 4.3 | Done | Baby steps: 4.5.1 metadata from records (`4deed2b33`); 4.5.2 the NameNode's audit log turned on and compared with the wrapper's log (`4ebf7570f`; the mentor, 7 October; ADR-026); section 19 |
-| 4.6 | Check the job file and configuration digests at the start of each task | 6 | 4.2 | Open | Changed by the mentor on 7 October (ADR-027): a task hashing its own job file is not a security check, so the digests are checked where the NodeManager reads the files. Baby steps: 4.6.1 the wrapper's classes on Hadoop's classpath on both nodes; 4.6.2 both lookups set as final in the site configuration, with a switch back to the plain configuration; 4.6.3 the NodeManager's read of the job file is checked against its record |
+| 4.6 | Check the job file and configuration digests at the start of each task | 6 | 4.2 | Done | Changed by the mentor on 7 October (ADR-027): a task hashing its own job file is not a security check, so the digests are checked where the NodeManager reads the files. Baby steps: 4.6.1 the wrapper's classes on Hadoop's classpath on both nodes (`fcffad09d`); 4.6.2 both lookups set as final in the site configuration, with a switch back to the plain configuration (`fcffad09d`, and `bef3a6452` for the audit tools); 4.6.3 the NodeManager's read is checked against its record and a swapped file is refused (`9ef0f405d`, `28c811ff4`); section 20 |
 | 4.7 | Task records and job manifests; speculative execution off | 5 | 4.3 | Open | Depends on the answer to question 13 |
 | 4.8 | Milestone report; re-measure after a reboot (ADR-020) | | 4.4 to 4.7 | Open | Firewall rules must be saved first; nothing unmeasured is described as measured (ADR-029); the crawl that follows is run as a pair with an unwrapped control in the same hour (ADR-028) |
 
 Old working labels: B0 = 4.4, B1 = 4.2, B2 = 4.3, B3 = 4.5, B4 = 4.6, B5 = 4.7.
 
-Order of the open steps (after the mentor's answers of 7 October, ADR-026; the whole plan is in [milestone-plan.md](milestone-plan.md)): the numeric order, 4.6, then 4.7, then 4.8. Step 4.5 was done before 4.6 because the two do not depend on each other, and the wrapper's code should be finished before it is put on Hadoop's classpath, where every later change means a redeployment and a restart of daemons.
+Order of the open steps (after the mentor's answers of 7 October, ADR-026; the whole plan is in [milestone-plan.md](milestone-plan.md)): the numeric order: 4.6 (done on 9 October), then 4.7, then 4.8. Step 4.5 was done before 4.6 because the two do not depend on each other, and the wrapper's code should be finished before it is put on Hadoop's classpath, where every later change means a redeployment and a restart of daemons.
 
 ## 5. Recon findings
 
@@ -468,7 +468,7 @@ The real result: the probe ran 13 operations without failure. The tool read 97 N
 - A listing is read in full before it is returned; `getFileLinkStatus` is not checked (the HDFS paths here have no symbolic links).
 - The comparison needs the machines' clocks to agree within its window (3 s by default) and counts a file of more than ten blocks as several reads, because the HDFS client asks the NameNode again while it reads.
 - The NameNode's log is a plain file on the provider's machine, like the wrapper's logs.
-- Only the probe's workload was run against the tool on the cluster; no crawl has been compared yet. The first crawl compared is expected to show the NodeManager's reads of the job file, which step 4.6 changes.
+- Only the probe's workload was run against the tool on the cluster; no crawl has been compared yet. The first crawl compared is expected to show the NodeManager's reads of the job file, which step 4.6 changes. (Done on 9 October: run 9, section 20.6.)
 - The cost of the checks was not measured: each file question reads a record header (remembered for 10 s) and a missing path costs one more check. The paired runs of ADR-028 measure it.
 
 ### 19.10 Evidence and commits
@@ -498,3 +498,135 @@ Baby step 4.5.2, `4ebf7570f` (4 new scripts):
 - A limit was written down before it was tested, and the test showed the tool is stricter than the text said (each wrapper line explains one event only); a stated limit is tested first.
 - Every script is run with `bash -n` and rehearsed with stand-ins before it goes to the master; an apostrophe inside a `${VAR:?message}` was found that way.
 - The mistakes are in [guide-pitfalls-and-lessons.md](guide-pitfalls-and-lessons.md) (mistake log 63 to 69).
+
+## 20. Step 4.6: the wrapper becomes the cluster's own file system
+
+Date: 8 and 9 October 2026. Status: **done**. Commits: `fcffad09d` (baby steps 4.6.1 and 4.6.2: the jar tool and the switch), `bef3a6452` (the audit tools use the plain client), `9ef0f405d` (baby step 4.6.3: the NodeManager swap demo) and `28c811ff4` (the NameNode comparison tool).
+
+### 20.1 What it is, in plain words
+
+Until now the wrapper was a guard that only some visitors walked past: a job had to ask for it with two `-D` options. Anything that did not ask, and above all the NodeManager (the worker's helper that fetches a job's code and settings before every task), used plain HDFS and was never checked. The mentor's point (ADR-027) was that a check run by the task itself does not count, because a swapped job file can skip it. The check has to stand where Hadoop itself reads.
+
+So the guard was moved to the front door. The wrapper's classes were put into Hadoop's own library folder, and the cluster's own settings now say that `hdfs://` is served by the wrapper. Everyone who reads those settings, the NodeManager included, passes the guard. The three baby steps are: 4.6.1 the wrapper's classes on Hadoop's classpath; 4.6.2 both lookups set as final in `core-site.xml`, with a switch back to the plain file; 4.6.3 the NodeManager's own read is checked against its record and refuses a swapped file.
+
+### 20.2 Baby step 4.6.1: the classes on Hadoop's classpath
+
+| Item | Value |
+|---|---|
+| The jar | `attested-hdfs.jar`, 34,217 bytes, SHA-256 `f0d96a83759a55fe...` (full value in the evidence), built by `ops/attested/wrapper-jar.sh build` from the 13 wrapper classes inside the job file `apache-nutch-1.22.job` (`901f01df3423857a`, 1,043 entries); the build is deterministic and the script compares the jar with the job file class by class (`CLASSES-SAME`) |
+| Where it is | `~/hadoop/share/hadoop/common/lib/` on both nodes (copied from the master and checked by fingerprint); Hadoop puts that folder on the classpath of its commands, its daemons and its containers; `hadoop classpath --glob` lists the jar once |
+| Self-test | `hdfs dfs -ls /` with the wrapper switched on and no job file on the classpath: `JAR-LOADS-FROM-LIB-OK` on both nodes |
+| Stage 2: containers | the Pi example (2 maps, 10 samples), whose own jar holds no wrapper class, with the wrapper switched on by `-D`: it finished (20.1 s) and the worker wrote 4 wrapper log files and 8 start-up lines (7 opens, all `verify=ok`), so the task containers load the wrapper from the library folder; the start-up line shows `from=...attested-hdfs.jar` |
+| Rehearsal | 19 of 19 with the real wrapper classes and stand-ins for `hadoop` and `hdfs` |
+
+The library copy wins on the classpath, so the classes in the job file and in the jar must be the same. `wrapper-jar.sh verify <job file>` checks it, and it is part of the procedure before every crawl (section 20.7 and [cluster-configuration.md](cluster-configuration.md) section 16).
+
+### 20.3 Baby step 4.6.2: both lookups final, and the switch
+
+`ops/attested/cluster-mode.sh` keeps two versions of `core-site.xml` in `~/cluster-mode` on each node. PLAIN (`d7e7dffd27def2a0`) is the file as it was. WRAPPED (`1c335707555b2427`) is the same file plus two properties, `fs.hdfs.impl=org.apache.nutch.attested.AttestedHdfsFileSystem` and `fs.AbstractFileSystem.hdfs.impl=org.apache.nutch.attested.AttestedHdfs`, both marked `final`. The two nodes' files are identical. `wrapped` and `plain` put a version in place after a backup. With `--restart` the script restarts the node's daemons in Hadoop's order (the NameNode and ResourceManager on the master, the DataNode and NodeManager on the worker), checks that every daemon is back and that `hdfs dfs -ls /` and `yarn node -list` work, and **puts the previous file back by itself if a check fails**. With `--restart-yarn` it restarts only the node's YARN daemon, which is the quick switch for the control runs.
+
+**What `final` does and does not do.** It was tested with Hadoop's own configuration classes: a later settings file (a job's `job.xml`) cannot override a final property, but code that calls `conf.set` and a command-line `-D` option can. So `final` closes the route the mentor named (a job's settings file switching the wrapper off in the NodeManager or in a task container) and no more. Our audit tools use `-D` on purpose (below).
+
+**The first attempt failed and rolled back.** On 8 October at 08:39 UTC the script installed the WRAPPED file on the master, restarted the NameNode, and reported `safe mode did not end`. It restored the plain file and restarted, and the cluster was as before (the NameNode and ResourceManager had new pids). The cause was found in Hadoop 3.4.3's source: `hdfs dfsadmin` insists on a real `DistributedFileSystem` (`AdminHelper.checkAndGetDFS`; 22 of the tool's commands use it) and fails for the wrapper, which is a `FilterFileSystem`; the script's own safe-mode check was such a command. The rehearsal had missed it because its stand-in for `dfsadmin` did not model that constraint. The script's admin calls now use the plain client. The second attempt succeeded: the master took about 72 s (08:58:41 to 08:59:53 UTC, the new NameNode pid 535595) and the worker 18 s (09:01:40 to 09:01:58).
+
+**A bug the rehearsal found before it mattered.** The first version's rollback printed `ROLLED-BACK` without restarting the NodeManager that had failed to start, because it restarted and verified only the daemons that were still running. The script now notes the node's daemons once before any change and uses that list for the restart, the verification and the rollback. The rehearsal passes 21 of 21 and has a check for exactly this.
+
+**Proof with no `-D` anywhere** (8 October, 09:05 UTC): the NameNode and ResourceManager ran under new pids; `hdfs dfs -ls /` worked; the Pi example with no options finished (23.7 s) and the master wrote 4 wrapper log files (7 start-up lines) and the worker 5 (12 start-up lines), **all with `from=...attested-hdfs.jar`**; the admin tool failed under the wrapper with `is not an HDFS file system` and worked with the plain client; no leftover temporary folder.
+
+**The switch both ways** (YARN-only restarts, seconds): in plain mode the Pi example worked (18.5 s) and neither node wrote a wrapper log file; back in wrapped mode it worked again (21.9 s) with wrapper logs on both nodes. The single Pi timings are noise, not a result. The cluster was left in wrapped mode.
+
+**The scripts that talk to HDFS.** With the wrapper as the default, a plain `hdfs dfs` goes through it, which would hide the record files from the audit's listing, make the re-hash read through the wrapper, and turn the tamper demo's "behind the wrapper's back" into an ordinary wrapped write. Five scripts therefore ask for the plain client (`-D fs.hdfs.impl=org.apache.hadoop.hdfs.DistributedFileSystem`): `audit.sh`, `records_verify.sh`, `tamper-demo.sh`, `nn-audit.sh` and `nn-audit-probe.sh`. `contract-tests.sh` is unchanged (its two HDFS calls are harmless through the wrapper). The two scripts of `ops/mesh/` also call `dfsadmin`, but they run only together with a network change, so they were not edited; they need plain mode (limitations row 61). Rehearsals: `nn-audit.sh` 23 of 23 (the unfixed version fails 16 of them), `audit.sh` and `records_verify.sh` 11 of 11 with `tamper-demo.sh` (14 of 14 after its path fix). On the cluster in wrapped mode: `nn-audit.sh check` OK; the plain listing showed 1,756 paths and the ordinary one (through the wrapper) 1,594, the 162 hidden paths being record files, with nothing seen only by the ordinary listing; the probe gave the numbers of step 4.5.2 again (97 NameNode lines, 25 events compared, 18 explained, 7 unexplained, the 7 being the probe's 5 plain operations). The `on` and `off` branches of `nn-audit.sh` were not run again; its changed `safemode wait` line is covered by the rehearsal, and the same command ran for real in `cluster-mode.sh`. The tamper demo also makes its printed path absolute now (a relative path from `hdfs` is taken relative to the user's home) and stops if the path does not exist; this closes the cosmetic fault noted in section 11, and it ran for real in run 9's tamper test.
+
+### 20.4 Baby step 4.6.3: the NodeManager reads through the wrapper, and refuses a swapped file
+
+**Over a whole crawl.** In run 9 (section 20.5) the NodeManager's own process (pid 180161) opened the four files of every job, `job.jar`, `job.xml`, `job.split` and `job.splitmetainfo`, 27 times each, 108 opens in all, every one `verify=ok`. The NameNode saw the same 108 opens from the worker's address (section 20.6). Before step 4.6 the NodeManager read these files through plain HDFS, unchecked. This answers the handoff's open question whether Hadoop's job loader reads the staging directory through a wrapped file system: it does, now. (The per-file counts were made from the NodeManager's wrapper log with the one-line `awk` in [cluster-configuration.md](cluster-configuration.md) section 16; the bundle holds the log.)
+
+**The swap demo** (`ops/attested/nm-swap-demo.sh`). A job can hand a file to its tasks through the distributed cache, and the NodeManager fetches that file itself. The script stores a 3,920-byte file through the wrapper (its record is made), runs the Pi example with `-files <that file>` (control, must succeed), changes one byte (byte 1,960) with the plain client keeping the length, runs the same job (must fail), puts the original back and runs it again (must succeed). It always restores the file and removes its folder, and the final version also removes the temporary folder that the failed Pi job leaves behind, but never one that existed before.
+
+| Run | Date | Tampered job | Client side | The NodeManager's own log |
+|---|---|---|---|---|
+| 1 | 8 October, 15:15 UTC | `job_1791450997865_0003` | PASS: control ok, tampered job failed (`Failed to download resource ... dc-file`), restored fingerprint `850ef14c833d730c` equals the original | pid 176992: an open `verify=ok` (15:15:52), an open `verify=ok` and `VERIFY-FAIL chunk=0 hash does not match the record` in the same second (15:16:15), an open `verify=ok` (15:16:24) |
+| 2 | 9 October, 13:49 UTC | `job_1791450997865_0036` | PASS, the same fingerprint; the failed job's temporary folder was removed and the older leftover was not | pid 201543 (after a restart): the same four lines (13:49:49, 13:50:13 twice, 13:50:21); exactly one refusal in the clean folder |
+
+The three verified opens per run are the control, the open of the changed file (it succeeds because the length still agrees with the record, and the hash check then fails on the changed chunk), and the restored read. This is the same pattern as in run 8's tamper test. The first run's NodeManager lines were found in the rotated folder, not the clean one (section 20.7). Rehearsals: the first version 11 of 11, the final version 15 of 15.
+
+### 20.5 Run 9: the integration crawl (not covered by the measurement)
+
+Run 9 ran on 9 October from 05:08:18 to 05:19:48 UTC (11 min 30 s; the rounds started at 05:08:43, 05:11:59 and 05:15:55), with `ops/run-crawl.sh`, the original script with **no wrapper options at all**, so everything it did through the wrapper came from the cluster's own settings. It ran 27 MapReduce jobs (27 job uploads on the master, 27 sets of job files read by the NodeManager) and exited 0. It is **not covered by the measurement** (ADR-029), it has no unwrapped control in the same hour, and its wall time is not a result; it proves the procedure. The seed file was stored through the wrapper too, so it has a record (57 bytes and an 88-byte record); run 8 needed an exemption for it.
+
+| Check | Result |
+|---|---|
+| Storage before and after (`audit_compare.py`, nothing exempted) | `AUDIT-CLEAN`: 1,787 paths before, 2,109 after, 322 added, all explained by the wrapper's logs, none removed or changed; 117 log files (24 master, 93 worker: 92 containers and the NodeManager), 2,308 lines |
+| Expected records (`records_expected.py`, run 9's two folders, record files required) | `RECORDS-COMPLETE`: 55 files judged, 55 with a matching record |
+| Verification summary (`verify_summary.py`, nothing exempted) | `VERIFY-CLEAN`: 265 opens, all `verify=ok`, 0 failures |
+| Independent re-hash through the plain client (`records_verify.sh`) | `RECORDS-VERIFIED`: 55 verified, 0 mismatched |
+| NameNode comparison | `NN-AUDIT-COMPARE-CLEAN` with two stated rules (section 20.6) |
+| Tamper test (`tamper-demo.sh`, then `tamper_verify.py` on both nodes' logs) | `TAMPER-PROVEN`: byte 12,927 of 25,854 changed in `crawl-run9/crawldb/current/part-r-00000/data`; the reader job failed (`job_1791450997865_0033`); one `VERIFY-FAIL chunk=0 hash does not match the record` from a container on the worker, none for any other path; three verified opens; the restored fingerprint `da0efcc0da0e3565` equals the original; the map task and the ApplicationMaster both logged `ChecksumException` |
+
+The wrapper's operations: on the master 244 creates, 189 attribute changes, 45 mkdirs, 42 deletes, 27 renames, 27 uploads of job files and no opens; on the worker 540 creates, 265 opens, 234 renames, 135 deletes, 81 attribute changes and 66 mkdirs. The merged totals equal the sums of the nodes.
+
+### 20.6 The NameNode comparison of run 9
+
+The first comparison, over the window from the log rotation (8 October 15:43) to the end of the crawl (9 October 05:21), was not clean: 26 unexplained `open` events from the master's address and 27 wrapper lines (`COPYFROMLOCAL`) with no NameNode event. They were understood from the data before the tool was changed:
+
+- The wrapper's `copyFromLocalFile` logs a `COPYFROMLOCAL` line and then copies through its own `create`, which logs a `CREATE` line: two wrapper lines for one upload, one NameNode `create`. All 27 such lines had a `CREATE` line for the same file in the same JVM within 3 s.
+- A job's client creates `job.jar`, then asks the NameNode where the input files' blocks are, then creates `job.split`. HDFS audits that question as `open`. All 26 events were `open`, from the master, inside the submission window of one of the 27 jobs, on the next job's input files (the seed file, the crawl database, the segment parts).
+
+`nn_audit_compare.py` now has two rules, on unless `--strict` is given, each printed as its own line and never merged into "explained": a **companion line** is accepted only if the other line of the same upload (same JVM, same file, within the window) was itself matched to a NameNode event; a **submission lookup** is accepted only for an `open` by the same client address that created the job's `job.jar` before it and its `job.split` after it (both times taken from the NameNode's own log), never for a create, delete or rename. Tests: 36 of 36 (the 18 earlier ones unchanged, 18 new).
+
+| Run of the tool on run 9 | Result |
+|---|---|
+| Default rules | 1,894 events compared: 1,868 explained by the wrapper's log, 26 known (submission lookups), **0 unexplained**; 27 companion lines; the wrapper's 1,895 non-start-up lines are 1,868 matched plus 27 companions, so nothing is left over on either side; `NN-AUDIT-COMPARE-CLEAN` |
+| `--strict` | 26 unexplained and 27 wrapper lines not shown: `FINDINGS (26)`, as before the rules |
+| Negative control: the largest wrapper log (the NodeManager's, `tdx-lab-worker-180161-...`) removed | 108 unexplained: `FINDINGS (108)`; on screen they were exactly 27 each of `job.jar`, `job.xml`, `job.split` and `job.splitmetainfo` from the worker's address, so the NodeManager's reads are explained only by its own wrapper lines, with no exception |
+| Changes to storage | the NameNode's creates, renames, deletes and mkdirs (784, 261, 177 and 111) equal the wrapper's |
+
+**81 requests were reported as denied, and none was.** All 81 were `delete`, all from the worker's address, on paths already gone (history `_tmp` files and `_temporary` folders), and the NameNode's own log has no permission error in the window. In Hadoop 3.4.3's `FSNamesystem.delete` the audit line carries the result of the delete, so `allowed=false` means nothing was deleted as well as permission denied. The tool now lists such lines as "deletes that removed nothing" and keeps `DENIED` for other commands.
+
+**What the rule does not prove.** The NameNode cannot tell a block-location lookup from a read, so the 26 events rest on timing and structure. The DataNode's `HDFS_READ` lines would give a second look, but the DataNode here logged 3,155 lines in the window and none of them is a read, so that check could not be made for run 9 (limitations row 60). A plain read hidden inside a submission window would look like a lookup; what changes storage (creates, renames, deletes, mkdirs) is matched exactly.
+
+### 20.7 What it changes elsewhere
+
+- **The cluster is in wrapped mode.** The plain mode exists for the unwrapped control runs of ADR-028 (`cluster-mode.sh plain`, then `wrapped` again) and for the mesh scripts.
+- **The procedure of a crawl changes** ([cluster-configuration.md](cluster-configuration.md) section 16): on the worker, rotate the logs and then restart the NodeManager before the crawl, and collect the container logs right after it. The first rotation moved the NodeManager's open log file, and it went on writing into the archive; the NodeManager's reads of the swap demo were found there, not in the clean folder. `audit.sh rotate` now warns about a process that wrote a moved file and still runs (rehearsed 6 of 6; it named the NodeManager, pid 180161, on 9 October at 06:00, and is silent when none runs).
+- **The measured set changes**: `core-site.xml` on both nodes and the jar in the library folders (and `hadoop-env.sh` on the master since step 4.5). The re-measurement of step 4.8 must cover them, and the firewall rules must be saved first. Runs 6 to 9 are not covered by the measurement.
+
+### 20.8 Limits of this step
+
+- A final setting does not stop code that calls `conf.set` in its own JVM, or a person who types `-D`; the audit tools use `-D` for the plain client on purpose (row 59).
+- The 26 submission lookups of run 9 rest on timing; the DataNode does not log reads (row 60).
+- The admin tool, and the two mesh scripts, need plain mode (row 61).
+- The NodeManager's wrapper log stays open while it runs; the procedure restarts it, and the tool only warns (row 62).
+- Run 9's container logs are not preserved: with log aggregation off, YARN deletes them after its retention time (3 hours by default) and they expired before collection. They were checked at 05:24 UTC (184 files, 92 containers, none mentioning a refusal or an exception); that result is in the session notes, not in a file (row 63).
+- The classes exist twice (the job file and the library jar), and the library copy wins (row 64).
+- The `on` and `off` branches of `nn-audit.sh` were not run again in their changed form (rehearsal only).
+- Run 9 has no unwrapped control and no timing result; the cost of the checks stays unmeasured until the paired runs (ADR-028).
+- The NodeManager's reads were seen on one worker only, where every container ran.
+
+### 20.9 Evidence and commits
+
+The bundles `evidence-m46-cluster.tar.gz` (`f17d700d...`, 827 files and its `SHA256SUMS`) and `evidence-m46-run9.tar.gz` (`fb23a3a4...`, 353 files and its `SHA256SUMS`) were compared on the laptop (`MATCH`, every file identical to its list) and unpacked (21 folders in `tdx-evidence\extracted` now). The run 9 bundle has a `NOTES.txt` that says what is not preserved. Before the commits, the ten files were checked identical to the copies that ran (from the zips in the bundle and the tool's folder in Cloud Shell), on the laptop at each commit, and afterwards in a fresh clone from GitHub, which also confirmed that none of the four commits touches `docs/`. The message of the fourth commit lost a space before `(step 4.6.3)` when it was passed through PowerShell; it was left as it is.
+
+| Commit | File | Fingerprint |
+|---|---|---|
+| `fcffad09d` (new) | `ops/attested/wrapper-jar.sh` | `156fa0303bad491a` |
+| `fcffad09d` (new) | `ops/attested/cluster-mode.sh` | `203038fdee3bd764` |
+| `bef3a6452` | `ops/attested/audit.sh` | `0e8026d6deedf08b` |
+| `bef3a6452` | `ops/attested/records_verify.sh` | `6dc2a7bd361b7b28` |
+| `bef3a6452` | `ops/attested/tamper-demo.sh` | `12a633b7b978ebc2` |
+| `bef3a6452` | `ops/attested/nn-audit.sh` | `404dd5d9717989b5` |
+| `bef3a6452` | `ops/attested/nn-audit-probe.sh` | `be7f2ac749b99d7f` |
+| `9ef0f405d` (new) | `ops/attested/nm-swap-demo.sh` | `97f56cd7b3f47c99` |
+| `28c811ff4` | `ops/attested/nn_audit_compare.py` | `694e3c6c848d564f` |
+| `28c811ff4` | `ops/attested/test_nn_audit_compare.py` | `98a40deb0aaba20c` |
+
+### 20.10 Lessons from this step
+
+- A stand-in written from the same assumption as the script cannot find that assumption's error: the first switch failed on a tool constraint the stand-in did not model. The stand-in now behaves like the real tool.
+- A rollback must be checked against the state expected before the change, not against whatever is running afterwards.
+- Moving a file does not stop a running process from writing into it; before saying something was not logged, look at where a running writer writes.
+- A label has to say what the source says: `allowed=false` on a delete is not "denied". The tool was fixed after the source and the data were read.
+- A count is given with its source: "about 40 jobs" was withdrawn, and the real number (27) was confirmed from two independent sources.
+- Three of my own new checks were wrong (a substring that missed a parenthesis, a pattern that matched the older leftover, a wrong expected path); the tool was right each time, and the checks were fixed after the output was read.
+- Task logs expire: collect them right after a run.
+- The mistakes are in [guide-pitfalls-and-lessons.md](guide-pitfalls-and-lessons.md) (mistake log 70 to 78).

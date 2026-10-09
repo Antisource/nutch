@@ -24,6 +24,8 @@ Runs 3 and 4 (5 October 2026) are compared with run 2 in section 9, run 5 (6 Oct
   - [9.2 Run 6 through the hdfs:// wrapper (added 6 October 2026)](#92-run-6-through-the-hdfs-wrapper-added-6-october-2026)
   - [9.3 Run 7 with hashing (added 7 October 2026)](#93-run-7-with-hashing-added-7-october-2026)
   - [9.4 Run 8 with verified reads (added 7 October 2026)](#94-run-8-with-verified-reads-added-7-october-2026)
+  - [9.5 A condition from the mentor (7 October 2026)](#95-a-condition-from-the-mentor-7-october-2026)
+  - [9.6 Run 9 through the cluster's own wrapper (added 9 October 2026)](#96-run-9-through-the-clusters-own-wrapper-added-9-october-2026)
 
 ## 1. Side by side
 
@@ -267,3 +269,17 @@ Run 8 repeats the crawl with a record kept next to each file and every read chec
 ### 9.5 A condition from the mentor (7 October 2026)
 
 Runs 6 to 8 were not paired with an unwrapped control in the same hour: run 6 was compared with run 5, which had been made hours earlier, and runs 7 and 8 were compared with run 6 and with each other. The mentor accepted this evidence and said that from Stage B on the unwrapped control is run in the same hour, with wall time and bytes fetched recorded for each pair (ADR-028). The three durations above (10 min 42 s, 10 min 43 s and 10 min 57 s) are therefore first timings, not a performance result. Since 8 October 2026 the NameNode's audit log is also on (cluster-configuration.md section 15), which runs 6 to 8 did not have, so later runs differ from them in that respect too.
+
+### 9.6 Run 9 through the cluster's own wrapper (added 9 October 2026)
+
+Run 9 is a procedure run for step 4.6. It is **not covered by the measurement** and has **no unwrapped control** in the same hour, so it is not compared with runs 7 and 8 on time or on the pages fetched, and its wall time (11 min 30 s, 05:08:18 to 05:19:48 UTC) is not a result. What differs from run 8 is how the wrapper was reached: with no wrapper options at all, so the cluster's own settings put it in place for the master's commands, the NodeManager and every container.
+
+| | Run 8 | Run 9 |
+|---|---|---|
+| How the wrapper was switched on | three `-D` options passed by `ops/run-crawl-attested.sh` | none: `ops/run-crawl.sh` and the cluster's `core-site.xml` |
+| The NodeManager's reads of the job files | through plain HDFS, outside the wrapper | through the wrapper: 108 opens (27 jobs, 4 files each), all verified |
+| The seed folder | no record | a record (57 bytes and an 88-byte record) |
+| NameNode comparison | not made on a crawl | clean with two stated rules: 0 unexplained of 1,894 events |
+| Storage audit, expected records, verification summary, re-hash, tamper test | as in [milestone-4-storage-integrity.md](milestone-4-storage-integrity.md) sections 10 and 11 | `AUDIT-CLEAN` (322 added, all explained), `RECORDS-COMPLETE` (55 of 55), `VERIFY-CLEAN` (265 opens), `RECORDS-VERIFIED` (55 of 55), `TAMPER-PROVEN`, with nothing exempted |
+
+Details and the evidence are in [milestone-4-storage-integrity.md](milestone-4-storage-integrity.md) section 20.

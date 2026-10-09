@@ -36,6 +36,9 @@ Times are UTC.
 | 028 | Every wrapped crawl has an unwrapped control in the same hour; wall time and bytes fetched are recorded | Accepted (mentor) |
 | 029 | Nothing that is not measured is described as measured | Accepted (mentor) |
 | 030 | Answers about files are checked against the records; findings fail closed by default | Accepted |
+| 031 | The audit, admin and demo tools ask for the plain client explicitly | Accepted |
+| 032 | Before a crawl, rotate the logs and restart the wrapped daemon; collect the container logs right after | Accepted |
+| 033 | The NameNode comparison gets two explicit rules, visible and switchable | Accepted |
 
 ---
 
@@ -258,6 +261,7 @@ Times are UTC.
 - **Decision:** the mentor said to move the wrapper onto Hadoop's own classpath and set both lookups in the site configuration as final, so the NodeManager uses it too. (1) The wrapper's classes are put onto Hadoop's classpath on both nodes, built from the same sources as the classes in the job file. (2) `fs.hdfs.impl` and `fs.AbstractFileSystem.hdfs.impl` are set as final in the site configuration on both nodes, so a job cannot override them. (3) The NodeManager's read of the job file then goes through the wrapper and is checked against the record made when the client uploaded it. The step keeps its name; these are its baby steps 4.6.1, 4.6.2 and 4.6.3.
 - **Why:** it removes the fail-open weakness of ADR-017 for everything that reads the site configuration, and it closes the job-loader gap that the handoff left open.
 - **Consequences:** the Hadoop installation and configuration change, so the measured set changes and the re-measurement (ADR-020, ADR-029) must cover them. A failure of the wrapper now affects every client, including the daemons and the command-line tools (whose files get records too), so the change needs a staged rollout, a rollback and a switch between the wrapped and the plain configuration, which the control runs of ADR-028 also need. The settings of the wrapper stay non-final.
+- **Outcome (9 October 2026):** done in step 4.6 (commits `fcffad09d`, `bef3a6452`, `9ef0f405d`, `28c811ff4`). The NodeManager's own process opened the four files of each of run 9's 27 jobs through the wrapper (108 opens, all verified) and refused a swapped file it fetched; a first switch failed and rolled back by itself because Hadoop's admin tool refuses the wrapper (ADR-031). A final setting stops a job's settings file but not a command-line `-D` or code in a JVM, so it is not a lockdown (limitations row 59). Report: [milestone-4-storage-integrity.md](milestone-4-storage-integrity.md) section 20.
 
 ## ADR-028: Every wrapped crawl has an unwrapped control in the same hour; wall time and bytes fetched are recorded
 
@@ -282,3 +286,27 @@ Times are UTC.
 - **Decision:** (1) `getFileStatus` and the listings are checked against the records: a length that differs from the record, and a record whose file is gone, follow the setting `attested.metadata.mismatch`, default `fail`; a file without a record follows the existing `attested.verify.missing`, default `warn`. (2) The default for a mismatch is to refuse, because a mismatch is the signal this step exists to give; a file without a record stays allowed because files put in by programs that do not use the wrapper, and files still being written, are normal today. (3) A listing is read in full before it is returned, so that the records in it can be seen. (4) A record's length is remembered for 10 seconds and is always read again before a refusal, so that a rewrite by another program is not a finding. (5) A finding is logged once per file per program, and a refusal each time. (6) The NameNode's audit log is switched on (the mentor, ADR-026) and compared with the wrapper's log by operation, path and time, because every client on a machine shows with the same user and address.
 - **Why:** it closes the gap between "the file was checked when read" and "the answer about the file was believed"; the contract tests show no false alarm and the real-HDFS tests show the detection.
 - **Consequences:** one more small read per file question and one more check per missing path, to be measured in the paired runs (ADR-028); listings of very large folders are read in full; the records are still not signed, so someone who rewrites a file and its record together is not caught (step 4.7, Milestone 5).
+
+## ADR-031: The audit, admin and demo tools ask for the plain client explicitly
+
+- **Date:** 9 October 2026. **Status:** accepted.
+- **Context:** since step 4.6 the wrapper is the cluster's default file system (ADR-027), so a plain `hdfs dfs` goes through it. That would hide the record files from the audit's listing, make the independent re-hash read through the wrapper, and turn the tamper demo's change "behind the wrapper's back" into a wrapped write. Hadoop's admin tool (`hdfs dfsadmin`) refuses any file system that is not a `DistributedFileSystem`, the wrapper included (found when the first switch failed on 8 October; Hadoop 3.4.3, `AdminHelper.checkAndGetDFS`).
+- **Decision:** every tool that must see HDFS as it is, not as the wrapper shows it, passes `-D fs.hdfs.impl=org.apache.hadoop.hdfs.DistributedFileSystem` itself: `audit.sh`, `records_verify.sh`, `tamper-demo.sh`, `nn-audit.sh`, `nn-audit-probe.sh` and `cluster-mode.sh`. A command-line option can override a final setting (tested), which is the intended use. Admin calls are not data operations, so they use the plain client. The two scripts of `ops/mesh/` were not edited because they cannot be run without a network change; they need plain mode.
+- **Why:** an inspector must not depend on the guard it inspects, and a tool must not depend on the cluster's current mode.
+- **Consequences:** the 5 changed scripts were run on the cluster in their final form (one branch of `nn-audit.sh` only in rehearsal); a plain client is still available to anyone who asks for it, so `final` is not a lockdown (limitations row 59; the lockdown is Milestone 5).
+
+## ADR-032: Before a crawl, rotate the logs and restart the wrapped daemon; collect the container logs right after
+
+- **Date:** 9 October 2026. **Status:** accepted.
+- **Context:** the first rotation after the switch moved the NodeManager's open log file, and the NodeManager went on writing into the archived file, so its reads were missing from the clean folder. Run 9's container logs expired before they were collected, because log aggregation is off and YARN deletes them after its retention time (3 hours by default).
+- **Decision:** on the worker, `audit.sh rotate` is followed by `cluster-mode.sh wrapped --restart-yarn` before the crawl, so the NodeManager starts a new log file; `audit.sh rotate` warns about any process that wrote a moved file and is still running; the container logs are collected right after the crawl. No cluster setting is changed for this.
+- **Why:** the NodeManager's reads are exactly the evidence step 4.6 exists to produce, and the container logs are the only record of why a task failed.
+- **Consequences:** one more command per crawl; the measured runs follow the same procedure.
+
+## ADR-033: The NameNode comparison gets two explicit rules, visible and switchable
+
+- **Date:** 9 October 2026. **Status:** accepted.
+- **Context:** the first comparison of a whole crawl had 26 unexplained opens and 27 unmatched wrapper lines. The data showed two causes: one upload writes two wrapper lines (`COPYFROMLOCAL` and `CREATE`) against one NameNode create, and a job's client asks the NameNode where the input's blocks are, which HDFS audits as `open`.
+- **Decision:** `nn_audit_compare.py` pairs the two lines of an upload only if the other line was itself matched to a NameNode event, and counts an `open` as a submission lookup only if the same client address created the job's `job.jar` before it and its `job.split` after it (from the NameNode's own log), never for a create, delete or rename. Both are printed as their own lines, never merged into "explained", and `--strict` turns both off. A delete with `allowed=false` is listed as "removed nothing", not as denied, because HDFS writes the result of the delete there.
+- **Why:** an exemption written quietly would hide the next real difference; a rule that is printed, bounded and tested does not.
+- **Consequences:** the 26 lookups of run 9 rest on timing, because the NameNode cannot tell a lookup from a read and the DataNode does not log reads here (limitations row 60); turning on the DataNode's client trace at run time for the measured runs is an open item.

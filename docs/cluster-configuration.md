@@ -221,11 +221,11 @@ Notes:
 | Where the classes live | inside the Nutch job file (`org/apache/nutch/attested/`); no change to Hadoop's own folders or configuration |
 | Hadoop's configuration files | unchanged; still identical on both nodes |
 | Audit logs | `/tmp/attested-audit/<host>-<pid>-<start>.tsv` on each node, one per JVM; old logs are moved aside by `audit.sh rotate` to `/tmp/attested-audit-old/<time>/` |
-| Not covered by the wrapper | the NameNode, DataNode, ResourceManager and NodeManager daemons (the NodeManager reads the job file through plain HDFS), and the crawl script's two `hadoop fs` commands |
+| Not covered by the wrapper | Until step 4.6 (section 16): the NameNode, DataNode, ResourceManager and NodeManager daemons (the NodeManager reads the job file through plain HDFS), and the crawl script's two `hadoop fs` commands |
 | Build location for run 6 | a scratch clone, `~/m3-build` (not measured); the measured tree `~/ccbot-work/nutch-cc` and its job (`bbd30ad90d357ca1`) were left untouched. Run 6's job is `ddc415a5d87c9e6b` |
 | Known difference of the measured tree | one untracked file, `conf/effective_tld_names.dat`, which is packed into the job; it was copied into the scratch clone |
 
-How a wrapped crawl is run (every step is a script in `ops/attested/`, `ops/run-crawl-attested.sh`):
+How a wrapped crawl was run until step 4.6 (every step is a script in `ops/attested/`, `ops/run-crawl-attested.sh`; the procedure since then is in section 16):
 
 1. On each node: `audit.sh rotate`. On the master: put the seeds into HDFS, then `audit.sh snapshot <file>` (the "before" listing).
 2. On the master, in tmux, from the build clone: `ops/run-crawl-attested.sh <seeds> <crawl-folder>`.
@@ -266,7 +266,7 @@ Run: `EXPECT_JOB=<job fingerprint> EXPECT_FILES=<list> ATTESTED_JOB=<job file> o
 
 ## 14. Planned changes (not applied)
 
-These changes are decided but **not applied**: the cluster is as described in sections 1 to 13 and 15.
+Both changes of step 4.6 (ADR-027, ADR-028) were **applied on 8 and 9 October 2026** and are described in section 16; no decided change is waiting to be applied now. The table is kept as the record of what was planned.
 
 | Change | Decision | Step | What it will do |
 |---|---|---|---|
@@ -286,3 +286,29 @@ Each of them changes the Hadoop installation or configuration, so the measured s
 | Undo | `ops/attested/nn-audit.sh off` on the master (restores that `hadoop-env.sh` and restarts the NameNode) |
 | Effect | HDFS was unavailable for under a minute; every later run, wrapped or not, has the log; runs 6 to 8 had none. The measured set changes (`hadoop-env.sh`), so the re-measurement (ADR-020, ADR-029) covers it |
 | How it is used | `ops/attested/nn_audit_compare.py` compares it with the wrapper's logs; `ops/attested/nn-audit-probe.sh` makes a known workload to test that |
+
+## 16. The wrapper as the cluster's file system (applied 8 and 9 October 2026, step 4.6)
+
+| Item | Value |
+|---|---|
+| What changed on both nodes | `attested-hdfs.jar` (34,217 bytes, `f0d96a83759a55fe...`, the 13 wrapper classes of the job file `apache-nutch-1.22.job`) in `~/hadoop/share/hadoop/common/lib/`; `~/hadoop/etc/hadoop/core-site.xml` is the WRAPPED version (`1c335707555b2427`): the file as it was (`d7e7dffd27def2a0`) plus `fs.hdfs.impl=org.apache.nutch.attested.AttestedHdfsFileSystem` and `fs.AbstractFileSystem.hdfs.impl=org.apache.nutch.attested.AttestedHdfs`, both marked `final` |
+| When | the jar on 8 October before 08:22 UTC (no setting, no restart); the WRAPPED file on the master at 08:58 and on the worker at 09:01 UTC after a first attempt that rolled back (section 20.3 of the report), with all daemons restarted in order (the master's NameNode and ResourceManager, the worker's DataNode and NodeManager); the switch to plain and back on 8 October around 09:12 to 09:17 UTC; wrapped on both nodes since then |
+| Current state | **wrapped on both nodes** (`cluster-mode.sh status` says which version is in place and which daemons run) |
+| Backups | `~/cluster-mode` on each node: `core-site.xml.plain`, `core-site.xml.wrapped`, and `before-<time>.core-site.xml` for every change (the master's first attempt is `before-20261008T083926Z`) |
+| Tools | `ops/attested/wrapper-jar.sh` (`build`, `install`, `verify`, `selftest`, `remove`); `ops/attested/cluster-mode.sh` (`status`, `prepare`, `wrapped` and `plain`, each with `--restart` or `--restart-yarn`; it refuses while a YARN application runs and rolls back by itself when its checks fail) |
+| Undo | `cluster-mode.sh plain --restart` on the master and then on the worker; optionally `wrapper-jar.sh remove` on both |
+| What still needs the plain client | Hadoop's admin tool (`hdfs dfsadmin`) and the two scripts of `ops/mesh/`; the audit and demo tools ask for it themselves (ADR-031) |
+| Effect | every Hadoop process that reads the site settings serves `hdfs://` through the wrapper unless a command-line `-D` says otherwise; the NodeManager's reads of job files are verified against records; the measured set changed (`core-site.xml`, the jar, and `hadoop-env.sh` on the master), so the re-measurement of step 4.8 covers them, and the firewall rules must be saved before the reboot |
+
+How a wrapped crawl is run since step 4.6 (this replaces the numbered steps of section 11; every step is a script in `ops/attested/`):
+
+1. **Worker:** `audit.sh rotate`, then `cluster-mode.sh wrapped --restart-yarn`, so that the NodeManager starts a new log file (ADR-032). **Master:** `audit.sh rotate`; `wrapper-jar.sh verify <job file>` must say `CLASSES-SAME`; put the seeds into HDFS with an ordinary `hdfs dfs -put` (the wrapper makes their record); `audit.sh snapshot <before>`.
+2. **Crawl:** in tmux, from the build clone, `ops/run-crawl.sh <seeds> <crawl-folder>`. It needs no wrapper options: the cluster's settings do it.
+3. **Right after the crawl:** `audit.sh snapshot <after>`; on the worker, pack the container logs from `~/hadoop/logs/userlogs`, which YARN deletes after 3 hours; pack both nodes' `/tmp/attested-audit` and `/tmp/attested-records`.
+4. **Cloud Shell:** `audit_compare.py before after logs --require-hosts tdx-lab,tdx-lab-worker`; `records_expected.py after records logs --cover '^/user/<user>/(crawl|seeds)-<run>(/|$)' --require-sidecars --out expected.tsv`; `verify_summary.py logs` with no exemption. Then on the master `records_verify.sh expected.tsv`.
+5. **NameNode:** cut its audit log from the rotation to the end of the crawl and run `nn_audit_compare.py --nn <window> --wrapper logs`; read the `known` lines, and run it once with `--strict` and once with one wrapper log removed (the negative control).
+6. **Tamper test:** rotate again, then `tamper-demo.sh <crawl-folder> <outdir>` from the build clone, then `tamper_verify.py` on both nodes' logs.
+
+The control run of ADR-028: `cluster-mode.sh plain --restart-yarn` on both nodes, run the unwrapped crawl, then `cluster-mode.sh wrapped --restart-yarn` on both nodes.
+
+To count what the NodeManager read through the wrapper, on the worker: `cat /tmp/attested-audit/*-<NodeManager pid>-*.tsv | awk -F'\t' '$4=="OPEN"{n=split($5,a,"/"); print a[n]}' | sort | uniq -c`. In run 9 it gave 27 each of `job.jar`, `job.xml`, `job.split` and `job.splitmetainfo`.
