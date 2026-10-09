@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tests of nn_audit_compare.py on a data set that has the shape of the real probe (NameNode lines in the
 real format, wrapper lines in the wrapper's 7-column format) and a known answer."""
-import calendar, os, subprocess, sys, tempfile, time
+import calendar, os, re, subprocess, sys, tempfile, time
 
 TOOL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nn_audit_compare.py")
 D = "/user/u/nn-audit-probe-T"
@@ -148,6 +148,71 @@ with tempfile.TemporaryDirectory() as root:
     check("a wrapper line the NameNode never saw is reported", "wrapper lines the NameNode log does not show" in out and "DELETE" in out)
     rc, out, _ = run("--nn", nn, "--wrapper", wd, "--from", "2026-10-08 06:42:00", "--to", "2026-10-08 06:42:02")
     check("--from and --to restrict the comparison", "NameNode lines read" in out and rc in (0, 1))
+
+    # step 4.6 rules: companion lines and submission lookups (data in the shape seen on the real cluster)
+    def nnl(t, cmd, src, ip="/10.10.0.1", dst="null"):
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(t // 1000)) + ",%03d" % (t % 1000)
+        return "%s INFO FSNamesystem.audit: allowed=true\tugi=u (auth:SIMPLE)\tip=%s\tcmd=%s\tsrc=%s\tdst=%s\tperm=null\tproto=rpc" % (stamp, ip, cmd, src, dst)
+
+    def wl(t, op, p, pid=4242):
+        return "%d\ttdx-lab\t%d\t%s\thdfs://hadoop-master:9000%s\t\t" % (t, pid, op, p)
+
+    def case(name, nn_lines, wr_lines, *flags):
+        r2 = os.path.join(root, name); os.makedirs(r2, exist_ok=True)
+        nnf = os.path.join(r2, "nn.log"); wdir = os.path.join(r2, "w"); os.makedirs(wdir, exist_ok=True)
+        open(nnf, "w").write("\n".join(nn_lines) + "\n"); open(os.path.join(wdir, "w.tsv"), "w").write("\n".join(wr_lines) + "\n")
+        return run("--nn", nnf, "--wrapper", wdir, *flags)
+
+    def left_over(out):  # the number of wrapper lines the NameNode log does not show (0 when the line is absent)
+        m = re.search(r"does not show \([^)]*\): (\d+)", out)
+        return int(m.group(1)) if m else 0
+
+    S = "/tmp/hadoop-yarn/staging/u/.staging/job_1_0005"; T0 = BASE + 600000
+    jar = [nnl(T0, "create", S + "/job.jar")]
+    # a: hashing on: COPYFROMLOCAL and CREATE for one upload, one NameNode create
+    rc, out, _ = case("a1", jar, [wl(T0 - 900, "COPYFROMLOCAL", S + "/job.jar"), wl(T0 - 5, "CREATE", S + "/job.jar")])
+    check("an upload's COPYFROMLOCAL and CREATE lines against one NameNode create: clean, one companion", rc == 0 and "same upload): 1" in out and left_over(out) == 0)
+    rc, out, _ = case("a2", jar, [wl(T0 - 900, "COPYFROMLOCAL", S + "/job.jar"), wl(T0 - 5, "CREATE", S + "/job.jar")], "--strict")
+    check("--strict: the leftover COPYFROMLOCAL line is reported as before", left_over(out) == 1 and "companion lines" not in out)
+    rc, out, _ = case("a3", jar, [wl(T0 + 10, "COPYFROMLOCAL", S + "/job.jar")])
+    check("hashing off (only a COPYFROMLOCAL line): it explains the create by itself, no companion", rc == 0 and "companion lines" not in out and "wrapper lines the NameNode log does not show" not in out)
+    rc, out, _ = case("a4", [nnl(T0, "getfileinfo", S)], [wl(T0 - 900, "COPYFROMLOCAL", S + "/job.jar"), wl(T0 - 5, "CREATE", S + "/job.jar")])
+    check("both lines of an upload the NameNode never saw: both are reported, no companion", left_over(out) == 2 and "companion lines" not in out)
+    rc, out, _ = case("a5", jar, [wl(T0 - 900, "COPYFROMLOCAL", S + "/job.jar", pid=1), wl(T0 - 5, "CREATE", S + "/job.jar", pid=2)])
+    check("a COPYFROMLOCAL line and a CREATE line from different JVMs are not paired", left_over(out) == 1 and "companion lines" not in out)
+
+    # b: submission lookups
+    win = jar + [nnl(T0 + 4000, "create", S + "/job.split")]
+    wr = [wl(T0 - 5, "CREATE", S + "/job.jar"), wl(T0 + 4002, "CREATE", S + "/job.split")]
+    D1 = "/user/u/crawl/crawldb/current/part-r-00000/data"
+    rc, out, _ = case("b1", win + [nnl(T0 + 2500, "open", D1)], wr)
+    check("an open by the submitting client between its job.jar and job.split is a known submission lookup, and the verdict is clean", rc == 0 and "known (submission-lookup): 1" in out and "NN-AUDIT-COMPARE-CLEAN" in out and "UNEXPLAINED (made behind the wrapper's back): 0" in out)
+    rc, out, _ = case("b2", win + [nnl(T0 + 2500, "open", D1, ip="/10.10.0.9")], wr)
+    check("the same open from another address is a finding", rc == 1 and "FINDINGS (1)" in out and "submission-lookup" not in out)
+    rc, out, _ = case("b3", win + [nnl(T0 + 9000, "open", D1)], wr)
+    check("an open after the job.split was created is a finding", rc == 1 and "FINDINGS (1)" in out)
+    rc, out, _ = case("b4", win + [nnl(T0 - 3000, "open", D1)], wr)
+    check("an open before the job.jar was created is a finding", rc == 1 and "FINDINGS (1)" in out)
+    rc, out, _ = case("b5", win + [nnl(T0 + 2500, "delete", D1)], wr)
+    check("a delete inside the window is a finding (the rule is for opens only)", rc == 1 and "FINDINGS (1)" in out)
+    rc, out, _ = case("b6", win + [nnl(T0 + 2500, "create", "/user/u/x", dst="null")], wr)
+    check("a create inside the window is a finding", rc == 1 and "FINDINGS (1)" in out)
+    rc, out, _ = case("b7", win + [nnl(T0 + 2500, "open", D1)], wr, "--strict")
+    check("--strict: the open inside the window is a finding again", rc == 1 and "FINDINGS (1)" in out and "submission-lookup" not in out)
+    rc, out, _ = case("b8", jar + [nnl(T0 + 2500, "open", D1)], [wl(T0 - 5, "CREATE", S + "/job.jar")])
+    check("a job.jar with no job.split makes no window: the open is a finding", rc == 1 and "FINDINGS (1)" in out)
+    rc, out, _ = case("b9", win + [nnl(T0 + 2500, "open", D1)], wr, "--known", "mine:crawldb")
+    check("a --known label wins over the built-in rule", "known (mine): 1" in out and "submission-lookup" not in out)
+
+    # allowed=false: a delete reports nothing deleted, any other command was refused
+    DEL = "/tmp/hadoop-yarn/staging/history/done_intermediate/u/job_1_0005_conf.xml_tmp"
+    rc, out, _ = case("c1", [nnl(T0, "delete", DEL, ip="/10.10.0.2").replace("allowed=true", "allowed=false")], [wl(T0 + 3, "DELETE", DEL)])
+    check("a delete with allowed=false is listed as 'removed nothing', not as DENIED, and the verdict stays clean", rc == 0 and "deletes that removed nothing" in out and "requests the NameNode DENIED" not in out and "NN-AUDIT-COMPARE-CLEAN" in out)
+    check("  ... and the text says the audit line cannot tell nothing-there from permission-denied", "cannot tell" in out and "AccessControlException" in out)
+    rc, out, _ = case("c2", [nnl(T0, "open", D1).replace("allowed=true", "allowed=false")], [])
+    check("an open with allowed=false is still DENIED", "requests the NameNode DENIED: 1" in out and "deletes that removed nothing" not in out)
+    rc, out, _ = case("c3", [nnl(T0, "delete", DEL).replace("allowed=true", "allowed=false"), nnl(T0 + 50, "open", D1).replace("allowed=true", "allowed=false")], [wl(T0 + 3, "DELETE", DEL)])
+    check("one of each is split into the two lists", "requests the NameNode DENIED: 1" in out and "removed nothing" in out and "): 1" in out.split("removed nothing")[1])
 
     # bad input
     rc, _, err = run("--nn", nn)

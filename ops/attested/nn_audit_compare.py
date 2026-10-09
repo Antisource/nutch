@@ -25,11 +25,25 @@ one NameNode event only.
 Usage:
   nn_audit_compare.py --nn NNLOG [--nn NNLOG ...] --wrapper DIR_OR_FILE [--wrapper ...]
       [--from 'YYYY-MM-DD HH:MM:SS'] [--to 'YYYY-MM-DD HH:MM:SS'] [--window-ms 3000]
-      [--known LABEL:REGEX ...] [--tsv OUT.tsv] [--show 40]
+      [--known LABEL:REGEX ...] [--tsv OUT.tsv] [--show 40] [--strict]
 Times are UTC (the NameNode's log is in the machine's time zone; the machines here run on UTC).
 --known gives a label to unexplained events whose path matches a regular expression (for example
-the NodeManager's reads of the job file until the wrapper is on Hadoop's classpath); they are listed
-and counted separately and do not fail the comparison.
+the reads of an actor that is known not to use the wrapper); they are listed and counted separately
+and do not fail the comparison.
+Two rules are on unless --strict is given (step 4.6, seen on a whole crawl):
+  companion lines   The wrapper logs a COPYFROMLOCAL line and then copies through its own create, which
+                    logs a CREATE line: two wrapper lines, one NameNode create. The line left over is a
+                    companion, but only if the other line of the same upload (same JVM, same file, within
+                    the window) was matched to a NameNode event. They are counted, not hidden.
+  submission lookup A client that creates a job's job.jar and, later, its job.split asks the NameNode in
+                    between where the input files' blocks are; HDFS audits that as "open". An unexplained
+                    open from that same client address inside that window is listed as known
+                    (submission-lookup), not as a finding. Only opens, never creates, deletes or renames.
+                    The NameNode cannot tell a lookup from a read, so this rests on the timing; a second
+                    look (the DataNode's HDFS_READ lines, if it logs them) is the stronger evidence.
+A line with allowed=false is reported as DENIED, except on a delete, where HDFS writes the result of the
+delete there: such lines are listed as "deletes that removed nothing" (the audit line cannot tell "nothing was
+there" from "permission denied"; the NameNode's main log has the AccessControlException of a real denial).
 Exit code: 0 when nothing is unexplained, 1 when something is, 2 on bad input.
 """
 import calendar
@@ -128,7 +142,7 @@ def parse_wrapper(arg, counts):
                     counts["wrapper lines ignored (%s)" % c[3]] += 1
                     continue
                 yield {"t": int(c[0]), "host": c[1], "op": c[3], "cat": cat, "p1": wpath(c[4]),
-                       "p2": wpath(c[5]) if c[5] else "", "used": False}
+                       "p2": wpath(c[5]) if c[5] else "", "used": False, "jvm": (fn, c[2])}
 
 
 def key_of_nn(e, cat):
@@ -153,7 +167,7 @@ def stamp_ms(s):
 
 
 def main(argv):
-    nn_files, wr_args, known, tsv = [], [], [], None
+    nn_files, wr_args, known, tsv, strict = [], [], [], None, False
     t_from = t_to = None
     window, show = 3000, 40
     i = 1
@@ -162,6 +176,10 @@ def main(argv):
         if a in ("-h", "--help"):
             print(__doc__)
             return 0
+        if a == "--strict":
+            strict = True
+            i += 1
+            continue
         if i + 1 >= len(argv):
             die("%s needs a value" % a)
         v = argv[i + 1]
@@ -205,6 +223,20 @@ def main(argv):
         wrapper_in = [w for w in wrapper if (t_from is None or w["t"] >= t_from - window) and (t_to is None or w["t"] <= t_to + window)]
     else:
         wrapper_in = wrapper
+    # Job-submission windows: the same client creates a job's job.jar and, later, its job.split. Between the two,
+    # the client asks the NameNode where the blocks of the job's input files are, which HDFS audits as "open".
+    jar_t, split_t = {}, {}
+    for e in events:
+        if e["cmd"] != "create":
+            continue
+        m = re.match(r"^.*/\.staging/(job_\d+_\d+)/(job\.jar|job\.split)$", e["src"])
+        if m:
+            (jar_t if m.group(2) == "job.jar" else split_t)[(m.group(1), e["ip"])] = e["t"]
+    windows = [(ip, jar_t[(j, ip)], split_t[(j, ip)]) for (j, ip) in jar_t if (j, ip) in split_t and split_t[(j, ip)] >= jar_t[(j, ip)]]
+
+    def in_submission_window(e):
+        return any(ip == e["ip"] and a <= e["t"] <= b for ip, a, b in windows)
+
     seen = Counter(); watched = explained = 0
     unexplained, known_hits, denied = [], defaultdict(list), []
     for e in events:
@@ -228,10 +260,28 @@ def main(argv):
             if rx.search(e["src"]) or (e["dst"] != "null" and rx.search(e["dst"])):
                 label = lab
                 break
+        if label is None and not strict and e["cmd"] == "open" and in_submission_window(e):
+            label = "submission-lookup"
         if label:
             known_hits[label].append(e)
         else:
             unexplained.append(e)
+    # The wrapper logs a COPYFROMLOCAL line and then copies through its own create, which logs a CREATE line: two
+    # wrapper lines for one upload, one NameNode create. The line left over is a companion of the other one, but
+    # only if that other line was itself matched to a NameNode event; if the NameNode saw nothing, both stay.
+    companions = 0
+    if not strict:
+        by_file_path = defaultdict(list)
+        for w in wrapper_in:
+            if w["op"] in ("COPYFROMLOCAL", "CREATE"):
+                by_file_path[(w["jvm"], w["p1"])].append(w)
+        for w in wrapper_in:
+            if w["used"] or w["op"] not in ("COPYFROMLOCAL", "CREATE"):
+                continue
+            other = "CREATE" if w["op"] == "COPYFROMLOCAL" else "COPYFROMLOCAL"
+            if any(o["op"] == other and o["used"] and abs(o["t"] - w["t"]) <= window for o in by_file_path[(w["jvm"], w["p1"])]):
+                w["used"] = True
+                companions += 1
     wrapper_only = [w for w in wrapper_in if not w["used"]]
 
     def fmt(e):
@@ -245,15 +295,31 @@ def main(argv):
         print("  %s: %d" % (k, v))
     print("NameNode events compared (open of data files and changes): %d" % watched)
     print("  explained by the wrapper's log: %d" % explained)
+    if companions:
+        print("  companion lines (a COPYFROMLOCAL line next to the CREATE line of the same upload): %d" % companions)
     print("  known, not counted: %d" % sum(len(v) for v in known_hits.values()))
     print("  UNEXPLAINED (made behind the wrapper's back): %d" % len(unexplained))
     print("other NameNode commands, counted only: " + (", ".join("%s %d" % (c, n) for c, n in sorted(seen.items()) if category(c) is None) or "none"))
-    if denied:
-        print("requests the NameNode DENIED: %d" % len(denied))
-        for e in denied[:show]:
+    # In HDFS the audit line of a delete carries the result of the delete: allowed=false means that nothing was
+    # deleted (the path was not there) as well as "permission denied", and the audit line cannot tell which.
+    # Every other command with allowed=false was refused. Check the NameNode's main log for AccessControlException.
+    denied_delete = [e for e in denied if e["cmd"] == "delete"]
+    denied_other = [e for e in denied if e["cmd"] != "delete"]
+    if denied_other:
+        print("requests the NameNode DENIED: %d" % len(denied_other))
+        for e in denied_other[:show]:
+            print("  " + fmt(e))
+    if denied_delete:
+        print("deletes that removed nothing (allowed=false on a delete: the path was not there, or permission was denied;")
+        print("  the audit line cannot tell, so look for AccessControlException in the NameNode's main log): %d" % len(denied_delete))
+        for e in denied_delete[:min(show, 3)]:
             print("  " + fmt(e))
     for lab, evs in sorted(known_hits.items()):
         print("known (%s): %d" % (lab, len(evs)))
+        if lab == "submission-lookup":
+            print("  (an open by the client that created the job's job.jar earlier and creates its job.split later: the client asks the")
+            print("   NameNode where the input's blocks are, and HDFS audits that as open. The NameNode cannot tell a lookup from a read,")
+            print("   so this rests on the timing; --strict turns the rule off)")
         for e in evs[:min(show, 5)]:
             print("  " + fmt(e))
     if unexplained:
