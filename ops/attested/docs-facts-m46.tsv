@@ -1,0 +1,115 @@
+# Facts of the Step 4.6 documents (valid for the documents as committed with them): document <TAB> text in the document <TAB> evidence source <TAB> evidence text
+docs/milestone-4-storage-integrity.md	`AUDIT-CLEAN`: 1,787 paths before, 2,109 after, 322 added	evidence-m46-run9/audit-result.txt	AUDIT-CLEAN
+docs/milestone-4-storage-integrity.md	`AUDIT-CLEAN`: 1,787 paths before, 2,109 after, 322 added	evidence-m46-run9/audit-result.txt	paths before: 1787   after: 2109
+docs/milestone-4-storage-integrity.md	322 added, all explained by the wrapper's logs, none removed or changed	evidence-m46-run9/audit-result.txt	explained by the log: added 322, removed 0, changed 0
+docs/milestone-4-storage-integrity.md	117 log files (24 master, 93 worker	files:evidence-m46-run9/audit	117
+docs/milestone-4-storage-integrity.md	117 log files (24 master, 93 worker	files:evidence-m46-cluster/master/attested-audit-old/20261009T060035Z	24
+docs/milestone-4-storage-integrity.md	117 log files (24 master, 93 worker	files:evidence-m46-cluster/worker/attested-audit-old/20261009T060019Z	93
+docs/milestone-4-storage-integrity.md	2,308 lines	evidence-m46-run9/audit-result.txt	lines: 2308
+docs/milestone-4-storage-integrity.md	`RECORDS-COMPLETE`: 55 files judged, 55 with a matching record	evidence-m46-run9/records-result.txt	files judged: 55   with a matching record: 55
+docs/milestone-4-storage-integrity.md	`RECORDS-COMPLETE`: 55 files judged, 55 with a matching record	evidence-m46-run9/records-result.txt	RECORDS-COMPLETE
+docs/milestone-4-storage-integrity.md	`VERIFY-CLEAN`: 265 opens, all `verify=ok`, 0 failures	evidence-m46-run9/verify-result.txt	opens in total: 265
+docs/milestone-4-storage-integrity.md	`VERIFY-CLEAN`: 265 opens, all `verify=ok`, 0 failures	evidence-m46-run9/verify-result.txt	verification failures: 0
+docs/milestone-4-storage-integrity.md	`VERIFY-CLEAN`: 265 opens, all `verify=ok`, 0 failures	evidence-m46-run9/verify-result.txt	VERIFY-CLEAN
+docs/milestone-4-storage-integrity.md	`RECORDS-VERIFIED`: 55 verified, 0 mismatched	evidence-m46-run9/run9-records-verify.txt	verified: 55   mismatched: 0
+docs/milestone-4-storage-integrity.md	`RECORDS-VERIFIED`: 55 verified, 0 mismatched	evidence-m46-run9/run9-records-verify.txt	RECORDS-VERIFIED
+docs/milestone-4-storage-integrity.md	Run 9 ran on 9 October from 05:08:18 to 05:19:48 UTC (11 min 30 s; the rounds started at 05:08:43, 05:11:59 and 05:15:55)	evidence-m46-run9/crawl-run9.log	re:05:08:43 UTC 2026 : Iteration 1 of 3
+docs/milestone-4-storage-integrity.md	05:11:59 and 05:15:55)	evidence-m46-run9/crawl-run9.log	re:05:11:59 UTC 2026 : Iteration 2 of 3
+docs/milestone-4-storage-integrity.md	05:11:59 and 05:15:55)	evidence-m46-run9/crawl-run9.log	re:05:15:55 UTC 2026 : Iteration 3 of 3
+docs/milestone-4-storage-integrity.md	05:19:48 UTC (11 min 30 s	evidence-m46-run9/crawl-run9.log	re:05:19:48 UTC 2026 : Finished loop with 3 iterations
+docs/milestone-4-storage-integrity.md	1,787 paths before, 2,109 after	lines:evidence-m46-run9/run9-before.tsv	1787
+docs/milestone-4-storage-integrity.md	1,787 paths before, 2,109 after	lines:evidence-m46-run9/run9-after.tsv	2109
+docs/milestone-4-storage-integrity.md	55 files judged, 55 with a matching record	lines:evidence-m46-run9/expected.tsv	55
+docs/milestone-4-storage-integrity.md	The first comparison, over the window from the log rotation (8 October 15:43) to the end of the crawl (9 October 05:21)	lines:evidence-m46-run9/run9-nn-window.log	6296
+docs/milestone-4-storage-integrity.md	1,894 events compared: 1,868 explained by the wrapper's log	evidence-m46-run9/nn-result-final.txt	NameNode events compared (open of data files and changes): 1894
+docs/milestone-4-storage-integrity.md	1,894 events compared: 1,868 explained by the wrapper's log	evidence-m46-run9/nn-result-final.txt	explained by the wrapper's log: 1868
+docs/milestone-4-storage-integrity.md	26 known (submission lookups), **0 unexplained**; 27 companion lines	evidence-m46-run9/nn-result-final.txt	known, not counted: 26
+docs/milestone-4-storage-integrity.md	26 known (submission lookups), **0 unexplained**; 27 companion lines	evidence-m46-run9/nn-result-final.txt	UNEXPLAINED (made behind the wrapper's back): 0
+docs/milestone-4-storage-integrity.md	26 known (submission lookups), **0 unexplained**; 27 companion lines	evidence-m46-run9/nn-result-final.txt	companion lines (a COPYFROMLOCAL line next to the CREATE line of the same upload): 27
+docs/milestone-4-storage-integrity.md	the wrapper's 1,895 non-start-up lines	evidence-m46-run9/nn-result-final.txt	wrapper lines read: 1895
+docs/milestone-4-storage-integrity.md	`NN-AUDIT-COMPARE-CLEAN`	evidence-m46-run9/nn-result-final.txt	NN-AUDIT-COMPARE-CLEAN
+docs/milestone-4-storage-integrity.md	81 requests were reported as denied	evidence-m46-run9/nn-result-final.txt	deletes that removed nothing
+docs/milestone-4-storage-integrity.md	81 requests were reported as denied	evidence-m46-run9/nn-result-final.txt	): 81
+docs/milestone-4-storage-integrity.md	All 81 were `delete`, all from the worker's address	evidence-m46-run9/run9-nn-denied-check.txt	81 cmd=delete
+docs/milestone-4-storage-integrity.md	All 81 were `delete`, all from the worker's address	evidence-m46-run9/run9-nn-denied-check.txt	81 ip=/10.10.0.2
+docs/milestone-4-storage-integrity.md	the NameNode's own log has no permission error in the window	evidence-m46-run9/run9-nn-denied-check.txt	permission errors: 0
+docs/milestone-4-storage-integrity.md	`--strict` | 26 unexplained and 27 wrapper lines not shown: `FINDINGS (26)`	evidence-m46-run9/nn-result-strict.txt	UNEXPLAINED (made behind the wrapper's back): 26
+docs/milestone-4-storage-integrity.md	`--strict` | 26 unexplained and 27 wrapper lines not shown: `FINDINGS (26)`	evidence-m46-run9/nn-result-strict.txt	does not show (a short or rotated log, or clocks out of step): 27
+docs/milestone-4-storage-integrity.md	`--strict` | 26 unexplained and 27 wrapper lines not shown: `FINDINGS (26)`	evidence-m46-run9/nn-result-strict.txt	NN-AUDIT-COMPARE-FINDINGS (26)
+docs/milestone-4-storage-integrity.md	108 unexplained: `FINDINGS (108)`	evidence-m46-run9/nn-result-control.txt	UNEXPLAINED (made behind the wrapper's back): 108
+docs/milestone-4-storage-integrity.md	108 unexplained: `FINDINGS (108)`	evidence-m46-run9/nn-result-control.txt	NN-AUDIT-COMPARE-FINDINGS (108)
+docs/milestone-4-storage-integrity.md	Tests: 36 of 36 (the 18 earlier ones unchanged, 18 new)	evidence-m46-run9/nn-tests.txt	ALL-PASS (36 of 36 checks passed)
+docs/milestone-4-storage-integrity.md	All 27 such lines had a `CREATE` line for the same file in the same JVM within 3 s	evidence-m46-run9/gap-check-result.txt	COPYFROMLOCAL lines: 27; with a CREATE line for the same file in the same JVM within 3 s: 27
+docs/milestone-4-storage-integrity.md	All 26 events were `open`, from the master, inside the submission window of one of the 27 jobs	evidence-m46-run9/gap-check-result.txt	'open' from the master inside a job's submission window: 26; anything else: 0
+docs/milestone-4-storage-integrity.md	All 26 events were `open`, from the master, inside the submission window of one of the 27 jobs	evidence-m46-run9/gap-check-result.txt	job-submission windows (job.jar upload to job.split creation): 27
+docs/milestone-4-storage-integrity.md	the DataNode here logged 3,155 lines in the window	lines:evidence-m46-cluster/worker/run9-dn-window.log	3155
+docs/milestone-4-storage-integrity.md	byte 12,927 of 25,854 changed	evidence-m46-run9/tamper9/m/tamper-run9.console.txt	changed byte 12927 of 25854
+docs/milestone-4-storage-integrity.md	(`job_1791450997865_0033`)	evidence-m46-run9/tamper9/m/tamper-run9.console.txt	job_1791450997865_0033
+docs/milestone-4-storage-integrity.md	the restored fingerprint `da0efcc0da0e3565` equals the original	evidence-m46-run9/tamper9/m/tamper-run9.console.txt	restored fingerprint equals original: yes
+docs/milestone-4-storage-integrity.md	the restored fingerprint `da0efcc0da0e3565` equals the original	evidence-m46-run9/tamper9/m/tamper-run9.console.txt	fingerprint da0efcc0da0e3565
+docs/milestone-4-storage-integrity.md	`TAMPER-PROVEN`: byte 12,927	evidence-m46-run9/tamper9/tamper-proof.txt	TAMPER-PROVEN
+docs/milestone-4-storage-integrity.md	none for any other path; three verified opens	evidence-m46-run9/tamper9/tamper-proof.txt	VERIFY-FAIL lines for any other path: 0
+docs/milestone-4-storage-integrity.md	none for any other path; three verified opens	evidence-m46-run9/tamper9/tamper-proof.txt	verified opens of the tampered file (control and restored read): 3
+docs/milestone-4-storage-integrity.md	one `VERIFY-FAIL chunk=0 hash does not match the record` from a container on the worker	dirhas:evidence-m46-run9/tamper9/w/attested-audit	chunk=0 hash does not match the record
+docs/milestone-4-storage-integrity.md	the map task and the ApplicationMaster both logged `ChecksumException`	evidence-m46-run9/tamper9/tasklogs/application_1791450997865_0033/container_1791450997865_0033_01_000002/syslog	re:ChecksumException: Attested verification failed
+docs/milestone-4-storage-integrity.md	the map task and the ApplicationMaster both logged `ChecksumException`	evidence-m46-run9/tamper9/tasklogs/application_1791450997865_0033/container_1791450997865_0033_01_000001/syslog	re:ChecksumException: Attested verification failed
+docs/milestone-4-storage-integrity.md	`job_1791450997865_0003`	evidence-m46-cluster/master/nm-swap-demo-1/verdict.txt	job_1791450997865_0003
+docs/milestone-4-storage-integrity.md	restored fingerprint `850ef14c833d730c` equals the original	evidence-m46-cluster/master/nm-swap-demo-1/verdict.txt	fingerprint 850ef14c833d730c
+docs/milestone-4-storage-integrity.md	restored fingerprint `850ef14c833d730c` equals the original	evidence-m46-cluster/master/nm-swap-demo-1/verdict.txt	restored fingerprint equals original: yes
+docs/milestone-4-storage-integrity.md	`job_1791450997865_0036`	evidence-m46-cluster/master/nm-swap-demo-2/verdict.txt	job_1791450997865_0036
+docs/milestone-4-storage-integrity.md	PASS, the same fingerprint; the failed job's temporary folder was removed	evidence-m46-cluster/master/nm-swap-demo-2.console.txt	removed QuasiMonteCarlo_
+docs/milestone-4-storage-integrity.md	PASS, the same fingerprint; the failed job's temporary folder was removed	evidence-m46-cluster/master/nm-swap-demo-2.console.txt	NM-SWAP-DEMO (client side): PASS
+docs/milestone-4-storage-integrity.md	pid 176992: an open `verify=ok` (15:15:52)	dirhas:evidence-m46-cluster/worker/attested-audit-old/20261008T151517Z	chunk=0 hash does not match the record
+docs/milestone-4-storage-integrity.md	pid 201543 (after a restart)	dirhas:evidence-m46-cluster/worker/attested-audit	chunk=0 hash does not match the record
+docs/milestone-4-storage-integrity.md	`safe mode did not end`	evidence-m46-cluster/master/cluster-mode-master-wrapped.txt	safe mode did not end
+docs/milestone-4-storage-integrity.md	`safe mode did not end`	evidence-m46-cluster/master/cluster-mode-master-wrapped.txt	CLUSTER-MODE-ROLLED-BACK
+docs/milestone-4-storage-integrity.md	The second attempt succeeded	evidence-m46-cluster/master/cluster-mode-master-wrapped2.txt	CLUSTER-MODE-OK: wrapped
+docs/milestone-4-storage-integrity.md	WRAPPED (`1c335707555b2427`)	evidence-m46-cluster/master/cluster-mode-master-wrapped2.txt	sha256 1c335707555b2427
+docs/milestone-4-storage-integrity.md	PLAIN (`d7e7dffd27def2a0`)	evidence-m46-cluster/master/cluster-mode-master-plain.txt	sha256 d7e7dffd27def2a0
+docs/milestone-4-storage-integrity.md	and the worker 18 s	evidence-m46-cluster/worker/cluster-mode-worker-wrapped.txt	CLUSTER-MODE-OK: wrapped
+docs/milestone-4-storage-integrity.md	it finished (20.1 s)	evidence-m46-cluster/master/stage2-pi-console.txt	Job Finished in 20.125 seconds
+docs/milestone-4-storage-integrity.md	the Pi example with no options finished (23.7 s)	evidence-m46-cluster/master/stage3-pi-console.txt	Job Finished in 23.732 seconds
+docs/milestone-4-storage-integrity.md	the plain listing showed 1,756 paths and the ordinary one (through the wrapper) 1,594	lines:evidence-m46-cluster/master/paths-plain.txt	1756
+docs/milestone-4-storage-integrity.md	the plain listing showed 1,756 paths and the ordinary one (through the wrapper) 1,594	lines:evidence-m46-cluster/master/paths-wrapped.txt	1594
+docs/milestone-4-storage-integrity.md	the probe gave the numbers of step 4.5.2 again (97 NameNode lines	lines:evidence-m46-cluster/master/nn-probe-m462c/nn-audit-window.log	97
+docs/cluster-configuration.md	is the WRAPPED version (`1c335707555b2427`)	evidence-m46-cluster/master/core-site.xml	re:AttestedHdfsFileSystem</value><final>true</final>
+docs/cluster-configuration.md	is the WRAPPED version (`1c335707555b2427`)	evidence-m46-cluster/worker/core-site.xml	re:AttestedHdfs</value><final>true</final>
+docs/cluster-configuration.md	(the master's first attempt is `before-20261008T083926Z`)	evidence-m46-cluster/master/cluster-mode/before-20261008T083926Z.core-site.xml	hadoop-master:9000
+docs/cluster-configuration.md	`core-site.xml.plain`, `core-site.xml.wrapped`	evidence-m46-cluster/master/cluster-mode/core-site.xml.wrapped	re:fs.AbstractFileSystem.hdfs.impl</name>
+docs/milestone-4-storage-integrity.md	| `fcffad09d` (new) | `ops/attested/wrapper-jar.sh` | `156fa0303bad491a` |	zip-sha:evidence-m46-cluster/master/m461-files.zip#m461/ops/attested/wrapper-jar.sh	156fa0303bad491a
+docs/milestone-4-storage-integrity.md	| `fcffad09d` (new) | `ops/attested/cluster-mode.sh` | `203038fdee3bd764` |	zip-sha:evidence-m46-cluster/master/m462b-files.zip#m462b/ops/attested/cluster-mode.sh	203038fdee3bd764
+docs/milestone-4-storage-integrity.md	| `bef3a6452` | `ops/attested/audit.sh` | `0e8026d6deedf08b` |	zip-sha:evidence-m46-cluster/master/m463b-files.zip#m463b/ops/attested/audit.sh	0e8026d6deedf08b
+docs/milestone-4-storage-integrity.md	| `bef3a6452` | `ops/attested/records_verify.sh` | `6dc2a7bd361b7b28` |	zip-sha:evidence-m46-cluster/master/m462c-files.zip#m462c/ops/attested/records_verify.sh	6dc2a7bd361b7b28
+docs/milestone-4-storage-integrity.md	| `bef3a6452` | `ops/attested/tamper-demo.sh` | `12a633b7b978ebc2` |	zip-sha:evidence-m46-cluster/master/m465-files.zip#m465/ops/attested/tamper-demo.sh	12a633b7b978ebc2
+docs/milestone-4-storage-integrity.md	| `bef3a6452` | `ops/attested/nn-audit.sh` | `404dd5d9717989b5` |	zip-sha:evidence-m46-cluster/master/m462c-files.zip#m462c/ops/attested/nn-audit.sh	404dd5d9717989b5
+docs/milestone-4-storage-integrity.md	| `bef3a6452` | `ops/attested/nn-audit-probe.sh` | `be7f2ac749b99d7f` |	zip-sha:evidence-m46-cluster/master/m462c-files.zip#m462c/ops/attested/nn-audit-probe.sh	be7f2ac749b99d7f
+docs/milestone-4-storage-integrity.md	| `9ef0f405d` (new) | `ops/attested/nm-swap-demo.sh` | `97f56cd7b3f47c99` |	zip-sha:evidence-m46-cluster/master/m466-files.zip#m466/ops/attested/nm-swap-demo.sh	97f56cd7b3f47c99
+docs/milestone-4-storage-integrity.md	| `28c811ff4` | `ops/attested/nn_audit_compare.py` | `694e3c6c848d564f` |	zip-sha:m464b-files.zip#m464b/ops/attested/nn_audit_compare.py	694e3c6c848d564f
+docs/milestone-4-storage-integrity.md	| `28c811ff4` | `ops/attested/test_nn_audit_compare.py` | `98a40deb0aaba20c` |	zip-sha:m464b-files.zip#m464b/ops/attested/test_nn_audit_compare.py	98a40deb0aaba20c
+docs/milestone-4-storage-integrity.md	`fcffad09d` (baby steps 4.6.1 and 4.6.2: the jar tool and the switch)	@git-log	fcffad0 feat(attested): put the wrapper on Hadoop's own classpath
+docs/milestone-4-storage-integrity.md	`bef3a6452` (the audit tools use the plain client)	@git-log	bef3a64 fix(attested): use the plain client in the audit tools
+docs/milestone-4-storage-integrity.md	`9ef0f405d` (baby step 4.6.3: the NodeManager swap demo)	@git-log	9ef0f40 feat(attested): show that the NodeManager refuses a swapped file
+docs/milestone-4-storage-integrity.md	`28c811ff4` (the NameNode comparison tool)	@git-log	28c811f feat(attested): pair upload lines
+docs/milestone-4-storage-integrity.md	`fcffad09d` (baby steps 4.6.1 and 4.6.2: the jar tool and the switch)	@git-files:fcffad0	2
+docs/milestone-4-storage-integrity.md	`bef3a6452` (the audit tools use the plain client)	@git-files:bef3a64	5
+docs/milestone-4-storage-integrity.md	`9ef0f405d` (baby step 4.6.3: the NodeManager swap demo)	@git-files:9ef0f40	1
+docs/milestone-4-storage-integrity.md	`28c811ff4` (the NameNode comparison tool)	@git-files:28c811f	2
+docs/milestone-4-storage-integrity.md	The bundles `evidence-m46-cluster.tar.gz` (`f17d700d...`	evidence-m46.sha256	f17d700d6c7a4875
+docs/milestone-4-storage-integrity.md	`evidence-m46-run9.tar.gz` (`fb23a3a4...`	evidence-m46.sha256	fb23a3a4ff223db0
+docs/milestone-4-storage-integrity.md	827 files and its `SHA256SUMS`	lines:evidence-m46-cluster/SHA256SUMS	827
+docs/milestone-4-storage-integrity.md	353 files and its `SHA256SUMS`	lines:evidence-m46-run9/SHA256SUMS	353
+docs/milestone-4-storage-integrity.md	a **companion line** is accepted only if the other line of the same upload	@repo:ops/attested/nn_audit_compare.py	companions
+docs/milestone-4-storage-integrity.md	`audit.sh rotate` now warns about a process that wrote a moved file	@repo:ops/attested/audit.sh	WARNING: these processes wrote files that were just moved
+docs/milestone-4-storage-integrity.md	The script's admin calls now use the plain client	@repo:ops/attested/cluster-mode.sh	ADMIN_D=
+docs/milestone-4-storage-integrity.md	makes its printed path absolute now	@repo:ops/attested/tamper-demo.sh	make it absolute
+docs/limitations-and-trust.md	0 unexplained of 1,894 events	evidence-m46-run9/nn-result-final.txt	explained by the wrapper's log: 1868
+docs/limitations-and-trust.md	the DataNode wrote 3,155 lines in the window	lines:evidence-m46-cluster/worker/run9-dn-window.log	3155
+docs/limitations-and-trust.md	`CLASSES-SAME` (13 classes)	@repo:ops/attested/wrapper-jar.sh	CLASSES-SAME (%d classes identical to the job file)
+docs/decisions.md	`fcffad09d`, `bef3a6452`, `9ef0f405d`, `28c811ff4`	@git-log	28c811f
+docs/decisions.md	(108 opens, all verified)	evidence-m46-run9/nn-result-control.txt	NN-AUDIT-COMPARE-FINDINGS (108)
+docs/cluster-configuration.md	wrapped on both nodes	evidence-m46-cluster/worker/cluster-mode-worker-run9prep.txt	core-site.xml is already the wrapped version
+docs/milestone-4-storage-integrity.md	(mistake log 70 to 78)	@docs:docs/guide-pitfalls-and-lessons.md	| 78 | Counting |
+docs/run-comparison.md	108 opens (27 jobs, 4 files each)	evidence-m46-run9/nn-result-control.txt	NN-AUDIT-COMPARE-FINDINGS (108)
+docs/run-comparison.md	`TAMPER-PROVEN`, with nothing exempted	evidence-m46-run9/tamper9/tamper-proof.txt	TAMPER-PROVEN
+docs/milestone-plan.md	steps 4.1 to 4.6 done, 4.7 and 4.8 open	@docs:docs/milestone-4-storage-integrity.md	steps 4.1 to 4.6 done; steps 4.7 and 4.8 open
+docs/handoff-attested-hadoop-cluster.md	run 9: 27 jobs, 108 verified opens	evidence-m46-run9/nn-result-control.txt	NN-AUDIT-COMPARE-FINDINGS (108)
