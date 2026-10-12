@@ -1,8 +1,8 @@
 # Handoff: attested CCBot on a multi-node Hadoop cluster in Intel TDX
 
-**Corrected on 7 October 2026.** The text below the corrections is the handoff of 4 October 2026, unchanged; where a statement is outdated or was wrong, a marker in **bold** names the correction. The original handoff has the SHA-256 `5123668b5bd0c563d54c33cfb6b6e7698c08adff13c9559cf7577da6791b2d33`. The corrections come from our milestone reports (the lists "Differences from the handoff") and from the mentor's answers of 7 October 2026 (ADR-026 in [decisions.md](decisions.md)).
+**Corrected on 7 and 10 October 2026.** The text below the corrections is the handoff of 4 October 2026, unchanged; where a statement is outdated or was wrong, a marker in **bold** names the correction. The original handoff has the SHA-256 `5123668b5bd0c563d54c33cfb6b6e7698c08adff13c9559cf7577da6791b2d33`. The corrections come from our milestone reports (the lists "Differences from the handoff") and from the mentor's answers of 7 October 2026 (ADR-026 in [decisions.md](decisions.md)).
 
-## Corrections (7 October 2026)
+## Corrections (7 and 10 October 2026)
 
 | ID | Where in the handoff | What it said | What is true now | Source |
 |---|---|---|---|---|
@@ -27,6 +27,13 @@
 | C19 | Section 6, piece 2 (line 156) | A commit hook signs one record when a task commits | Records are made by the wrapper when each file is closed, tagged with the task attempt id, and not by the commit hook: Nutch's fetch, parse and WARC outputs are written directly to their final path, and its parse output creates its own committer, so the hook set by configuration does not see them all. The committer stays an optional extra for manifests (question 13). | milestone-4 section 14.1; ADR-022 |
 | C20 | Section 6, pieces 1 and 4 (lines 155 and 158) | Sign on write, with a signed record and a ledger | The record is kept in a companion file next to the data file, not yet in a signed record and a ledger. | milestone-4 section 14.2; ADR-021 |
 | C21 | Section 6, piece 3 (line 157) | All metadata from records, never from storage | Metadata from records is not yet done. | milestone-4 section 14.3; step 4.5 |
+| C22 | Section 6, piece 2 (line 156), and section 9, item 5 | A commit hook signs a task record per attempt, and a job manifest per job; speculative execution off | **Dropped** by decision D9 (10 October 2026): no task records, job manifests, per-file history or folder tracking; step 4.7 is dropped. The recon of step 4.7 stays as history. | next-steps-storage-signing.md sections 1 and 6; ADR-034 |
+| C23 | Section 6, piece 3 (line 157) | All metadata from records, never from storage | Keep the length check that is built (step 4.5); no listing guarantee is claimed. | next-steps-storage-signing.md section 6; ADR-034 |
+| C24 | Section 4 (VC3-style completeness) | Task records carry counts, the job manifest fixes the task set, and the verifier checks that every job's inputs equal the previous job's outputs | **Dropped** with the records. The soundness argument is inductive instead: every VM runs measured code, that code reads only inputs that verify, so what it writes derives from verified inputs; a verifier checks the final files. | next-steps-storage-signing.md sections 3 and 6; ADR-034 |
+| C25 | Section 9, item 9 | Merkle log, signed checkpoints, an off-cloud witness, start records | The log and the witness are **deferred** (nice to have, not crucial); "start" records are **dropped** (they addressed rollback and re-run selection, which are now out of scope). | next-steps-storage-signing.md section 6; ADR-034 |
+| C26 | Section 9, item 10 | A verifier that walks the chain back to the seed list | **Replaced** by a verifier that checks the final files: signature, key, quote, measurements, hash. | next-steps-storage-signing.md section 6; ADR-034 |
+| C27 | Section 5 and section 9, item 4 | (rollback and deletion not stated as limits) | **Deletion and rollback are out of scope** and documented as known limits, with retries, duplicate attempts and re-runs invisible. | next-steps-storage-signing.md sections 2 and 7; ADR-034 |
+| C28 | Section 6, pieces 1 and 4 (lines 155 and 158), and section 9, item 7 | Sign on write with a signed record and a ledger | Records are signed with the per-VM key and bound to the file's folder (folder identity files); the ledger is deferred. C20 (records not yet signed) stays true until steps B1 to B3. | next-steps-storage-signing.md section 3; ADR-035 |
 | S1 | Section 0 (line 9) | Nothing in this document has been compiled or run, except Rishab's baseline runs | Milestones 0 to 4 have been built and run on the cluster: runs 3 to 8, the mesh, the wrapper, hashing, verified reads and the contract tests (docs/milestone-0 to milestone-4). | milestone-0 to milestone-4 |
 | S2 | Section 2 (line 45) | The crawler code is not measured: RTMR3 was all zeros | The crawler stack was measured in Milestone 1 (master 10 events, worker 5; quotes verified off-cloud; the event log replayed). Runs 6 and later used a job outside the measured set and are not covered by the measurement (ADR-020, ADR-029). | milestone-1; limitations rows 23 and 27; ADR-020 |
 | S3 | Section 2 (line 49) | The run did not use CCBot's HTTP client | Runs 3 and later use protocol-okhttp with the IP address stored. | milestone-0 |
@@ -44,8 +51,9 @@
 - **D6.** Stage B uses our defaults except for question 6: a task hashing its own job file can be skipped by a swapped job file, so it is not a security check. The wrapper moves onto Hadoop's own classpath and both lookups are set as final in the site configuration, so the NodeManager uses it too (ADR-027; step 4.6).
 - **D7.** Per-fetch TLS evidence (question 11) is teammate S's patch; coordinate with her on building the job with it (step 5.3, baby step 5.3.3).
 - **D8.** Per Amir, performance is the result that matters most: record wall time and bytes fetched for every wrapped and unwrapped pair (ADR-028; results in step 6.3).
+- **D9.** Pingshan's decisions of 10 October 2026, after step 4.6 (ADR-034 to ADR-036; [next-steps-storage-signing.md](next-steps-storage-signing.md)): storage integrity rests on one mechanism, sign on write and verify on read with the VM key; step 4.7 and every task record, job manifest, per-file history, folder tracking and "start" record are dropped; folder identity files bind a file to its folder; deletion and rollback are documented limits; the ledger and witness are deferred; the verifier checks the final files. The next steps are A1 to A4 (close the fail-open cases), B1 to B4 (signing) and C1 to C4 (evidence). The WARC is the point where teammate S's evidence and our signed commitments connect (ADR-036).
 
-See ADR-026 to ADR-029 in [decisions.md](decisions.md) for the mentor's words, and [milestone-plan.md](milestone-plan.md) for the plan as it stands.
+See ADR-026 to ADR-029 and ADR-034 to ADR-036 in [decisions.md](decisions.md) for the mentor's words, and [milestone-plan.md](milestone-plan.md) for the plan as it stands.
 
 ---
 
@@ -259,16 +267,16 @@ If any gate fails, stop and write up why before going further.
 
 **Stage B: integrity of storage.**
 4. Chunk hashing on write, verification on read, metadata from records. **[Status 8 October 2026: done, with unsigned records: hashing at close and verified reads with records next to the files (steps 4.2 and 4.3, runs 7 and 8), the contract tests (step 4.4), and metadata from records with the NameNode's audit log (step 4.5)]**
-5. Task records and job manifests from the committer; speculative execution off. **[Status 7 October 2026: open (step 4.7); records are made by the wrapper (C19)]**
+5. Task records and job manifests from the committer; speculative execution off. **[Status 7 October 2026: open (step 4.7); records are made by the wrapper (C19)]** **[Update 10 October 2026: dropped by decision D9 (ADR-034), see C22]**
 6. Staging directory on `attested://`; jar and config digests in records. **[Status 9 October 2026: done as changed by decision D6 (step 4.6): the wrapper is on Hadoop's own classpath with both lookups final; the NodeManager's reads of the job files are verified against records and a swapped file it fetches is refused; digests in task records belong to step 4.7]**
 
 **Stage C: identity and the ledger.**
-7. Per-VM signing key bound to the quote; mesh admission by quote verification. **[Status 7 October 2026: not started (steps 5.1 and 5.2)]**
+7. Per-VM signing key bound to the quote; mesh admission by quote verification. **[Status 7 October 2026: not started (steps 5.1 and 5.2)]** **[Update 10 October 2026: the key also signs every file record (steps B1, B3 and B4 of next-steps-storage-signing.md), see C28]**
 8. Locked-down measured image; fixed driver with typed parameters; TLS checking on; okhttp client. **[Status 7 October 2026: not started (step 5.3); the okhttp client is in use since run 3 (S3, S4); TLS checking stays off for now (C5)]**
-9. Merkle log, signed checkpoints, an off-cloud witness, start records. **[Status 7 October 2026: not started (steps 5.4 and 5.5)]**
+9. Merkle log, signed checkpoints, an off-cloud witness, start records. **[Status 7 October 2026: not started (steps 5.4 and 5.5)]** **[Update 10 October 2026: the log and the witness are deferred and start records are dropped, see C25]**
 
 **Stage D: verification and evidence.**
-10. Verifier, plus a second implementation. **[Status 7 October 2026: not started (step 6.1)]**
+10. Verifier, plus a second implementation. **[Status 7 October 2026: not started (step 6.1)]** **[Update 10 October 2026: the verifier checks the final files, see C26]**
 11. Tamper harness (section 10). **[Status 7 October 2026: not started (step 6.2); one tamper test exists (step 4.3: a changed byte is refused)]**
 12. Performance: the same crawl with and without the custody layer, and TDX against non-TDX VMs of the same shape. Expect a network cost: one study measured TDX TCP throughput down by up to 60% at full CPU ([Misono et al., p.18](https://dse.in.tum.de/wp-content/uploads/2024/11/sigmetrics25summer-CVM-Explained.pdf#page=18)) `[A]`. **[Decision D8: wall time and bytes fetched are recorded for every wrapped and unwrapped pair, with the control in the same hour; results in step 6.3; first timings only: 10 min 42 s, 10 min 43 s and 10 min 57 s for runs 6 to 8, without a control in the same hour]**
 13. Scale up: more workers and more cycles, as far as budget allows. Report the scale honestly. **[Status 7 October 2026: not started (step 6.4)]**

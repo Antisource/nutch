@@ -258,6 +258,6 @@ Decisions from 5 October 2026 onward are kept in [decisions.md](decisions.md). T
 | Larger worker disk | Open: about 5.4 GB usable by HDFS limits scale |
 | Turn on the DataNode's client trace at run time before the measured runs | Open: it would give a second look at the reads of the submitting client (limitations row 60) |
 | Re-measure after a reboot with the wrapped configuration | Open: step 4.8; the measured set now includes `core-site.xml` and the library jar |
-| Question 13 and the speculative-execution question for the mentor | Drafted on 9 October 2026 (the wrapper as the main source of task records; whether speculation must be guaranteed off or only made visible); not answered yet |
-| The naming of teammate S's evidence files | Drafted on 9 October 2026 (inside the attempt's own work folder, with the attempt id in the name; her patch's location and how it produces the evidence are asked too); not answered yet |
-| A speculative duplicate and a failure on a Nutch job | Open: not yet provoked (limitations row 65) |
+| Question 13 and the speculative-execution question for the mentor | Moot since 10 October 2026: step 4.7 and the task records are dropped (ADR-034) |
+| The naming of teammate S's evidence files | Settled by her message of 10 October 2026: attempt-scoped outputs in the task's work folder, covered by the per-file signed records (ADR-036) |
+| A speculative duplicate and a failure on a Nutch job | Closed on 10 October 2026: not pursued; retries and duplicate attempts are an accepted limit (limitations row 70) |

@@ -27,7 +27,7 @@ Times are UTC.
 | 019 | Build and test in scratch folders; commit exactly what ran | Accepted |
 | 020 | Defer the re-measurement until the job next changes | Accepted (mentor confirmation asked) |
 | 021 | Keep each file's record next to the file | Accepted (mentor confirmation asked) |
-| 022 | Records come from the wrapper when a file is closed, not from the commit hook | Accepted (mentor question 13 open) |
+| 022 | Records come from the wrapper when a file is closed, not from the commit hook | Accepted (question 13 is moot since ADR-034 dropped the task records) |
 | 023 | A file without a record is allowed but logged, for now | Accepted (provisional) |
 | 024 | Naming, the commit gate, and checking assumptions against real samples | Accepted |
 | 025 | Rehearse code with the real libraries; documents and programs in separate commits | Accepted |
@@ -39,6 +39,9 @@ Times are UTC.
 | 031 | The audit, admin and demo tools ask for the plain client explicitly | Accepted |
 | 032 | Before a crawl, rotate the logs and restart the wrapped daemon; collect the container logs right after | Accepted |
 | 033 | The NameNode comparison gets two explicit rules, visible and switchable | Accepted |
+| 034 | Storage integrity rests on one mechanism, sign on write and verify on read; step 4.7 and the task records are dropped | Accepted (Pingshan, 10 October) |
+| 035 | Folder identity files bind a file to its folder | Accepted (Pingshan, 10 October) |
+| 036 | The WARC is the point where teammate S's layer and ours connect | Proposed by teammate S |
 
 ---
 
@@ -208,6 +211,7 @@ Times are UTC.
 - **Decision:** the wrapper makes a record for every file when it is closed, tagged with host, process, job id and the task attempt id read from the task's configuration. The committer stays an optional extra for manifests.
 - **Why:** the wrapper is the one place that sees every file, whatever output format wrote it.
 - **Consequences:** a file whose writer is killed before closing it has no record; the completeness of a job's outputs (step 4.7) has to come from the per-attempt records and Hadoop's counters. If the mentor wants the committer as the main source, a custom committer is needed for the parse output (medium effort), and the wrapper's records can stay as a second line of defence.
+- **Update (10 October 2026):** question 13 is moot. ADR-034 drops the task records and the job manifests, so the wrapper is no longer asked to be the source of anything beyond the signed per-file record.
 
 ## ADR-023: A file without a record is allowed but logged, for now
 
@@ -310,3 +314,27 @@ Times are UTC.
 - **Decision:** `nn_audit_compare.py` pairs the two lines of an upload only if the other line was itself matched to a NameNode event, and counts an `open` as a submission lookup only if the same client address created the job's `job.jar` before it and its `job.split` after it (from the NameNode's own log), never for a create, delete or rename. Both are printed as their own lines, never merged into "explained", and `--strict` turns both off. A delete with `allowed=false` is listed as "removed nothing", not as denied, because HDFS writes the result of the delete there.
 - **Why:** an exemption written quietly would hide the next real difference; a rule that is printed, bounded and tested does not.
 - **Consequences:** the 26 lookups of run 9 rest on timing, because the NameNode cannot tell a lookup from a read and the DataNode does not log reads here (limitations row 60); turning on the DataNode's client trace at run time for the measured runs is an open item.
+
+## ADR-034: Storage integrity rests on one mechanism, sign on write and verify on read; step 4.7 and the task records are dropped
+
+- **Date:** 10 October 2026. **Status:** accepted (Pingshan's decisions after step 4.6, recorded in [next-steps-storage-signing.md](next-steps-storage-signing.md)).
+- **Context:** after step 4.6 the wrapper hashes every file at close and verifies every read, with unsigned records. Step 4.7 planned task records and job manifests, and question 13 (may the wrapper be the main source) was open.
+- **Decision:** storage integrity rests on **sign on write, verify on read, with the VM's signing key**. There are no per-task records, job manifests, per-file history, folder tracking, "start" records or commit hook, and step 4.7 is dropped. The wrapper stays a plain file-system layer with no Hadoop logic in it. The Merkle log and the witness are deferred (the mentor's view: nice to have, not crucial). The verifier checks the final files: signature, key, quote, measurements and hash, instead of walking the chain back to the seed list.
+- **Threat scope for storage.** In scope, to be prevented: tampering with stored bytes; forgery of a file that no attested VM wrote; a validly signed file placed in a different folder or under a different name (Hadoop names output files identically in every folder, so this would otherwise be trivial). Noted and out of scope: deletion (a file removed together with its record) and rollback (an older, validly signed file or folder put back), because neither can tamper with or insert data. A signed per-folder tracking file or ledger was considered and rejected: one shared file serialises every writer in the folder and can itself be rolled back, and per-writer ledgers still need a sealing step.
+- **Consequences:** retries, duplicate attempts and re-runs are not visible (a provider can re-run a job and keep the run it prefers; every run is genuine); an outside verifier cannot re-check intermediate steps and trusts that measured code verified its own inputs; a bug in the wrapper's verification would not be caught downstream, so the wrapper is small and reviewed closely. The recon of step 4.7 (report section 21) stays as history. The next steps are A1 to A4, B1 to B4 and C1 to C4 (plan section 8).
+
+## ADR-035: Folder identity files bind a file to its folder
+
+- **Date:** 10 October 2026. **Status:** accepted (Pingshan); the details marked "ours" are to be settled while building (step B2).
+- **Decision:** when a folder is created, the wrapper gives it a random ID and writes a small signed identity file inside it, covering the folder's ID, its own name and its parent's ID (the crawl's top folder binds to its full path). A file's signed record covers the folder's ID, the file's name, the content hash (our chunked Merkle root) and the length, and **not** the full path. Renaming a file signs a new record for that one file; renaming a folder re-signs only that folder's identity file, so the files inside and the folders below are untouched and no data is re-read. A read checks the record's signature, that the key belongs to an attested VM, that the record names this file and this folder's ID, the identity chain up to the top, and each chunk against the hash; anything missing or mismatched fails the read.
+- **Why:** a full path in every record makes a folder rename re-sign everything below it, and Nutch renames whole folders (it swaps in the new crawl database); signing only the file name makes renames free but lets same-named files be swapped between folders. The folder identity keeps the binding and makes a folder rename one small write.
+- **Details to settle:** two tasks may create the same folder at once (the first identity file written wins, created without overwrite); the identity file's name starts with `_` so that Hadoop's input listing skips it, and it is hidden from listings like the companion files; folders that exist before the wrapper is in use (the crawl's top folder, the seed folder) get an identity file from the driver. **Ours:** in run 9 the output committer moved files one by one, some into folders that already existed, so an identity file must never be moved like an ordinary file, or it would replace the destination's identity; this needs a rule and a test.
+- **Consequences:** the pass conditions of B2 (a signed file or a whole folder copied elsewhere fails the read; a folder rename writes one identity file and re-signs no file record; a normal crawl with Hadoop's commit renames and Nutch's folder moves still passes).
+
+## ADR-036: The WARC is the point where teammate S's layer and ours connect
+
+- **Date:** 10 October 2026. **Status:** proposed by teammate S in her message of 10 October, consistent with ADR-034 and ADR-035; not yet validated end to end.
+- **Context:** her patch (repository `Heron-AI-Security/training-custody`, branch `subhiksha/source-provenance`, commit `6128bc0`, applies to our `d4d520f`) embeds a source receipt and the TLS handshake evidence in WARC metadata records, and each fetch task writes attempt-scoped files `tc_receipts/receipts-<attempt>.jsonl`, `handshakes-<attempt>.jsonl` and `outcomes-<attempt>.jsonl` in its work output folder.
+- **Decision:** the signed commitment to the WARC (its Merkle root, signed with the quote-bound VM key) is the link between the two verification paths, so no separate signing of her evidence is needed; her outcome files are covered the same way, because every file written through the wrapper is signed. Our verifier checks the signed commitment and the attestation binding, hers checks the embedded receipts, response hashes, certificate evidence and policy.
+- **Open, with Pingshan:** how the collection policy is authenticated (packaged with the measured workload, or signed by the driver and distributed through HDFS), and whether the measured job lets the crawler reject invalid certificates itself (ADR-002). **To verify, not to assume:** that the trust anchors and the policy used by a task are covered by the measurement; that the baseline runs of the performance pairs do not inherit her key-free capture option (`-Djavax.net.debug=ssl:record:plaintext`, set per job in `mapreduce.map.java.opts`, never globally).
+- **Consequences:** her patch changes existing Nutch classes (our branch alone only adds files); the combined validation list is in her message (the patched job builds and runs on our branch, both kinds of evidence are emitted, WARC contents match the signed commitments, failed attempts leave no authoritative evidence, both verifiers accept the same WARC, and the performance pairs use consistent configurations).
