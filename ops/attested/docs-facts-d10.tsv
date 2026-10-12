@@ -1,0 +1,33 @@
+# Facts of the documents of 10 October 2026 (the decisions after step 4.6; valid for the documents as committed with them): document <TAB> text in the document <TAB> evidence source <TAB> evidence text
+docs/limitations-and-trust.md	Our wrapper still fails open in four ways	@repo:src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	public void concat(Path f, Path[] psrcs) throws IOException {
+docs/limitations-and-trust.md	Our wrapper still fails open in four ways	@repo:src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	public boolean truncate(Path f, long newLength) throws IOException {
+docs/limitations-and-trust.md	Our wrapper still fails open in four ways	@repo:src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	audit("APPEND", f, null, null);
+docs/limitations-and-trust.md	Our wrapper still fails open in four ways	@repo:src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	"append-unhashed"
+docs/limitations-and-trust.md	Our wrapper still fails open in four ways	@repo:src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	dropSidecar(f);
+docs/limitations-and-trust.md	a file with no record is read with a warning (`attested.verify.missing` defaults to `warn`)	@repo:src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	conf.get(MISSING_KEY, "warn")
+docs/limitations-and-trust.md	the wrapper's eight switches are read from the job's configuration and none is final	@repo:src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	"attested.hash.enabled"
+docs/limitations-and-trust.md	the wrapper's eight switches are read from the job's configuration and none is final	@repo:src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	"attested.hash.chunk.size"
+docs/limitations-and-trust.md	the wrapper's eight switches are read from the job's configuration and none is final	@repo:src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	"attested.sidecar.enabled"
+docs/limitations-and-trust.md	the wrapper's eight switches are read from the job's configuration and none is final	@repo:src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	"attested.verify.reads"
+docs/limitations-and-trust.md	the wrapper's eight switches are read from the job's configuration and none is final	@repo:src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	"attested.verify.missing"
+docs/limitations-and-trust.md	the wrapper's eight switches are read from the job's configuration and none is final	@repo:src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	"attested.metadata.check"
+docs/limitations-and-trust.md	the wrapper's eight switches are read from the job's configuration and none is final	@repo:src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	"attested.metadata.mismatch"
+docs/limitations-and-trust.md	the wrapper's eight switches are read from the job's configuration and none is final	@repo:src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	"attested.metadata.cache.seconds"
+docs/milestone-plan.md	| A1 | `append`, `concat` and `truncate` throw an error |	@docs:docs/next-steps-storage-signing.md	A1 | `append`, `concat` and `truncate` throw an error
+docs/milestone-plan.md	| A2 | A file with no record fails the read; the driver signs the seed file |	@docs:docs/next-steps-storage-signing.md	A file with no record fails the read
+docs/milestone-plan.md	| A3 | The wrapper's own switches cannot be changed by a job	@docs:docs/next-steps-storage-signing.md	A3 | The wrapper's own switches
+docs/milestone-plan.md	| A4 | Opening by path handle and the raw inner file system are refused |	@docs:docs/next-steps-storage-signing.md	A4 | Opening a file by path handle
+docs/milestone-plan.md	| B1 | Records are signed (a test key, clearly labelled, never used in evidence) |	@docs:docs/next-steps-storage-signing.md	B1 | Records are signed. A test key is fine for now
+docs/milestone-plan.md	| B2 | Folder identity files, and records bound to (folder ID, file name) |	@docs:docs/next-steps-storage-signing.md	B2 | Folder identity files, and records bound to (folder ID, file name)
+docs/milestone-plan.md	| B3 | The real key: per VM at boot	@docs:docs/next-steps-storage-signing.md	B3 | The real key: generated per VM at boot
+docs/milestone-plan.md	| B4 | Readers accept only keys of attested VMs	@docs:docs/next-steps-storage-signing.md	B4 | Readers accept only keys of attested VMs
+docs/milestone-plan.md	| C3 | Wall time and bytes fetched for every wrapped and unwrapped pair in the same hour	@docs:docs/next-steps-storage-signing.md	C3 | Performance: wall time and bytes fetched for every wrapped and unwrapped pair, run in the same hour
+docs/milestone-plan.md	(ADR-034 to ADR-036)	@docs:docs/decisions.md	## ADR-034: Storage integrity rests on one mechanism
+docs/milestone-plan.md	(ADR-034 to ADR-036)	@docs:docs/decisions.md	## ADR-036: The WARC is the point where teammate S
+docs/milestone-4-storage-integrity.md	Dropped on 10 October by Pingshan's decision (ADR-034, [next-steps-storage-signing.md](next-steps-storage-signing.md))	@docs:docs/next-steps-storage-signing.md	Step 4.7 is dropped.
+docs/decisions.md	(Pingshan's decisions after step 4.6, recorded in [next-steps-storage-signing.md](next-steps-storage-signing.md))	@docs:docs/next-steps-storage-signing.md	decisions Pingshan made after milestone 4.6
+docs/decisions.md	(the crawl's top folder binds to its full path)	@docs:docs/next-steps-storage-signing.md	The top folder of the crawl binds to its full path instead of a parent.
+docs/decisions.md	A signed per-folder tracking file or ledger was considered and rejected	@docs:docs/next-steps-storage-signing.md	We looked at detecting deletion with a signed per-folder tracking file or ledger and decided against it.
+docs/decisions.md	the first identity file written wins, created without overwrite	@docs:docs/next-steps-storage-signing.md	The first identity file written wins (create without overwrite)
+docs/handoff-attested-hadoop-cluster.md	- **D9.** Pingshan's decisions of 10 October 2026, after step 4.6 (ADR-034 to ADR-036;	@docs:docs/decisions.md	## ADR-035: Folder identity files bind a file to its folder
+docs/handoff-attested-hadoop-cluster.md	| C25 | Section 9, item 9 |	@docs:docs/next-steps-storage-signing.md	Merkle log, witness, checkpoints | Deferred
