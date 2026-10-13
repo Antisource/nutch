@@ -13,7 +13,7 @@ A verifiable chain of custody for web-crawl pretraining data: Common Crawl's own
 | Milestones 0 to 3 | done (clean baseline, code measurement, WireGuard mesh, pass-through wrapper) |
 | Milestone 4, steps 4.1 to 4.6 | done and committed; step 4.7 dropped by the mentor's decision of 10 October (ADR-034) |
 | Next steps (`milestone-plan.md` section 8) | B1 to B4 (signing), then C1 to C4 (evidence); A1 to A4 are done |
-| A1 to A4 | **done and committed** on 13 October: the wrapper refuses append, concat, truncate and the doors to the plain file system, fails reads of files without a record, and takes its settings from the site configuration only; run 10 and two demos prove it (report section 22) |
+| Baby steps 4.6.4 to 4.6.7 (the mentor's A1 to A4) | **done and committed** on 13 October: the wrapper refuses append, concat, truncate and the doors to the plain file system, fails reads of files without a record, and takes its settings from the site configuration only; run 10 and two demos prove it (report section 22) |
 | The teammate | her patch is ready for integration (ADR-036); the mentor's answers of October 2026 are in ADR-037 (policy in the measured image, expired certificates noted not rejected, single-record verification, the TLS capture in question) |
 
 Plan and decisions: `docs/milestone-plan.md`, `docs/decisions.md` (ADR-034 to ADR-039 are the latest), `docs/limitations-and-trust.md`.

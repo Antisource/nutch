@@ -1,6 +1,6 @@
 # Milestone 4: storage integrity (handoff Stage B)
 
-Date: 7 October 2026. Times are UTC. Status: **steps 4.1 to 4.6 done; step 4.7 dropped on 10 October (ADR-034); the wrapper's fail-open cases closed on 13 October (section 22); step 4.8 open** (section 4); the recon for step 4.7 is section 21, kept as history.
+Date: 7 October 2026. Times are UTC. Status: **steps 4.1 to 4.6 done; step 4.7 dropped on 10 October (ADR-034); the wrapper's fail-open cases closed on 13 October as baby steps 4.6.4 to 4.6.7 (section 22); step 4.8 open** (section 4); the recon for step 4.7 is section 21, kept as history.
 Written when step 4.3 closed and extended when step 4.4 closed (section 18), when step 4.5 closed (section 19) and when step 4.6 closed (section 20); the recon for step 4.7 is section 21, and the closing of the fail-open cases is section 22. It is extended as the later steps close.
 
 ## 1. Goal
@@ -38,7 +38,7 @@ Everything the mentor may change sits behind a setting (section 6), and the reco
 | 4.3 | Keep a record next to each file and verify every read against it | 4 | 4.2 | Done | Run 8 and the tamper test; commit `67c56f5a7` (sections 10, 11, 15) |
 | 4.4 | Run Hadoop's file-system contract tests against the wrapper | 4 | none | Done | Section 18; the wrapper fix `26da09f1c` and the tests `e72d1ed05` (section 15) |
 | 4.5 | Answer length, existence and listings from records, never from storage | 4 | 4.3 | Done | Baby steps: 4.5.1 metadata from records (`4deed2b33`); 4.5.2 the NameNode's audit log turned on and compared with the wrapper's log (`4ebf7570f`; the mentor, 7 October; ADR-026); section 19 |
-| 4.6 | Check the job file and configuration digests at the start of each task | 6 | 4.2 | Done | Changed by the mentor on 7 October (ADR-027): a task hashing its own job file is not a security check, so the digests are checked where the NodeManager reads the files. Baby steps: 4.6.1 the wrapper's classes on Hadoop's classpath on both nodes (`fcffad09d`); 4.6.2 both lookups set as final in the site configuration, with a switch back to the plain configuration (`fcffad09d`, and `bef3a6452` for the audit tools); 4.6.3 the NodeManager's read is checked against its record and a swapped file is refused (`9ef0f405d`, `28c811ff4`); section 20 |
+| 4.6 | Check the job file and configuration digests at the start of each task | 6 | 4.2 | Done | Changed by the mentor on 7 October (ADR-027): a task hashing its own job file is not a security check, so the digests are checked where the NodeManager reads the files. Baby steps: 4.6.1 the wrapper's classes on Hadoop's classpath on both nodes (`fcffad09d`); 4.6.2 both lookups set as final in the site configuration, with a switch back to the plain configuration (`fcffad09d`, and `bef3a6452` for the audit tools); 4.6.3 the NodeManager's read is checked against its record and a swapped file is refused (`9ef0f405d`, `28c811ff4`); section 20; 4.6.4 to 4.6.7 the fail-open cases closed on 13 October (`f23c00de2`, `4fe2da927`), section 22 |
 | 4.7 | Task records and job manifests; speculative execution off | 5 | 4.3 | **Dropped** | Dropped on 10 October by Pingshan's decision (ADR-034, [next-steps-storage-signing.md](next-steps-storage-signing.md)): no task records, job manifests or per-file history. The recon of 9 October (section 21) stays as history |
 | 4.8 | Milestone report; re-measure after a reboot (ADR-020) | | 4.4 to 4.7 | Open | Firewall rules must be saved first; nothing unmeasured is described as measured (ADR-029); the crawl that follows is run as a pair with an unwrapped control in the same hour (ADR-028) |
 
@@ -734,9 +734,9 @@ The bundle `evidence-m47-recon.tar.gz` (`a2e6f0aef21df43f...`, 226 files and its
 - Count every file you add: the bundle had one more file than I predicted.
 - The mistakes are in [guide-pitfalls-and-lessons.md](guide-pitfalls-and-lessons.md) (mistake log 79 to 83).
 
-## 22. The wrapper's fail-open cases are closed (the mentor's steps A1 to A4, 13 October 2026)
+## 22. The wrapper's fail-open cases are closed (baby steps 4.6.4 to 4.6.7, the mentor's steps A1 to A4, 13 October 2026)
 
-Date: 13 October 2026. Status: **done and committed** (`f23c00de2` for the wrapper and its tests, `4fe2da927` for the contract comparison), proved on the cluster by run 10 and two demos. What stays open is in section 22.7.
+Date: 13 October 2026. In the plan these are baby steps 4.6.4 to 4.6.7 of step 4.6, and the mentor's labels A1 to A4 map to them (plan section 8). Status: **done and committed** (`f23c00de2` for the wrapper and its tests, `4fe2da927` for the contract comparison), proved on the cluster by run 10 and two demos. What stays open is in section 22.7.
 
 ### 22.1 What it is, in plain words
 

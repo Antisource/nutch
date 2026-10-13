@@ -323,7 +323,7 @@ To count what the NodeManager read through the wrapper, on the worker: `cat /tmp
 | How to compare two jobs | `ops/attested/job_compare.py OLD NEW` (CRC-32 of every entry, nested jars by content) and `ops/attested/job_sha_compare.py OLD NEW` (SHA-256 of every entry and of every file inside the nested jars) |
 | Where the test build is | `~/clean-build` and its log `~/clean-build-ant.log` on the master (a scratch folder, not part of the cluster); the evidence is in the bundle `evidence-m46-cleanbuild.tar.gz` ([milestone-4-storage-integrity.md](milestone-4-storage-integrity.md) section 20.11) |
 
-## 18. The new wrapper on both nodes (13 October 2026, the mentor's steps A1 to A4)
+## 18. The new wrapper on both nodes (13 October 2026, baby steps 4.6.4 to 4.6.7)
 
 | Item | Value |
 |---|---|
