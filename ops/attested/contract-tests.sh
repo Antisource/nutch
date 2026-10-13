@@ -4,6 +4,9 @@
 #
 # The same tests run twice on the real cluster: once through the plain HDFS client (the control)
 # and once through the wrapper, whose classes are taken from the job file that ran the crawl.
+# Not run: Hadoop's append, concat and path-handle tests. The wrapper refuses those operations on purpose
+# (steps A1 and A4), so the options say they are unsupported and the path-handle class was removed; that the
+# refusals work is tested in AttestedFsSmoke (refusalChecks).
 # contract_compare.py then shows which tests behave differently through the wrapper.
 #
 # SAFETY: Hadoop's contract tests delete their test folder after every test. The folder is

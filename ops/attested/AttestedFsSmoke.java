@@ -186,6 +186,8 @@ public class AttestedFsSmoke {
 
   public static void main(String[] args) throws Exception {
     String mode = args.length > 0 ? args[0] : "fake";
+    // the tests feed the wrapper its settings from code; step A3 ignores such settings unless told otherwise
+    AttestedSettings.trustAllSourcesForTesting(true);
     switch (mode) {
     case "fake":
       runFake();
@@ -243,6 +245,7 @@ public class AttestedFsSmoke {
     verifyChecks(conf, base, plain);
     metadataChecks(conf, base, plain);
     fileContext(conf, new Path("hdfs://fake:9000" + tmp + "/fc"));
+    refusalChecks(conf, base, plain);
     auditLines(conf, tmp + "/audit", FakeHdfs.class.getName(), work);
     deleteTree(tmp.toFile());
   }
@@ -267,6 +270,7 @@ public class AttestedFsSmoke {
       verifyChecks(conf, base, plain);
       metadataChecks(conf, base, plain);
       fileContext(conf, new Path("hdfs://" + authority + work + "-fc"));
+      refusalChecks(conf, base, plain);
       auditLines(conf, tmp + "/audit", DistributedFileSystem.class.getName(),
           work);
     } finally {
@@ -324,12 +328,10 @@ public class AttestedFsSmoke {
       check("openFile builder reads the file", Arrays.equals(small, buf));
     }
 
-    try (FSDataOutputStream out = fs.append(f1)) {
-      out.write("++".getBytes(StandardCharsets.UTF_8));
-    }
-    eq("append grows the file", (long) small.length + 2, fs.getFileStatus(f1).getLen());
-    check("an append is flagged in the records as not hashed",
-        recordFlag(f1.toUri().getPath(), "append-unhashed"));
+    // step A1: append is refused; the file stays as it was
+    check("append is refused (step A1)", throwsIo(() -> fs.append(f1)));
+    eq("the file is unchanged by the refused append", (long) small.length,
+        fs.getFileStatus(f1).getLen());
 
     TreeSet<String> names = new TreeSet<>();
     for (FileStatus s : fs.listStatus(a)) {
@@ -395,6 +397,122 @@ public class AttestedFsSmoke {
     check("FileContext: delete recursive", fc.delete(dir, true));
   }
 
+
+  // ------------------------------------------------------- steps A1 to A4
+
+  /**
+   * A1: append, concat and truncate are refused. A2: a file without a record fails the
+   * read by default. A3: the wrapper's settings count only when the site configuration
+   * set them. A4: the doors to the plain file system are closed.
+   */
+  static void refusalChecks(Configuration conf, Path base, FileSystem plain) throws Exception {
+    FileSystem fs = base.getFileSystem(conf);
+    Path dir = new Path(base, "refusals");
+    fs.mkdirs(dir);
+    Path f = new Path(dir, "f");
+    Path g = new Path(dir, "g");
+    byte[] d = data(3000, 21);
+    put(fs, f, d);
+    put(fs, g, data(100, 22));
+
+    // A1
+    check("A1: append is refused", throwsIo(() -> fs.append(f)));
+    check("A1: the builder form of append is refused", throwsIo(() -> fs.appendFile(f).build()));
+    check("A1: concat is refused", throwsUnsupported(() -> {
+      fs.concat(f, new Path[] {g});
+      return null;
+    }));
+    check("A1: truncate is refused", throwsUnsupported(() -> fs.truncate(f, 10)));
+    FileContext fc = FileContext.getFileContext(conf);
+    check("A1: truncate through FileContext is refused", throwsUnsupported(() -> fc.truncate(f, 10)));
+    check("A1: after the refused calls the file is unchanged and still has its record",
+        plain.exists(sc(f)) && Arrays.equals(d, readAll(fs, f)));
+
+    // A2: the default for a file without a record is to fail the read
+    Path nr = new Path(dir, "no-record");
+    put(plain, nr, data(500, 23));
+    check("A2: a file with no record cannot be read by default", throwsIo(() -> readAll(fs, nr)));
+    check("A2: a status question about a file with no record is answered (it exposes no content)",
+        fs.getFileStatus(nr).getLen() == 500);
+    Path writing = new Path(dir, "being-written");
+    try (FSDataOutputStream o = fs.create(writing)) {
+      o.write(data(100, 25));
+      o.hflush();
+      check("A2: a file that is still being written (no record yet) can be asked about",
+          fs.getFileStatus(writing) != null);
+    }
+
+    // A4: the doors to the plain file system
+    org.apache.hadoop.fs.PathHandle handle = () -> java.nio.ByteBuffer.allocate(0);
+    check("A4: opening by path handle is refused", throwsUnsupported(() -> fs.open(handle, 4096)));
+    check("A4: the builder for opening by path handle is refused", throwsUnsupported(() -> fs.openFile(handle)));
+    check("A4: making a path handle is refused",
+        throwsUnsupported(() -> fs.getPathHandle(fs.getFileStatus(f))));
+    check("A4: the plain file system under the wrapper is not handed out",
+        throwsUnsupported(() -> ((org.apache.hadoop.fs.FilterFileSystem) fs).getRawFileSystem()));
+    FileSystem[] kids = fs.getChildFileSystems();
+    check("A4: the wrapper has no child file systems to hand out", kids == null || kids.length == 0);
+    check("A4: staging an output on the local disk is refused (start)",
+        throwsUnsupported(() -> fs.startLocalOutput(f, new Path("/tmp/attested-local-out"))));
+    check("A4: staging an output on the local disk is refused (complete)",
+        throwsUnsupported(() -> {
+          fs.completeLocalOutput(f, new Path("/tmp/attested-local-out"));
+          return null;
+        }));
+
+    // A3: settings count only when the site configuration set them
+    String auditDir = conf.get(AttestedAudit.DIR_KEY);
+    java.nio.file.Path tmpDir = Files.createTempDirectory("attested-settings");
+    File siteFile = new File(tmpDir.toFile(), "core-site.xml");
+    File jobFile = new File(tmpDir.toFile(), "job.xml");
+    String allow = "<configuration><property><name>attested.verify.missing</name>"
+        + "<value>allow</value></property></configuration>";
+    Files.write(siteFile.toPath(), allow.getBytes(StandardCharsets.UTF_8));
+    Files.write(jobFile.toPath(), allow.getBytes(StandardCharsets.UTF_8));
+    AttestedSettings.trustAllSourcesForTesting(false);
+    try {
+      Configuration bad = new Configuration(conf);
+      bad.setBoolean(AttestedHdfsFileSystem.VERIFY_KEY, false);
+      bad.set(AttestedHdfsFileSystem.MISSING_KEY, "allow");
+      bad.setBoolean(AttestedHdfsFileSystem.HASH_ENABLED_KEY, false);
+      FileSystem fsBad = FileSystem.newInstance(base.toUri(), bad);
+      Path victim = new Path(dir, "victim");
+      byte[] v = data(40000, 24);
+      put(fsBad, victim, v);
+      check("A3: with hashing switched off from code, the file still gets a record",
+          plain.exists(sc(victim)));
+      byte[] changed = v.clone();
+      changed[12345] ^= 1;
+      put(plain, victim, changed);
+      check("A3: with verify.reads off from code, a changed file is still refused",
+          throwsChecksum(() -> readAll(fsBad, victim)));
+      check("A3: with verify.missing=allow from code, a file with no record is still refused",
+          throwsIo(() -> readAll(fsBad, nr)));
+      boolean noted = false;
+      for (String[] c : auditEntries(auditDir)) {
+        if (c[3].equals("INIT") && c[6].contains("ignored=") && c[6].contains("attested.verify.reads")
+            && c[6].contains("attested.hash.enabled")) {
+          noted = true;
+        }
+      }
+      check("A3: the ignored settings and their source are written to the audit log (INIT line)", noted);
+
+      Configuration viaJob = new Configuration(conf);
+      viaJob.addResource(new Path(jobFile.toURI()));
+      FileSystem fsJob = FileSystem.newInstance(base.toUri(), viaJob);
+      check("A3: verify.missing=allow from a job file is ignored", throwsIo(() -> readAll(fsJob, nr)));
+
+      Configuration viaSite = new Configuration(conf);
+      viaSite.addResource(new Path(siteFile.toURI()));
+      FileSystem fsSite = FileSystem.newInstance(base.toUri(), viaSite);
+      check("A3: verify.missing=allow from the site configuration (core-site.xml) is obeyed",
+          readAll(fsSite, nr).length == 500);
+    } finally {
+      AttestedSettings.trustAllSourcesForTesting(true);
+      deleteTree(tmpDir.toFile());
+    }
+  }
+
   /** The audit log holds one line for each request that changes storage. */
   static void auditLines(Configuration conf, String dir, String expectedInner,
       String work) throws Exception {
@@ -415,7 +533,8 @@ public class AttestedFsSmoke {
     check("MKDIRS logged for a/b", has(lines, "MKDIRS", work + "/a/b", null));
     check("CREATE logged for f1", has(lines, "CREATE", work + "/a/f1", null));
     check("CREATE logged for big.bin", has(lines, "CREATE", work + "/a/b/big.bin", null));
-    check("APPEND logged for f1", has(lines, "APPEND", work + "/a/f1", null));
+    check("the refused append is logged as REFUSED for f1",
+        hasDetail(lines, "REFUSED", work + "/a/f1", "op=APPEND"));
     check("OPEN logged for f1", has(lines, "OPEN", work + "/a/f1", null));
     check("RENAME logged for the file", has(lines, "RENAME", work + "/a/f1", work + "/a/b/renamed"));
     check("RENAME logged for the folder", has(lines, "RENAME", work + "/a/b", work + "/a/b2"));
@@ -429,6 +548,15 @@ public class AttestedFsSmoke {
   static boolean has(List<String[]> lines, String op, String p1, String p2) {
     for (String[] c : lines) {
       if (c[3].equals(op) && c[4].equals(p1) && (p2 == null || c[5].equals(p2))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static boolean hasDetail(List<String[]> lines, String op, String p1, String detailPart) {
+    for (String[] c : lines) {
+      if (c[3].equals(op) && c[4].equals(p1) && c[6].contains(detailPart)) {
         return true;
       }
     }
@@ -652,6 +780,18 @@ public class AttestedFsSmoke {
     }
   }
 
+  /** The wrapper refuses with an UnsupportedOperationException that says so ("attested: ..."). */
+  static boolean throwsUnsupported(java.util.concurrent.Callable<Object> call) {
+    try {
+      call.call();
+      return false;
+    } catch (UnsupportedOperationException e) {
+      return e.getMessage() != null && e.getMessage().startsWith("attested:");
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
   static boolean throwsIo(java.util.concurrent.Callable<Object> call) {
     try {
       call.call();
@@ -729,7 +869,8 @@ public class AttestedFsSmoke {
     check("metadata: without file and record the answers are the ordinary ones",
         throwsNotFound(() -> fs.getFileStatus(f3)) && !fs.exists(f3) && fs.listStatus(dir).length == 2);
 
-    // a file slipped in without a record: allowed and logged once (policy warn)
+    // a file slipped in without a record: allowed and logged once (the default for a status question
+    // is warn; opening such a file fails, step A2)
     final Path f4 = new Path(dir, "m4");
     put(plain, f4, data(77, 4));
     long m0 = metaCount(auditDir, "META-MISSING", "/meta/m4");
@@ -743,17 +884,22 @@ public class AttestedFsSmoke {
 
     // the settings
     Configuration failConf = new Configuration(conf);
-    failConf.set(AttestedHdfsFileSystem.MISSING_KEY, "fail");
+    failConf.set(AttestedHdfsFileSystem.META_MISSING_KEY, "fail");
     final FileSystem fsFail = FileSystem.newInstance(base.toUri(), failConf);
-    check("metadata: with attested.verify.missing=fail a file without a record is refused",
+    check("metadata: with attested.metadata.missing=fail a file without a record is refused",
         throwsIo(() -> fsFail.getFileStatus(f4)) && throwsIo(() -> fsFail.listStatus(dir)));
+    Configuration readFail = new Configuration(conf);
+    readFail.set(AttestedHdfsFileSystem.MISSING_KEY, "fail");
+    final FileSystem fsReadFail = FileSystem.newInstance(base.toUri(), readFail);
+    check("metadata: attested.verify.missing=fail (the read policy) does not refuse a status question, but opening the file fails",
+        fsReadFail.getFileStatus(f4).getLen() == 77 && throwsIo(() -> readAll(fsReadFail, f4)));
     Configuration allowConf = new Configuration(conf);
-    allowConf.set(AttestedHdfsFileSystem.MISSING_KEY, "allow");
+    allowConf.set(AttestedHdfsFileSystem.META_MISSING_KEY, "allow");
     final FileSystem fsAllow = FileSystem.newInstance(base.toUri(), allowConf);
     long a0 = metaCount(auditDir, "META-MISSING", "/meta/m4");
     fsAllow.listStatus(dir);
     fsAllow.getFileStatus(f4);
-    check("metadata: with attested.verify.missing=allow the same file raises nothing in that program",
+    check("metadata: with attested.metadata.missing=allow the same file raises nothing in that program",
         metaCount(auditDir, "META-MISSING", "/meta/m4") == a0);
     plain.delete(f4, false);
 
@@ -940,8 +1086,13 @@ public class AttestedFsSmoke {
 
     // a missing record follows the policy
     plain.delete(sc(t), false);
-    check("missing record, default policy (warn): the file reads, unverified",
-        Arrays.equals(d, readAll(fs, t)) && auditCount(auditDir, "OPEN", "verify=missing") > 0);
+    check("missing record, default policy (fail, step A2): the open is refused",
+        tryRead(fs, t) == null && lastError.contains("has no record"));
+    Configuration warnMissingConf = new Configuration(conf);
+    warnMissingConf.set(AttestedHdfsFileSystem.MISSING_KEY, "warn");
+    FileSystem warnMissingFs = FileSystem.newInstance(base.toUri(), warnMissingConf);
+    check("missing record, policy warn: the file reads, unverified",
+        Arrays.equals(d, readAll(warnMissingFs, t)) && auditCount(auditDir, "OPEN", "verify=missing") > 0);
     Configuration failConf = new Configuration(conf);
     failConf.set(AttestedHdfsFileSystem.MISSING_KEY, "fail");
     FileSystem failFs = FileSystem.newInstance(base.toUri(), failConf);
@@ -1002,11 +1153,8 @@ public class AttestedFsSmoke {
         plain.exists(sc(copy)) && Arrays.equals(d, readAll(fs, copy)));
     Path ap = new Path(dir, "ap");
     put(fs, ap, data(1000, 3));
-    try (FSDataOutputStream o = fs.append(ap)) {
-      o.write(1);
-    }
-    check("append: the old record is removed (the file changed), and it still reads (warn)",
-        !plain.exists(sc(ap)) && readAll(fs, ap).length == 1001);
+    check("append is refused, and the file keeps its record and still verifies",
+        throwsIo(() -> fs.append(ap)) && plain.exists(sc(ap)) && readAll(fs, ap).length == 1000);
 
     // the builder forms of create and append go through the wrapper (hashed; the record is kept or dropped)
     Path bc = new Path(dir, "builder-create");
@@ -1022,11 +1170,9 @@ public class AttestedFsSmoke {
     }
     check("builder create over an existing file: the new content verifies (no stale record)",
         Arrays.equals(bcData2, readAll(fs, bc)));
-    try (FSDataOutputStream o = fs.appendFile(bc).build()) {
-      o.write(1);
-    }
-    check("builder append: the old record is dropped and the longer file reads (policy warn)",
-        !plain.exists(sc(bc)) && readAll(fs, bc).length == bcData2.length + 1);
+    check("builder append is refused, and the file keeps its record and still verifies",
+        throwsIo(() -> fs.appendFile(bc).build()) && plain.exists(sc(bc))
+            && Arrays.equals(bcData2, readAll(fs, bc)));
 
     // I/O statistics and unbuffer behave as they do through the plain client
     Path st = new Path(dir, "stats");

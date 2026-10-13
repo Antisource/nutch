@@ -45,9 +45,11 @@ import org.apache.hadoop.fs.FilterFileSystem;
 import org.apache.hadoop.fs.FutureDataInputStreamBuilder;
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Options.ChecksumOpt;
+import org.apache.hadoop.fs.Options.HandleOpt;
 import org.apache.hadoop.fs.Options.Rename;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.PathFilter;
+import org.apache.hadoop.fs.PathHandle;
 import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.fs.XAttrSetFlag;
 import org.apache.hadoop.fs.impl.FutureDataInputStreamBuilderImpl;
@@ -98,6 +100,12 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
   public static final String VERIFY_KEY = "attested.verify.reads";
   /** What to do when a file has no record: allow, warn (log it) or fail. */
   public static final String MISSING_KEY = "attested.verify.missing";
+  /**
+   * What a status or listing question does about a file without a record: allow, warn
+   * (answer and log once, the default) or fail. A file still being written has no record
+   * yet, and a question about it exposes no content: opening it is what fails (MISSING_KEY).
+   */
+  public static final String META_MISSING_KEY = "attested.metadata.missing";
 
   /**
    * Step 4.5: answers about files (length, existence, listings) are checked against
@@ -145,7 +153,8 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
   private boolean hashing = true;
   private boolean sidecars = true;
   private boolean verifyReads = true;
-  private String missingPolicy = "warn";
+  private String missingPolicy = "fail";
+  private String metaMissingPolicy = "warn";
   private long chunkSize = DEFAULT_CHUNK_SIZE;
   private String jobId = "";
   private String attemptId = "";
@@ -169,27 +178,34 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
           "This wrapper only serves hdfs:// addresses, got: " + name);
     }
     AttestedAudit.open(conf);
-    this.hashing = conf.getBoolean(HASH_ENABLED_KEY, true);
-    this.chunkSize = conf.getLong(CHUNK_SIZE_KEY, DEFAULT_CHUNK_SIZE);
+    List<String> ignored = new ArrayList<>();
+    this.hashing = AttestedSettings.getBoolean(conf, HASH_ENABLED_KEY, true, ignored);
+    this.chunkSize = AttestedSettings.getLong(conf, CHUNK_SIZE_KEY, DEFAULT_CHUNK_SIZE, ignored);
     if (chunkSize < 1) {
       throw new IOException(CHUNK_SIZE_KEY + " must be at least 1, got " + chunkSize);
     }
-    this.sidecars = hashing && conf.getBoolean(SIDECAR_KEY, true);
-    this.verifyReads = conf.getBoolean(VERIFY_KEY, true);
-    this.missingPolicy = conf.get(MISSING_KEY, "warn").trim().toLowerCase();
+    this.sidecars = hashing && AttestedSettings.getBoolean(conf, SIDECAR_KEY, true, ignored);
+    this.verifyReads = AttestedSettings.getBoolean(conf, VERIFY_KEY, true, ignored);
+    this.missingPolicy = AttestedSettings.get(conf, MISSING_KEY, "fail", ignored).trim().toLowerCase();
     if (!missingPolicy.equals("allow") && !missingPolicy.equals("warn")
         && !missingPolicy.equals("fail")) {
       throw new IOException(MISSING_KEY + " must be allow, warn or fail, got "
           + missingPolicy);
     }
-    this.metadataCheck = sidecars && conf.getBoolean(META_KEY, true);
-    this.mismatchPolicy = conf.get(META_MISMATCH_KEY, "fail").trim().toLowerCase();
+    this.metaMissingPolicy = AttestedSettings.get(conf, META_MISSING_KEY, "warn", ignored).trim().toLowerCase();
+    if (!metaMissingPolicy.equals("allow") && !metaMissingPolicy.equals("warn")
+        && !metaMissingPolicy.equals("fail")) {
+      throw new IOException(META_MISSING_KEY + " must be allow, warn or fail, got "
+          + metaMissingPolicy);
+    }
+    this.metadataCheck = sidecars && AttestedSettings.getBoolean(conf, META_KEY, true, ignored);
+    this.mismatchPolicy = AttestedSettings.get(conf, META_MISMATCH_KEY, "fail", ignored).trim().toLowerCase();
     if (!mismatchPolicy.equals("allow") && !mismatchPolicy.equals("warn")
         && !mismatchPolicy.equals("fail")) {
       throw new IOException(META_MISMATCH_KEY + " must be allow, warn or fail, got "
           + mismatchPolicy);
     }
-    long cacheSeconds = conf.getLong(META_CACHE_KEY, 10);
+    long cacheSeconds = AttestedSettings.getLong(conf, META_CACHE_KEY, 10, ignored);
     if (cacheSeconds < 0) {
       throw new IOException(META_CACHE_KEY + " must not be negative, got " + cacheSeconds);
     }
@@ -215,7 +231,9 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
         + inner.getClass().getName() + " wrapper=" + getClass().getName()
         + " hash=" + hashing + " chunk=" + chunkSize + " sidecar=" + sidecars
         + " verify=" + verifyReads + " missing=" + missingPolicy
-        + " from=" + where());
+        + " metamissing=" + metaMissingPolicy
+        + " from=" + where()
+        + (ignored.isEmpty() ? "" : " ignored=" + String.join(",", ignored)));
   }
 
   private String where() {
@@ -401,12 +419,12 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
     throw new ChecksumException("Attested metadata check failed for " + f + ": " + why, 0);
   }
 
-  /** A file without a record follows the same setting as a read does. */
+  /** A file without a record: a status or listing question follows its own setting, not the read policy. */
   private void missingRecord(Path f) throws IOException {
-    if (missingPolicy.equals("allow")) {
+    if (metaMissingPolicy.equals("allow")) {
       return;
     }
-    if (missingPolicy.equals("warn")) {
+    if (metaMissingPolicy.equals("warn")) {
       report("META-MISSING", f, "no record");
       return;
     }
@@ -748,18 +766,17 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
     return createDataOutputStreamBuilder(this, path).create().overwrite(true);
   }
 
+  /**
+   * Append is refused (step A1): the bytes added would pass the wrapper unhashed and
+   * the file's record could no longer be kept. A crawl needs none (run 9 made no
+   * append, concat or truncate call). The refusal is written to the audit log.
+   */
   @Override
   public FSDataOutputStream append(Path f, int bufferSize,
       Progressable progress) throws IOException {
-    audit("APPEND", f, null, null);
-    if (track()) {
-      dropSidecar(f);
-    }
-    if (hashing) {
-      AttestedRecords.log(jobId, attemptId, q(f).toUri().getPath(), -1,
-          chunkSize, 0, "", "append-unhashed");
-    }
-    return super.append(f, bufferSize, progress);
+    audit("REFUSED", f, null, "op=APPEND");
+    throw new IOException("attested: append is not supported (the added bytes "
+        + "would not be hashed and the record could not be kept): " + f);
   }
 
   @Override
@@ -770,28 +787,72 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
 
   @Override
   public void concat(Path f, Path[] psrcs) throws IOException {
-    StringBuilder srcs = new StringBuilder("srcs=");
-    for (int i = 0; i < psrcs.length; i++) {
-      srcs.append(i > 0 ? "," : "").append(q(psrcs[i]).toUri().getPath());
-    }
-    audit("CONCAT", f, null, srcs.toString());
-    super.concat(f, psrcs);
-    if (track()) {
-      dropSidecar(f);
-      for (Path src : psrcs) {
-        dropSidecar(src);
-      }
-    }
+    audit("REFUSED", f, null, "op=CONCAT");
+    throw new UnsupportedOperationException("attested: concat is not supported "
+        + "(it would join files without a record for the result): " + f);
   }
 
   @Override
   public boolean truncate(Path f, long newLength) throws IOException {
-    audit("TRUNCATE", f, null, "newLength=" + newLength);
-    boolean done = super.truncate(f, newLength);
-    if (track()) {
-      dropSidecar(f);
-    }
-    return done;
+    audit("REFUSED", f, null, "op=TRUNCATE");
+    throw new UnsupportedOperationException("attested: truncate is not supported "
+        + "(the record would no longer describe the file): " + f);
+  }
+
+  // ------------------------------------------- doors to the plain file system (A4)
+  //
+  // Hadoop's FilterFileSystem forwards these straight to the real file system. Each
+  // would let a caller read without verification or write without a record, so each
+  // is refused here (or, for the list of child file systems, answered with none).
+
+  @Override
+  public FSDataInputStream open(PathHandle fd, int bufferSize) throws IOException {
+    throw new UnsupportedOperationException("attested: opening by path handle is not "
+        + "supported (it would skip verification)");
+  }
+
+  @Override
+  public FutureDataInputStreamBuilder openFile(PathHandle pathHandle)
+      throws IOException, UnsupportedOperationException {
+    throw new UnsupportedOperationException("attested: opening by path handle is not "
+        + "supported (it would skip verification)");
+  }
+
+  @Override
+  protected CompletableFuture<FSDataInputStream> openFileWithOptions(
+      PathHandle pathHandle, OpenFileParameters parameters) throws IOException {
+    throw new UnsupportedOperationException("attested: opening by path handle is not "
+        + "supported (it would skip verification)");
+  }
+
+  @Override
+  protected PathHandle createPathHandle(FileStatus stat, HandleOpt... opts) {
+    throw new UnsupportedOperationException("attested: path handles are not supported");
+  }
+
+  @Override
+  public FileSystem getRawFileSystem() {
+    throw new UnsupportedOperationException("attested: the plain file system under "
+        + "this wrapper is not handed out");
+  }
+
+  /** No children: Hadoop's default answer, instead of FilterFileSystem's list holding the plain file system. */
+  @Override
+  public FileSystem[] getChildFileSystems() {
+    return null;
+  }
+
+  @Override
+  public Path startLocalOutput(Path fsOutputFile, Path tmpLocalFile) throws IOException {
+    throw new UnsupportedOperationException("attested: staging an output on the local "
+        + "disk is not supported (it would arrive without a record)");
+  }
+
+  @Override
+  public void completeLocalOutput(Path fsOutputFile, Path tmpLocalFile)
+      throws IOException {
+    throw new UnsupportedOperationException("attested: staging an output on the local "
+        + "disk is not supported (it would arrive without a record)");
   }
 
   @Override
