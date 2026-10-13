@@ -1,0 +1,3 @@
+# Differences between plain HDFS and the wrapper that are expected, with the reason.
+# class <TAB> method <TAB> a phrase that must appear in the wrapper's failure message <TAB> why
+TestAttestedContractCreate	testSyncable	the file has no record	A file still being written has no record yet (the record is made when the file is closed), so opening it for reading is refused (step A2). The test writes, flushes and reads the file back before closing it.
