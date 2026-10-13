@@ -1,0 +1,3 @@
+# The Hadoop settings of the lab cluster (docs/cluster-configuration.md section 4). @HOME@ is the user's home folder.
+fs.defaultFS=hdfs://hadoop-master:9000
+hadoop.tmp.dir=@HOME@/hadoop-data/tmp
