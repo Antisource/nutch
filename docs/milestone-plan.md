@@ -17,7 +17,7 @@ Date: 7 October 2026. This is the plan made on 6 October 2026: a pre-flight (Mil
 | 1 | Measure the code that runs | We can show which program ran: fingerprints of the code are written into the hardware quote | Gate A, item 3 | Done, 5 to 6 October | [milestone-1](milestone-1-code-measurement.md) |
 | 2 | Mesh for node-to-node traffic | The machines talk to each other only over an encrypted private network | Gate A, item 1 | Done, 6 October, with limits | [milestone-2](milestone-2-wireguard-mesh.md) |
 | 3 | Pass-through wrapper (no crypto yet) | Every storage request goes through our layer, which changes nothing yet | Gate A, item 2 | Done, 6 October | [milestone-3](milestone-3-hdfs-wrapper.md) |
-| 4 | Storage integrity (the first plan called it "sign on write, verify on read") | Storage cannot be changed unnoticed: files are fingerprinted when written and checked when read; the signing comes with steps B1 to B3 (section 8) | Stage B, items 4 to 6 | In progress: steps 4.1 to 4.6 done (baby steps 4.6.4 to 4.6.7 on 13 October), 4.7 dropped on 10 October, B1 and B2 and 4.8 open | [milestone-4](milestone-4-storage-integrity.md) |
+| 4 | Storage integrity (the first plan called it "sign on write, verify on read") | Storage cannot be changed unnoticed: files are fingerprinted when written and checked when read; the signing comes with step 5.1 | Stage B, items 4 to 6 | In progress: steps 4.1 to 4.6 done (baby steps 4.6.4 to 4.6.7 on 13 October), 4.7 dropped on 10 October, 4.8 open | [milestone-4](milestone-4-storage-integrity.md) |
 | 5 | Identity, ledger, lockdown | Each machine has a key that only an attested machine can use, the machine cannot be fiddled with, and (deferred on 10 October) an outside witness checks an append-only log | Stage C, items 7 to 9 | Not started | none yet |
 | 6 | Verifier and evidence | Anyone can check a crawl, our attacks on our own system are caught, and the cost is known | Stage D, items 10 to 13 | Not started | none yet |
 
@@ -35,21 +35,21 @@ Milestone 4 (the committed names; the report has the dependencies and results):
 | 4.4 | Run Hadoop's file-system contract tests against the wrapper | Done |
 | 4.5 | Answer length, existence and listings from records, never from storage | Done. Baby steps: 4.5.1 metadata from records (done); 4.5.2 the NameNode's audit log turned on and compared with the wrapper's log (done) |
 | 4.6 | Check the job file and configuration digests at the start of each task | Done (9 October; baby steps 4.6.4 to 4.6.7 on 13 October). Changed by the mentor on 7 October (ADR-027). Baby steps: 4.6.1 the wrapper's classes on Hadoop's classpath (done); 4.6.2 both lookups set as final, with a switch back to the plain configuration (done); 4.6.3 the NodeManager's read of the job file checked against its record, and a swapped file refused (done); 4.6.4 `append`, `concat` and `truncate` refused (done); 4.6.5 a file with no record cannot be opened (done); 4.6.6 the wrapper's settings count only when the site configuration set them (done); 4.6.7 the doors to the plain file system closed (done) |
-| 4.7 | Task records and job manifests; speculative execution off | **Dropped** (10 October, ADR-034): no task records, job manifests or per-file history. The recon ([milestone-4](milestone-4-storage-integrity.md) section 21) stays as history |
-| 4.8 | Milestone report; re-measure after a reboot (ADR-020) | Open, after the steps A and B of section 8 |
+| 4.7 | Task records and job manifests; speculative execution off | **Dropped** (10 October, ADR-034): no task records, job manifests or per-file history; what they were for, tying outputs to attested code, is done by the signed per-file records of step 5.1. The recon ([milestone-4](milestone-4-storage-integrity.md) section 21) stays as history |
+| 4.8 | Milestone report; re-measure after a reboot (ADR-020) | Open. The measured job must contain teammate S's code (the mentor's note of 10 October, section 8). The job changes with every code change, so whether to re-measure before or after step 5.1 is to be confirmed with the mentor |
 
 Milestone 5 and Milestone 6 (the items of the first plan; their reports will list the details):
 
 | Step | Name | Status |
 |---|---|---|
-| 5.1 | Per-VM signing key bound to the quote (a test key behind a key-provider interface first) | Not started. Now steps B1 (the test key) and B3 (the real key) of section 8 |
-| 5.2 | Mesh admission only after verifying a peer's quote | Not started. Step B4 reuses it as the source of the accepted keys |
+| 5.1 | Per-VM signing key bound to the quote (a test key behind a key-provider interface first) | Not started. Baby steps: 5.1.1 records are signed with a test key, clearly labelled and never used in evidence; 5.1.2 folder identity files bind each file to its folder (ADR-035); 5.1.3 the real key: generated per VM at boot, held by a small signing service, bound to the quote through REPORTDATA |
+| 5.2 | Mesh admission only after verifying a peer's quote | Not started. Baby step: 5.2.1 readers accept only keys of attested machines, with the admission step as the source of the accepted keys |
 | 5.3 | Locked image (no SSH or shell), fixed driver with typed parameters, TLS checking on. Baby steps: 5.3.1 the locked image; 5.3.2 the fixed driver; 5.3.3 TLS checking on, with per-fetch TLS evidence (teammate S's patch) | Not started |
 | 5.4 | Merkle log with signed checkpoints and an off-cloud witness (a witness interface and a local stand-in first) | Deferred (10 October, ADR-034) |
 | 5.5 | "Start" records logged before work begins | Dropped (10 October, ADR-034) |
-| 6.1 | The standalone verifier of the final files (signature, key, quote, measurements, hash), then a second independent one that must agree (the second one is not changed by the decisions of 10 October) | Not started |
-| 6.2 | The tamper harness with a clean control | Not started |
-| 6.3 | Performance with and without the custody layer, and TDX against non-TDX | Not started |
+| 6.1 | The standalone verifier of the final files (signature, key, quote, measurements, hash), able to check a single record from its byte range (ADR-037), then a second independent one that must agree (the second one is not changed by the decisions of 10 October) | Not started |
+| 6.2 | The tamper harness with a clean control. Baby steps: 6.2.1 the tamper demonstrations (a byte flipped; a file and its record replaced; a signed file moved to another folder, or two files of the same name swapped; a whole folder copied elsewhere; an unsigned file added; a record signed with a key that is not attested); 6.2.2 the two documented limits shown honestly (a file deleted together with its record, and an older signed copy put back, both expected to go undetected); 6.2.3 a review of what is readable or changeable outside the TEE (which keys exist, where they live, what crosses the VM boundary unprotected) and a red-team harness, both named by the mentor | Not started |
+| 6.3 | Performance with and without the custody layer, and TDX against non-TDX. Baby steps: 6.3.1 paired runs in the same hour, with wall time and bytes fetched for every wrapped and unwrapped pair, against a vanilla CCBot control; 6.3.2 the same measured piece by piece (the WireGuard mesh, the wrapped HDFS, the TLS capture, TDX), because the experiment is about where the cost comes from (ADR-037) | Not started |
 | 6.4 | Scale up as far as budget allows, and report the scale honestly | Not started |
 
 The handoff items map as follows: step 5.1 and 5.2 are item 7, step 5.3 is item 8, steps 5.4 and 5.5 are item 9, and steps 6.1 to 6.4 are items 10 to 13.
@@ -70,11 +70,32 @@ The decisions are recorded in ADR-026 to ADR-029 of [decisions.md](decisions.md)
 | Defaults for the rest: HDFS; a test key behind an interface; hash everything with a path filter; a witness interface with a local stand-in; contract tests first | Steps 5.1, 5.4 and 4.4 (done) |
 | Nothing new until the 16 October list; plan for mid-November to 20 November, 5 pages plus 2 | Section 7 |
 
+### What the mentor decided on 10 October, and where it lands
+
+The decisions are recorded in ADR-034 to ADR-039 of [decisions.md](decisions.md); the mentor's note is [next-steps-storage-signing.md](next-steps-storage-signing.md). This table follows the note's own order and also lists what it leaves as it was.
+
+| The mentor said | Where it lands |
+|---|---|
+| Storage integrity rests on one mechanism, sign on write and verify on read, with the VM's signing key | Step 5.1 (baby steps 5.1.1 to 5.1.3): the per-file signed records replace the first plan's signed task record (ADR-034) |
+| No task records, job manifests, per-file history or folder tracking; step 4.7 is dropped; the wrapper stays a plain file-system layer | Step 4.7 dropped; its recon stays as history |
+| In scope: tampering, forgery, and a validly signed file in another folder or under another name | Steps 5.1.1 and 5.1.2; the tamper demonstrations in 6.2.1 |
+| Deletion and rollback are noted and out of scope; retries, re-runs and intermediate steps are not visible | Limitations rows 68 to 71; shown honestly in 6.2.2 |
+| Folder identity files | Baby step 5.1.2 (ADR-035) |
+| Close the fail-open cases (A1 to A4) | Baby steps 4.6.4 to 4.6.7 (done, 13 October) |
+| The real key bound to the quote; readers accept only attested keys | Baby steps 5.1.3 and 5.2.1 |
+| The Merkle log, the witness and the checkpoints are deferred; "start" records are dropped | Step 5.4 deferred; step 5.5 dropped |
+| The verifier checks the final files (signature, key, quote, measurements, hash), not the chain back to the seed list | Step 6.1; the second independent verifier is not mentioned and stays |
+| Evidence: tamper demonstrations, the two limits shown honestly, performance pairs, a review of what is exposed | Baby steps 6.2.1 to 6.2.3 and 6.3.1 |
+| Unchanged: the WireGuard mesh, the measured image and RTMR3, plain TDX VMs with our own image, the fixed driver, locking down the image | Milestones 1 and 2; step 5.3 |
+| teammate S's patch: build the job with it and re-measure | Steps 4.8 and 5.3.3 |
+| Apply the handoff corrections with section 6 of the note, in one commit with a corrections list at the top | Done: the corrected handoff (C22 to C28 and D9) |
+| Not mentioned, so as before: step 6.4 (scale), the same-hour pairs and TDX against non-TDX (6.3), the results of steps 4.1 to 4.6, and the decisions of 7 October (except the witness stand-in, which waits with step 5.4) | Unchanged |
+
 ## 5. What each milestone needs before it can start
 
 | Milestone | Needs | Why |
 |---|---|---|
-| 5 | 1, 2, 4 | The key is bound to a quote (Milestone 1), machines are admitted through the mesh (Milestone 2), and the log holds the records of Milestone 4 |
+| 5 | 1, 2, 4 | The key is bound to a quote (Milestone 1), machines are admitted through the mesh (Milestone 2), and the signed records are those of the wrapper of Milestone 4 (the log is deferred) |
 | 6 | 4, 5 | The verifier checks the records, the log and the TLS evidence; the performance pairs need the wrapper (Milestone 3) and the final job |
 
 ## 6. Teammate S's work and ours
@@ -88,7 +109,7 @@ She can start now: the code she needs is on the branch `feat/tee-hadoop-cluster`
 | 4.5, 4.6 | No | |
 | 4.7 | Dropped | Step 4.7 is dropped (ADR-034). Her attempt-scoped outputs are covered by the per-file signed records like every other file (her message of 10 October, ADR-036) |
 | 4.8 (re-measure) | Yes | The measured job must contain her code and files |
-| 5.1 | Small agreement | The signing key stays out of the fetcher JVM; her evidence is bound by the signed commitment to the WARC and to her output files (ADR-036) |
+| 5.1 | Small agreement | The signing key stays out of the fetcher JVM; her evidence is bound by the signed commitment to the WARC and to her output files (ADR-036). Her output folders are also the real test of the folder identity files (5.1.2): a task attempt's output is moved from its attempt folder into the final folder when the task commits, and Hadoop merges into folders that already exist, so we need the layout of her output folders and a run of her integration test against the new wrapper |
 | 5.2, 5.4, 5.5 | No | Her evidence is more records |
 | 5.3 | Yes | TLS checking on and her evidence belong together; her extra files must be in the locked image and her settings must fit the fixed driver |
 | 6.1 | Yes | The verifier checks her evidence for each record, so it needs her format, versioned |
@@ -100,7 +121,7 @@ The HTTP client is okhttp (`protocol-okhttp`), as the handoff requires; a change
 ## 7. Timeline
 
 - The workshop paper is planned for mid-November to 20 November, 5 pages plus 2 (the mentor, 7 October). Nothing new for the paper is started before the 16 October list.
-- The plan has no dates of its own; the handoff attaches none on purpose. After 10 October the order is A1 to A4, B1 and B2, then B3 and B4 with the other steps of Milestone 5, then C1 to C4 (section 8); step 4.7 is dropped. Any dates are proposals until the mentor confirms them.
+- The plan has no dates of its own; the handoff attaches none on purpose. After 10 October the order is baby steps 4.6.4 to 4.6.7 (done on 13 October), then step 5.1 (the signed records, the folder identity, the real key) and step 5.2, with step 4.8 (the re-measure, once teammate S's patch is in the job) placed as the mentor confirms, then Milestone 6 (section 8 maps the mentor's labels to the steps). Any dates are proposals until the mentor confirms them.
 - The handoff's rule applies: security work is not cut to meet a date. What is not done in time is written down as a limitation, and the paper claims only what exists:
 
 | When it is done | What can honestly be claimed |
@@ -109,17 +130,9 @@ The HTTP client is okhttp (`protocol-okhttp`), as the handoff requires; a change
 | Milestone 5 | The records are signed inside attested machines and logged under a witness |
 | Milestone 6 | An outsider can check a crawl, each tested attack is caught or recorded as a miss, and the cost and the scale are reported |
 
-## 8. Rules that apply to every milestone
-
-- A commit contains only files identical to the ones that ran on the cluster; documents and programs are committed separately (ADR-024, ADR-025).
-- Code that depends on real libraries is rehearsed with them before it is sent (ADR-025).
-- Nothing that ran outside the measured set is called measured (ADR-029).
-- Every wrapped crawl has an unwrapped control in the same hour, and wall time and bytes fetched are recorded (ADR-028).
-- A check is only trusted after it has caught a known fault ([guide-pitfalls-and-lessons.md](guide-pitfalls-and-lessons.md), rule 20).
-
 ## 8. The steps after 10 October (A1 to C4)
 
-Pingshan's decisions of 10 October (ADR-034 to ADR-036) drop step 4.7 and replace the rest of the storage plan with the steps below. The labels are the ones of [next-steps-storage-signing.md](next-steps-storage-signing.md), which has the full pass conditions; teammate S's message uses them too. The working order is A, then B1 and B2, then B3 and B4, then C.
+The mentor's decisions of 10 October (ADR-034 to ADR-039) drop step 4.7 and change what the signing covers. The labels A1 to C4 are the ones of [next-steps-storage-signing.md](next-steps-storage-signing.md), which has the full pass conditions; they are kept here only as a cross-reference. Each item is a baby step of a committed step, so that the plan has one structure: the signing is Milestone 5, as the plan always had it ("the signing comes with step 5.1"), and Milestone 4 keeps only the fail-open fixes (done) and step 4.8. The working order is A, then B1 to B3, then B4, then C.
 
 | Step | What | Pass condition in one line | Lands in |
 |---|---|---|---|
@@ -127,15 +140,23 @@ Pingshan's decisions of 10 October (ADR-034 to ADR-036) drop step 4.7 and replac
 | A2 | A file with no record fails the read; the driver signs the seed file | reading an unrecorded file fails, the crawl still runs | Step 4.6, baby step 4.6.5 (done) |
 | A3 | The wrapper's own switches cannot be changed by a job (final in the site configuration, or removed) | a job submitted with `-D attested.verify.reads=false` still has its reads verified | Step 4.6, baby step 4.6.6 (done) |
 | A4 | Opening by path handle and the raw inner file system are refused | a direct call to each fails | Step 4.6, baby step 4.6.7 (done) |
-| B1 | Records are signed (a test key, clearly labelled, never used in evidence) | a file rewritten with its record, without the key, fails the read | Milestone 4 |
-| B2 | Folder identity files, and records bound to (folder ID, file name) | a signed file or a whole folder copied elsewhere fails the read; a folder rename re-signs no file record; a normal crawl still passes | Milestone 4 |
-| B3 | The real key: per VM at boot, held by a small signing service, bound to the quote through REPORTDATA | a record's key resolves to a quote that verifies off-cloud, whose RTMR3 replay matches | Milestone 5 (step 5.1) |
-| B4 | Readers accept only keys of attested VMs (the mesh admission step is the source of the list) | a record signed by a key from outside the cluster fails the read | Milestone 5 (step 5.2) |
-| C1 | Tamper demonstrations: flip a byte; replace a file and its record; move a signed file or swap same-named files between folders; copy a folder elsewhere; add an unsigned file; sign with a non-attested key | all refused | Milestone 6 (step 6.2) |
-| C2 | The two documented limits shown honestly: delete a file with its record; put back an older signed copy | both go undetected, and are recorded as such | Milestone 6 (step 6.2) |
-| C3 | Wall time and bytes fetched for every wrapped and unwrapped pair in the same hour; then TDX against non-TDX VMs of the same shape | (the number readers look for) | Milestone 6 (step 6.3) |
-| C4 | Review of what is readable or changeable outside the TEE: which keys exist, where they live, what crosses the VM boundary unprotected | (the most common way such systems fail) | Milestone 6 |
+| B1 | Records are signed (a test key, clearly labelled, never used in evidence) | a file rewritten with its record, without the key, fails the read | Step 5.1, baby step 5.1.1 (open) |
+| B2 | Folder identity files, and records bound to (folder ID, file name) | a signed file or a whole folder copied elsewhere fails the read; a folder rename re-signs no file record; a normal crawl still passes | Step 5.1, baby step 5.1.2 (open) |
+| B3 | The real key: per VM at boot, held by a small signing service, bound to the quote through REPORTDATA | a record's key resolves to a quote that verifies off-cloud, whose RTMR3 replay matches | Step 5.1, baby step 5.1.3 (open) |
+| B4 | Readers accept only keys of attested VMs (the mesh admission step is the source of the list) | a record signed by a key from outside the cluster fails the read | Step 5.2, baby step 5.2.1 (open) |
+| C1 | Tamper demonstrations: flip a byte; replace a file and its record; move a signed file or swap same-named files between folders; copy a folder elsewhere; add an unsigned file; sign with a non-attested key | all refused | Step 6.2, baby step 6.2.1 (open) |
+| C2 | The two documented limits shown honestly: delete a file with its record; put back an older signed copy | both go undetected, and are recorded as such | Step 6.2, baby step 6.2.2 (open) |
+| C3 | Wall time and bytes fetched for every wrapped and unwrapped pair in the same hour; then TDX against non-TDX VMs of the same shape | (the number readers look for) | Step 6.3, baby steps 6.3.1 and 6.3.2 (open) |
+| C4 | Review of what is readable or changeable outside the TEE: which keys exist, where they live, what crosses the VM boundary unprotected | (the most common way such systems fail) | Step 6.2, baby step 6.2.3 (open) |
 
-Step 5.3 (locked image, fixed driver, TLS checking on with the teammate's patch) is unchanged. Our own fail-open findings were in the limitations (row 72, closed on 13 October 2026).
+The note groups C1 to C4 as evidence, which is Milestone 6; the review in C4 also informs step 5.3 (the locked image). Step 5.3 (locked image, fixed driver, TLS checking on with the teammate's patch) is otherwise unchanged. Our own fail-open findings were in the limitations (row 72, closed on 13 October 2026).
 
-**Status on 13 October 2026: A1 to A4 are done (baby steps 4.6.4 to 4.6.7 of step 4.6)** ([milestone-4](milestone-4-storage-integrity.md) section 22: run 10 and two demos with the new wrapper); B1 to C4 are open.
+**Status on 13 October 2026: A1 to A4 are done (baby steps 4.6.4 to 4.6.7 of step 4.6)** ([milestone-4](milestone-4-storage-integrity.md) section 22: run 10 and two demos with the new wrapper); the signing starts with step 5.1, and step 4.8 is placed as the mentor confirms.
+
+## 9. Rules that apply to every milestone
+
+- A commit contains only files identical to the ones that ran on the cluster; documents and programs are committed separately (ADR-024, ADR-025).
+- Code that depends on real libraries is rehearsed with them before it is sent (ADR-025).
+- Nothing that ran outside the measured set is called measured (ADR-029).
+- Every wrapped crawl has an unwrapped control in the same hour, and wall time and bytes fetched are recorded (ADR-028).
+- A check is only trusted after it has caught a known fault ([guide-pitfalls-and-lessons.md](guide-pitfalls-and-lessons.md), rule 20).

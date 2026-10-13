@@ -40,7 +40,7 @@ Everything the mentor may change sits behind a setting (section 6), and the reco
 | 4.5 | Answer length, existence and listings from records, never from storage | 4 | 4.3 | Done | Baby steps: 4.5.1 metadata from records (`4deed2b33`); 4.5.2 the NameNode's audit log turned on and compared with the wrapper's log (`4ebf7570f`; the mentor, 7 October; ADR-026); section 19 |
 | 4.6 | Check the job file and configuration digests at the start of each task | 6 | 4.2 | Done | Changed by the mentor on 7 October (ADR-027): a task hashing its own job file is not a security check, so the digests are checked where the NodeManager reads the files. Baby steps: 4.6.1 the wrapper's classes on Hadoop's classpath on both nodes (`fcffad09d`); 4.6.2 both lookups set as final in the site configuration, with a switch back to the plain configuration (`fcffad09d`, and `bef3a6452` for the audit tools); 4.6.3 the NodeManager's read is checked against its record and a swapped file is refused (`9ef0f405d`, `28c811ff4`); section 20; 4.6.4 to 4.6.7 the fail-open cases closed on 13 October (`f23c00de2`, `4fe2da927`), section 22 |
 | 4.7 | Task records and job manifests; speculative execution off | 5 | 4.3 | **Dropped** | Dropped on 10 October by Pingshan's decision (ADR-034, [next-steps-storage-signing.md](next-steps-storage-signing.md)): no task records, job manifests or per-file history. The recon of 9 October (section 21) stays as history |
-| 4.8 | Milestone report; re-measure after a reboot (ADR-020) | | 4.4 to 4.7 | Open | Firewall rules must be saved first; nothing unmeasured is described as measured (ADR-029); the crawl that follows is run as a pair with an unwrapped control in the same hour (ADR-028) |
+| 4.8 | Milestone report; re-measure after a reboot (ADR-020) | | 4.4 to 4.6 (4.7 is dropped) | Open | Firewall rules must be saved first; nothing unmeasured is described as measured (ADR-029); the crawl that follows is run as a pair with an unwrapped control in the same hour (ADR-028) |
 
 Old working labels: B0 = 4.4, B1 = 4.2, B2 = 4.3, B3 = 4.5, B4 = 4.6, B5 = 4.7.
 
@@ -806,7 +806,7 @@ The first two starts of the swap demo failed at once and changed nothing: the sc
 - **The settings rule trusts a resource name** (`core-site.xml`); a job that put its own file of that name first on the class path would also be replacing our classes, which the measured job and the fixed driver close, not this step (row 73).
 - **The two log-folder settings can still be set by a job** (row 74).
 - **The list of doors rests on Hadoop 3.4.1's `FilterFileSystem`**; a newer Hadoop could add forwarded methods, so the listing must be repeated on an upgrade (row 77).
-- The records are still not signed (steps B1 to B3), and deletion, rollback and re-runs are accepted limits (ADR-034).
+- The records are still not signed (baby steps 5.1.1 to 5.1.3 of the plan), and deletion, rollback and re-runs are accepted limits (ADR-034).
 
 ### 22.8 What was installed, and the evidence
 

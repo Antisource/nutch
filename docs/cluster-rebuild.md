@@ -59,7 +59,7 @@ A result you can trust ends with `SUITE-OK` and a table. Run `bash ops/rebuild/r
 - **The measurement stage** (the 6.17 kernel, the one-time boot, measuring the stack into RTMR3, the quote). It was done by hand in Milestone 1 and is written down in `milestone-1-code-measurement.md` and in `attest/measure/` and `ops/worker-kernel-prep.sh`. A fresh VM boots a fresh measurement: the old quotes stay valid as evidence of the old image.
 - **Which parts of the machines disappear** (only the home folder, or also installed packages, system settings and HDFS data) is not known. Because every stage looks first, the kit works in either case, and the first real rebuild will show which case this is.
 - **Restoring the old HDFS contents.** The export is in the VM-state bundle (`hdfs/user-home`). Uploading it through the wrapper would give every file a new record; it is rarely needed.
-- **The signing key and the attested admission** (steps B3 and B4 of `milestone-plan.md` section 8) are not built yet.
+- **The signing key and the attested admission** (baby steps 5.1.3 and 5.2.1 of `milestone-plan.md`) are not built yet.
 - Where the VMs get an internal address other than `10.128.0.2` and `10.128.0.5`, the existing mesh scripts need those addresses changed (they have them written in).
 
 ## 5. Checking the specification against a working cluster
