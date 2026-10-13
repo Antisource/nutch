@@ -1,0 +1,42 @@
+# Facts of the rebuild kit documents (valid for the documents as committed with them): document <TAB> text in the document <TAB> evidence source <TAB> evidence text
+docs/cluster-rebuild.md	`c3-standard-4`, TDX, Ubuntu 22.04, a 50 GB boot disk	ops/rebuild/rebuild-cluster.sh	--machine-type=c3-standard-4
+docs/cluster-rebuild.md	`c3-standard-4`, TDX, Ubuntu 22.04, a 50 GB boot disk	ops/rebuild/rebuild-cluster.sh	--confidential-compute-type=TDX
+docs/cluster-rebuild.md	`c3-standard-4`, TDX, Ubuntu 22.04, a 50 GB boot disk	ops/rebuild/rebuild-cluster.sh	--image-family=ubuntu-2204-lts
+docs/cluster-rebuild.md	`c3-standard-4`, TDX, Ubuntu 22.04, a 50 GB boot disk	ops/rebuild/rebuild-cluster.sh	--boot-disk-size=50GB
+docs/cluster-rebuild.md	internal addresses `10.128.0.2` and `10.128.0.5`	ops/rebuild/rebuild-cluster.sh	MASTER_VPC:-10.128.0.2
+docs/cluster-rebuild.md	internal addresses `10.128.0.2` and `10.128.0.5`	ops/rebuild/rebuild-cluster.sh	WORKER_VPC:-10.128.0.5
+docs/cluster-rebuild.md	Hadoop 3.4.3 (its SHA-512 checked against Apache's file)	ops/rebuild/node-base.sh	HADOOP_VERSION:-3.4.3
+docs/cluster-rebuild.md	Hadoop 3.4.3 (its SHA-512 checked against Apache's file)	ops/rebuild/node-base.sh	sha512sum
+docs/cluster-rebuild.md	(it undoes itself after 150 seconds unless confirmed)	@repo:ops/mesh/mesh-hadoop-node.sh	--on-active=150
+docs/cluster-rebuild.md	(a 491 MB download)	@repo:docs/cluster-configuration.md	Tarball (491 MB)
+docs/cluster-rebuild.md	scans the bundle for secrets (every count must be 0)	ops/rebuild/end-of-session.sh	every count must be 0
+docs/cluster-rebuild.md	formats the NameNode (refuses if one exists)	ops/rebuild/node-hadoop.sh	formatting would erase HDFS
+docs/cluster-rebuild.md	A result you can trust ends with `SUITE-OK`	ops/rebuild/node-suite.sh	SUITE-OK
+docs/cluster-rebuild.md	Run `bash ops/rebuild/rebuild-cluster.sh --dry-run <stages>`	ops/rebuild/rebuild-cluster.sh	--dry-run
+docs/cluster-rebuild.md	prints `EXISTING-MATCHES-KIT` or each difference	ops/rebuild/check-existing.sh	EXISTING-MATCHES-KIT
+docs/cluster-rebuild.md	`passwordless sudo is needed`	ops/rebuild/node-base.sh	passwordless sudo is needed
+docs/cluster-rebuild.md	`less than 5 GB free`	ops/rebuild/node-base.sh	less than 5 GB free
+docs/cluster-rebuild.md	`the SHA-512 of the Hadoop download does not match`	ops/rebuild/node-base.sh	the SHA-512 of the Hadoop download does not match
+docs/cluster-rebuild.md	`NameNode folder already holds a file system`	ops/rebuild/node-hadoop.sh	NameNode folder already holds a file system
+docs/cluster-rebuild.md	`CLUSTER-UP` never appears	ops/rebuild/node-hadoop.sh	CLUSTER-UP
+docs/cluster-rebuild.md	(the one whose SHA-384 starts `f993fd407ab5`, the value of the Milestone 1 quote)	@repo:docs/milestone-1-code-measurement.md	f993fd407ab5
+docs/cluster-rebuild.md	zstd -d --long=28 --memory=2048MB --patch-from=job-bbd30ad9-baseline.job run9.patch.zst -o job-run9.job	evidence-job-patches/MANIFEST.txt	zstd -d --long=28 --memory=2048MB --patch-from=job-bbd30ad9-baseline.job run9.patch.zst -o job-run9.job
+docs/cluster-rebuild.md	builds `crawler-commons` and `language-detection-cld2` at the commits of the lab cluster	ops/rebuild/node-wrapper.sh	13118882ddfe
+docs/cluster-rebuild.md	builds `crawler-commons` and `language-detection-cld2` at the commits of the lab cluster	ops/rebuild/node-wrapper.sh	38efccdc1ec1
+docs/cluster-rebuild.md	The export is in the VM-state bundle (`hdfs/user-home`)	ops/attested/vm-state-collect.sh	hdfs/user-home
+docs/cluster-rebuild.md	WireGuard setup **without private keys**	ops/attested/vm-state-collect.sh	private[ _-]?key|presharedkey
+docs/cluster-rebuild.md	| `provision` | creates `tdx-lab` and `tdx-lab-worker` if they do not exist	ops/rebuild/rebuild-cluster.sh	(stages: provision ship base hadoop mesh build wrapper suite status)
+docs/session-start.md	`docs/milestone-plan.md`	@repo:docs/milestone-plan.md	## 8. The steps after 10 October (A1 to C4)
+docs/session-start.md	step 4.7 dropped by the mentor's decision of 10 October (ADR-034)	@repo:docs/decisions.md	## ADR-034: Storage integrity rests on one mechanism
+docs/session-start.md	(ADR-034 to ADR-039 are the latest)	@repo:docs/decisions.md	## ADR-039: The wrapper's own settings count only when the site configuration set them
+docs/session-start.md	`docs/cluster-rebuild.md`	@docs:docs/cluster-rebuild.md	# Rebuilding the cluster after a wipe
+docs/cluster-rebuild.md	**skips itself when the mesh is already up** and stops with a message when it is only half there	ops/rebuild/rebuild-cluster.sh	the mesh is already up on both nodes
+docs/cluster-rebuild.md	**skips itself when the mesh is already up** and stops with a message when it is only half there	ops/rebuild/rebuild-cluster.sh	the mesh is half there
+docs/cluster-rebuild.md	`start` skips a daemon that already runs	ops/rebuild/node-hadoop.sh	already runs
+docs/cluster-rebuild.md	(set `REBUILD_FORCE_CONF=1` to rewrite them)	ops/rebuild/node-base.sh	REBUILD_FORCE_CONF
+docs/cluster-rebuild.md	If the VMs themselves are gone, run `bash ops/rebuild/rebuild-cluster.sh` with no stage names: it starts with `provision`.	ops/rebuild/rebuild-cluster.sh	STAGES=(provision ship base hadoop mesh build wrapper suite)
+docs/session-start.md	`bash ops/rebuild/rebuild-cluster.sh ship base hadoop mesh build wrapper suite`	ops/rebuild/rebuild-cluster.sh	STAGES=(provision ship base hadoop mesh build wrapper suite)
+docs/cluster-rebuild.md	The specification was checked against the working cluster (`check-existing.sh` on each node; the output is kept in the evidence bundle `evidence-rebuild-kit-check`)	evidence-rebuild-kit-check/master.txt	EXISTING-MATCHES-KIT (master)
+docs/cluster-rebuild.md	The specification was checked against the working cluster (`check-existing.sh` on each node; the output is kept in the evidence bundle `evidence-rebuild-kit-check`)	evidence-rebuild-kit-check/worker.txt	EXISTING-MATCHES-KIT (worker)
+docs/session-start.md	(report section 22)	@repo:docs/milestone-4-storage-integrity.md	## 22. The wrapper's fail-open cases are closed
+docs/session-start.md	the mentor's answers of October 2026 are in ADR-037	@repo:docs/decisions.md	## ADR-037: The mentor's answers of October 2026
