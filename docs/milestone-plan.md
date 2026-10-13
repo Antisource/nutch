@@ -17,7 +17,7 @@ Date: 7 October 2026. This is the plan made on 6 October 2026: a pre-flight (Mil
 | 1 | Measure the code that runs | We can show which program ran: fingerprints of the code are written into the hardware quote | Gate A, item 3 | Done, 5 to 6 October | [milestone-1](milestone-1-code-measurement.md) |
 | 2 | Mesh for node-to-node traffic | The machines talk to each other only over an encrypted private network | Gate A, item 1 | Done, 6 October, with limits | [milestone-2](milestone-2-wireguard-mesh.md) |
 | 3 | Pass-through wrapper (no crypto yet) | Every storage request goes through our layer, which changes nothing yet | Gate A, item 2 | Done, 6 October | [milestone-3](milestone-3-hdfs-wrapper.md) |
-| 4 | Storage integrity (the first plan called it "sign on write, verify on read") | Storage cannot be changed unnoticed: files are fingerprinted when written and checked when read; the signing comes with steps B1 to B3 (section 8) | Stage B, items 4 to 6 | In progress: steps 4.1 to 4.6 done, 4.7 dropped on 10 October, the steps A1 to B2 of section 8 and 4.8 open | [milestone-4](milestone-4-storage-integrity.md) |
+| 4 | Storage integrity (the first plan called it "sign on write, verify on read") | Storage cannot be changed unnoticed: files are fingerprinted when written and checked when read; the signing comes with steps B1 to B3 (section 8) | Stage B, items 4 to 6 | In progress: steps 4.1 to 4.6 done, 4.7 dropped on 10 October, A1 to A4 of section 8 done on 13 October, B1 and B2 and 4.8 open | [milestone-4](milestone-4-storage-integrity.md) |
 | 5 | Identity, ledger, lockdown | Each machine has a key that only an attested machine can use, the machine cannot be fiddled with, and (deferred on 10 October) an outside witness checks an append-only log | Stage C, items 7 to 9 | Not started | none yet |
 | 6 | Verifier and evidence | Anyone can check a crawl, our attacks on our own system are caught, and the cost is known | Stage D, items 10 to 13 | Not started | none yet |
 
@@ -136,4 +136,6 @@ Pingshan's decisions of 10 October (ADR-034 to ADR-036) drop step 4.7 and replac
 | C3 | Wall time and bytes fetched for every wrapped and unwrapped pair in the same hour; then TDX against non-TDX VMs of the same shape | (the number readers look for) | Milestone 6 (step 6.3) |
 | C4 | Review of what is readable or changeable outside the TEE: which keys exist, where they live, what crosses the VM boundary unprotected | (the most common way such systems fail) | Milestone 6 |
 
-Step 5.3 (locked image, fixed driver, TLS checking on with teammate S's patch) is unchanged. Our own fail-open findings are in the limitations (row 72).
+Step 5.3 (locked image, fixed driver, TLS checking on with the teammate's patch) is unchanged. Our own fail-open findings were in the limitations (row 72, closed on 13 October 2026).
+
+**Status on 13 October 2026: A1 to A4 are done** ([milestone-4](milestone-4-storage-integrity.md) section 22: run 10 and two demos with the new wrapper); B1 to C4 are open.

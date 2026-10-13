@@ -1,7 +1,7 @@
 # Milestone 4: storage integrity (handoff Stage B)
 
-Date: 7 October 2026. Times are UTC. Status: **steps 4.1 to 4.6 done; step 4.7 dropped on 10 October (ADR-034); step 4.8 open** (section 4); the recon for step 4.7 is section 21, kept as history.
-Written when step 4.3 closed and extended when step 4.4 closed (section 18), when step 4.5 closed (section 19) and when step 4.6 closed (section 20); the recon for step 4.7 is section 21. It is extended as the later steps close.
+Date: 7 October 2026. Times are UTC. Status: **steps 4.1 to 4.6 done; step 4.7 dropped on 10 October (ADR-034); the wrapper's fail-open cases closed on 13 October (section 22); step 4.8 open** (section 4); the recon for step 4.7 is section 21, kept as history.
+Written when step 4.3 closed and extended when step 4.4 closed (section 18), when step 4.5 closed (section 19) and when step 4.6 closed (section 20); the recon for step 4.7 is section 21, and the closing of the fail-open cases is section 22. It is extended as the later steps close.
 
 ## 1. Goal
 
@@ -733,3 +733,94 @@ The bundle `evidence-m47-recon.tar.gz` (`a2e6f0aef21df43f...`, 226 files and its
 - A size chosen from a guess is a guess: say so, or measure first.
 - Count every file you add: the bundle had one more file than I predicted.
 - The mistakes are in [guide-pitfalls-and-lessons.md](guide-pitfalls-and-lessons.md) (mistake log 79 to 83).
+
+## 22. The wrapper's fail-open cases are closed (the mentor's steps A1 to A4, 13 October 2026)
+
+Date: 13 October 2026. Status: **done and committed** (`f23c00de2` for the wrapper and its tests, `4fe2da927` for the contract comparison), proved on the cluster by run 10 and two demos. What stays open is in section 22.7.
+
+### 22.1 What it is, in plain words
+
+Think of a guard at a door who looks at every parcel (a file) that goes in or out. Until now the guard could be got around in four ways: a side door was unlocked (some calls went straight to the plain file system), a parcel without a label was let through with a warning, a parcel could be changed after it was checked (append), and the sender could tell the guard to stop checking (a job's own settings). This step locked the side doors, made a missing label a refusal, and took away the sender's power to switch the checks off. The mentor listed four holes (A1 to A4); listing every call that Hadoop forwards to the plain file system found three more doors of the same kind.
+
+### 22.2 What changed
+
+| Step | Before | Now |
+|---|---|---|
+| **A1** | `append`, `concat` and `truncate` were logged but not refused: `append` let the new bytes through unhashed, and all three dropped the file's record | refused with a message, and written to the audit log as `REFUSED` with the name of the operation |
+| **A2** | a file with no record was read with a warning (`attested.verify.missing` defaulted to `warn`) | the default is `fail`: opening such a file is refused |
+| **A3** | the wrapper's eight settings were read from whatever configuration the job carried | a setting counts only when the site configuration (`core-site.xml`) set it; a setting from a job file, a `-D` or code is ignored, the secure default is used, and the `INIT` line of the audit log names it (`ignored=`) |
+| **A4** | opening by path handle (three forms), making a path handle and `getRawFileSystem` were forwarded to the plain file system | refused |
+| three more doors, found by listing the forwarded methods | `getChildFileSystems` handed out the plain file system; `startLocalOutput` and `completeLocalOutput` let a file arrive through the local disk without a record | `getChildFileSystems` answers none (Hadoop's own default); the two local-output calls are refused |
+
+The wrapper's two log-folder settings (`attested.audit.dir`, `attested.records.dir`) are not covered by the rule of A3, because four of our scripts pass them with `-D`; a job that moved its logs would be caught by the audit, which expects the log of every host in the standard folder (ADR-039).
+
+### 22.3 One setting for two questions was a mistake (caught on the cluster)
+
+The first version of A2 used the same setting for two different questions: opening a file to read its content, and asking for a file's status or a folder's listing. The contract tests on the real HDFS then found one difference from plain HDFS, `testSyncable`: a file that is still being written has no record yet (the record is made when the file is closed), and the status question about it was refused. A status question exposes no content, and refusing it could break anything that lists a folder while another task is still writing into it. The sandbox could not show this, because its fake file system does not behave like HDFS here.
+
+The fix gives each question its own setting (ADR-038): `attested.verify.missing` (default `fail`) for opening a file, and `attested.metadata.missing` (default `warn`: answer and log once) for status and listing questions. After the fix the same test fails for the intended reason: the test reads the file back before closing it, and opening an unrecorded file is refused. It is listed as an expected difference with that reason (`ops/attested/contract/expected-differences.tsv`), so that the comparison says "same as plain HDFS, with one explained difference" and still reports any other difference.
+
+### 22.4 The tests
+
+| Test | Result |
+|---|---|
+| Smoke tests in the sandbox (stand-in HDFS): the wrapper, a MapReduce run, the hashing and the Java and Python roots | fake mode 141 of 141 (it was 117), mr-fake 12 of 12, hash 18 of 18, `JAVA-AND-PYTHON-AGREE` (9 sizes) |
+| Control: the new checks against the old wrapper | 24 of them fail on the old code (a sandbox run, not saved in a bundle), so they do detect the old behavior |
+| The same smoke tests against the real HDFS | `ALL-PASS (140 of 140 checks passed) mode=hdfs` (it was 116) |
+| Hadoop's contract tests, plain HDFS against the wrapper | 169 passed, 17 failed and 13 skipped on plain HDFS, and 168, 17 and 14 through the wrapper; 16 tests fail on both (the cluster's own settings), and none passes on plain HDFS and fails through the wrapper except `testSyncable`, which is the expected difference: `CONTRACT-SAME-AS-HDFS (1 explained difference)` |
+| The tests of the comparison tool (four of them are controls) | `ALL-PASS (7 checks)` |
+
+In the contract setup, append and concat are declared unsupported (the wrapper refuses them on purpose) and the path-handle test class was removed; that the refusals work is tested in the smoke tests.
+
+### 22.5 Run 10: a full crawl with the new wrapper
+
+Run 10 ran on 13 October from 07:16:58 to 07:28:53 UTC (11 min 55 s), with `ops/run-crawl.sh`, exit 0, three rounds, **27 jobs** (27 uploads of job files). The new wrapper was installed on both nodes first (section 22.8). It is not covered by the measurement, and its wall time is not a result; it proves the procedure. Every count equals run 9's.
+
+| Check | Run 10 | Run 9 |
+|---|---|---|
+| A1: `REFUSED` lines, and append, concat or truncate calls | 0 and 0 | (not counted) |
+| A2: `INIT` lines with `missing=fail` | 413 of 413 | (not applicable) |
+| A3: `INIT` lines with `ignored=` | 0 | (not applicable) |
+| Storage before and after (`audit_compare.py`, nothing exempted) | `AUDIT-CLEAN`: 2,164 paths before, 2,486 after, 322 added, all explained, none removed or changed | 1,787, 2,109 and 322 |
+| Wrapper logs | 117 files (24 master, 93 worker), 2,308 lines | 117 and 2,308 |
+| Expected records (`records_expected.py`) | `RECORDS-COMPLETE`: 55 files, 55 with a matching record | 55 of 55 |
+| Verification summary | `VERIFY-CLEAN`: 265 opens, all `verify=ok`, none missing, 0 failures | 265 |
+| Independent re-hash (`records_verify.sh`) | `RECORDS-VERIFIED`: 55 verified, 0 mismatched | 55 |
+| NameNode comparison | `NN-AUDIT-COMPARE-CLEAN`; 26 submission lookups; 81 deletes that removed nothing; `--strict` gives 26 findings; with the biggest wrapper log removed (the negative control) it gives 108 | 26, 81 and 108 |
+
+What the run shows for the two new defaults: the crawl needs none of append, concat and truncate, and it never reads a file that has no record (265 of 265 opens were verified).
+
+### 22.6 The two demos
+
+| Demo | Result |
+|---|---|
+| Tamper (`tamper-demo.sh`, 07:46:26 to 07:47:40 UTC): one byte of `crawl-run10/crawldb/current/part-r-00000/data` changed with the plain client | client side `PASS`: the control passed, the tampered reader job (`job_1791873617149_0029`) failed, the restored file's fingerprint equals the original (`cb35ea7efe89056a`). From the logs of the demo alone (11 files): `TAMPER-PROVEN`, exactly 1 `VERIFY-FAIL` (`chunk=0 hash does not match the record`, on the worker), 0 for any other path, 3 verified opens, and `ChecksumException` in 2 task logs |
+| NodeManager swap (`nm-swap-demo.sh`, from 08:08:02 UTC): a file handed to the tasks through the distributed cache is changed behind the wrapper's back | client side `PASS` (the tampered run, `job_1791873617149_0032`, failed; the restored fingerprint equals the original, `850ef14c833d730c`). `TAMPER-PROVEN`: exactly 1 `VERIFY-FAIL`, 0 for any other path, 3 verified opens, and **1 refusal in the NodeManager's own log** (process 247940), so Hadoop's own file fetcher refuses the swapped file with the new wrapper |
+
+The first two starts of the swap demo failed at once and changed nothing: the script is not executable in the repository, and it refuses an output folder that already exists. Both were mistakes in the commands given (mistake log 85 and 86).
+
+### 22.7 Limits and what stays open
+
+- **A file that is still being written cannot be read through the wrapper**, because its record is made when it is closed. This is the design (the record is signed when the file is closed), and the crawl never needs it (limitations row 75).
+- **A status or listing question about a file with no record is answered and logged** (the default of `attested.metadata.missing`), so a listing can show an unrecorded file that cannot be opened (row 76).
+- **The settings rule trusts a resource name** (`core-site.xml`); a job that put its own file of that name first on the class path would also be replacing our classes, which the measured job and the fixed driver close, not this step (row 73).
+- **The two log-folder settings can still be set by a job** (row 74).
+- **The list of doors rests on Hadoop 3.4.1's `FilterFileSystem`**; a newer Hadoop could add forwarded methods, so the listing must be repeated on an upgrade (row 77).
+- The records are still not signed (steps B1 to B3), and deletion, rollback and re-runs are accepted limits (ADR-034).
+
+### 22.8 What was installed, and the evidence
+
+| Item | Value |
+|---|---|
+| The job that ran | `afdd82c598f52264` (built on 13 October from the clean-build clone with the patch applied; `BUILD SUCCESSFUL`) |
+| The wrapper's jar | 14 classes (one more than before: `AttestedSettings`), 36,292 bytes, `027f29942fe2a69d`, identical to the job's classes (`CLASSES-SAME`), installed on both nodes in `~/hadoop/share/hadoop/common/lib/`; both nodes restarted with `cluster-mode.sh wrapped --restart` and said `CLUSTER-MODE-OK` |
+| Evidence bundles (all `MATCH` on the laptop) | `evidence-m4-hardening-run10.tar.gz` (`d088efd4…`, 930 files), `evidence-m4-hardening-demos10.tar.gz` (`ed0adc57…`, 1,111 files), `evidence-m4-hardening-build.tar.gz` (`9c3ddc23…`, 14 files) |
+| Commits | `f23c00de2` (the wrapper, the smoke test, the contract setup, and the deletion of the path-handle test class) and `4fe2da927` (the contract comparison with its expected-differences list and its tests); each was checked against the fingerprints of the files that ran on the cluster, and on GitHub |
+
+### 22.9 Lessons from this step
+
+- A setting that governs two different questions should be split when one of them is harmless (mistake log 84).
+- Run the real thing before believing the sandbox: the contract tests on the real HDFS found what the stand-in could not.
+- Read a script's start-up checks before giving the command that starts it, and run a script that is not executable with `bash` (mistakes 85 and 86).
+- Attach a file in the same message that creates it (mistake 87); test secret-removal code with the target's own shell tools (mistake 88); check the class hierarchy before drawing a conclusion from a listing (mistake 89); measure before planning a long transfer (mistake 90).
+- The mistakes are in [guide-pitfalls-and-lessons.md](guide-pitfalls-and-lessons.md) (mistake log 84 to 90).

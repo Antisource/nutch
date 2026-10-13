@@ -322,3 +322,16 @@ To count what the NodeManager read through the wrapper, on the worker: `cat /tmp
 | How to build the job | `git clone --branch feat/tee-hadoop-cluster https://github.com/Antisource/nutch.git`, then `ant runtime` (Ant 1.10.12, OpenJDK 11.0.32.1); the job is `runtime/deploy/apache-nutch-1.22.job` (1,043 entries). The first build took 6 min 30 s with a cold dependency cache, the test build 33 s with a warm one |
 | How to compare two jobs | `ops/attested/job_compare.py OLD NEW` (CRC-32 of every entry, nested jars by content) and `ops/attested/job_sha_compare.py OLD NEW` (SHA-256 of every entry and of every file inside the nested jars) |
 | Where the test build is | `~/clean-build` and its log `~/clean-build-ant.log` on the master (a scratch folder, not part of the cluster); the evidence is in the bundle `evidence-m46-cleanbuild.tar.gz` ([milestone-4-storage-integrity.md](milestone-4-storage-integrity.md) section 20.11) |
+
+## 18. The new wrapper on both nodes (13 October 2026, the mentor's steps A1 to A4)
+
+| Item | Value |
+|---|---|
+| What changed on both nodes | `attested-hdfs.jar` in `~/hadoop/share/hadoop/common/lib/`: 14 classes (one more than before, `AttestedSettings`), 36,292 bytes, `027f29942fe2a69d...`, identical to the wrapper classes of the job file `afdd82c598f52264...` (`wrapper-jar.sh verify` says `CLASSES-SAME`). `core-site.xml` is unchanged (the WRAPPED version of section 16) |
+| How | built on the master from the job file (`wrapper-jar.sh build`), installed there with `ATTESTED_FORCE=1`, copied to the worker and installed there, then `cluster-mode.sh wrapped --restart` on the master and on the worker (each said `CLUSTER-MODE-OK`) |
+| The job | built on 13 October in `~/a14-work` (a copy of `~/clean-build` with the change applied, `ant runtime`, `BUILD SUCCESSFUL`); the evidence is in the bundle `evidence-m4-hardening-build.tar.gz` |
+| Settings that changed | `attested.verify.missing` now defaults to `fail` (opening a file with no record is refused); the new `attested.metadata.missing` defaults to `warn` (status and listing questions are answered and logged once); every setting of the wrapper counts only when `core-site.xml` set it, and the `INIT` line of the audit log names a setting that was ignored (`ignored=`); the wrapper's two log-folder settings are not covered |
+| Refused now | `append`, `concat`, `truncate`, opening by path handle, making a path handle, `getRawFileSystem`, `startLocalOutput` and `completeLocalOutput`; `getChildFileSystems` answers none |
+| What the cluster holds from run 10 | `seeds-run10` and `crawl-run10` in HDFS (the demos removed their own folders); the logs and listings are in `~/run10` on the master; the NameNode's audit log is on |
+| Procedure | unchanged (section 16): rotate the logs, restart the worker's NodeManager, put the seeds in through the wrapper, take the "before" listing, run `ops/run-crawl.sh`, then the checks. A script that is not executable in the repository is run with `bash` |
+| Evidence | `evidence-m4-hardening-run10.tar.gz`, `evidence-m4-hardening-demos10.tar.gz` and `evidence-m4-hardening-build.tar.gz`; the report is [milestone-4-storage-integrity.md](milestone-4-storage-integrity.md) section 22 |

@@ -43,6 +43,12 @@ resolved, which instructions turned out to be wrong, and why the key decisions w
 27. **Say what a number or a label means, from the source.** `allowed=false` on a delete is not "denied"; "about 40 jobs" had no source; a count that includes its own list is not "files listed".
 28. **Never cut a search that a claim rests on.** A `head` hid the lines that made a statement about Nutch false; if the output is cut, say so and do not conclude from it.
 29. **A guard must test the thing it guards.** The failure test checked that the client program was alive, not that the job was running.
+30. **A setting that governs two different questions should be split when one of them is harmless.** Reading a file's content and asking for its status are different; refusing the second broke a real file system test.
+31. **Read a script's start-up checks before giving the command that starts it**, and run a script that is not executable in the repository with `bash`.
+32. **Attach a file in the same message that creates it, and check that the card is there.** A file that is written but not presented cannot be downloaded.
+33. **Test code that removes secrets with the target's own shell tools and with planted fake secrets.** One `awk` option worked on one variant and not on the one Ubuntu uses.
+34. **Check the class hierarchy before drawing a conclusion from a listing.** A listing against the wrong parent class said nothing.
+35. **Measure the speed before planning a long transfer.** Five copies of 135 MB at 130 KB/s would have taken over an hour.
 
 ## 2. Mistake log
 
@@ -131,6 +137,13 @@ resolved, which instructions turned out to be wrong, and why the key decisions w
 | 81 | Test | The first failure-injection run failed the attempt after the job had finished | The guard checked that the client program was alive, not that the job was running (the client lived 30 seconds longer, retrying a job history server that does not run) | A guard that asks the cluster, a clear stop when the failing command fails, and a rehearsal case that reproduces it | A guard must test the thing it guards |
 | 82 | Sizing | I sized the test at 600 MB on a guess about the speed; the job took about 18 seconds | A number from a guess | Measured it, then used 1.5 GB | Say "guess" or measure first |
 | 83 | Counting | I predicted 225 files in the bundle and the count was 226 | I forgot the console file next to the first run's folder | Explained after the check | Count every file you add |
+| 84 | Settings | My first version of step A2 made status questions about a file that is still being written fail | One setting governed two different questions (reading content, and status and listing) | The contract test `testSyncable` on the real HDFS found it; the question got its own setting (ADR-038) | A setting that governs two questions should be split when one is harmless |
+| 85 | Commands | The first start of the NodeManager swap demo stopped at once with `Permission denied` | The script has no executable mode in the repository and I ran it by path | Restarted with `bash` in front; nothing had changed on the cluster | Run a script that is not executable with `bash` |
+| 86 | Commands | The second start stopped with `already exists; use a new folder` | My own block created the output folder that the script refuses to reuse | Moved the empty folder aside; read the script's two start-up checks | Read a script's start-up checks before giving the command that starts it |
+| 87 | Files | I built the commit package and did not attach it | I forgot the step that presents a file | Attached it when the user said it was missing | Attach a file in the same message that creates it, and check that the card is there |
+| 88 | Tools | The first version of the secret filter in the VM-state script matched case only on one `awk` variant | `IGNORECASE` exists in `gawk` and not in `mawk`, the default on Ubuntu | Found before the first real run, by a test with planted fake secrets; the filter now lowercases each line | Test secret-removal code with the target's own tools |
+| 89 | Analysis | A first listing of the methods the wrapper does not override compared the FileContext class with the wrong parent class | I assumed `FilterFs`; the class extends `DelegateToFileSystem` | Read the class declaration and listed again | Check the class hierarchy before drawing a conclusion |
+| 90 | Planning | I planned five copies of 135 MB from the VM to Cloud Shell without measuring the speed | It was 130 KB/s, 16 minutes for each, and two copies were running at once | Kept the baseline job in full and made six patches of 245 to 281 KB (1.5 MB) | Measure before planning a long transfer |
 
 ## 3. Corrections to earlier working instructions
 

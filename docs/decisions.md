@@ -42,6 +42,9 @@ Times are UTC.
 | 034 | Storage integrity rests on one mechanism, sign on write and verify on read; step 4.7 and the task records are dropped | Accepted (Pingshan, 10 October) |
 | 035 | Folder identity files bind a file to its folder | Accepted (Pingshan, 10 October) |
 | 036 | The WARC is the point where teammate S's layer and ours connect | Proposed by teammate S |
+| 037 | The mentor's answers of October 2026 (policy, certificates, single-record verification, performance, TLS capture, threat model) | Accepted as direction; the plan is not yet updated |
+| 038 | Reading a file's content and asking about its status are two different questions, with two settings for a file without a record | Accepted |
+| 039 | The wrapper's own settings count only when the site configuration set them | Accepted |
 
 ---
 
@@ -338,3 +341,28 @@ Times are UTC.
 - **Decision:** the signed commitment to the WARC (its Merkle root, signed with the quote-bound VM key) is the link between the two verification paths, so no separate signing of her evidence is needed; her outcome files are covered the same way, because every file written through the wrapper is signed. Our verifier checks the signed commitment and the attestation binding, hers checks the embedded receipts, response hashes, certificate evidence and policy.
 - **Open, with Pingshan:** how the collection policy is authenticated (packaged with the measured workload, or signed by the driver and distributed through HDFS), and whether the measured job lets the crawler reject invalid certificates itself (ADR-002). **To verify, not to assume:** that the trust anchors and the policy used by a task are covered by the measurement; that the baseline runs of the performance pairs do not inherit her key-free capture option (`-Djavax.net.debug=ssl:record:plaintext`, set per job in `mapreduce.map.java.opts`, never globally).
 - **Consequences:** her patch changes existing Nutch classes (our branch alone only adds files); the combined validation list is in her message (the patched job builds and runs on our branch, both kinds of evidence are emitted, WARC contents match the signed commitments, failed attempts leave no authoritative evidence, both verifiers accept the same WARC, and the performance pairs use consistent configurations).
+
+## ADR-037: The mentor's answers of October 2026 on policy, certificates, single-record verification, performance, TLS capture and the threat model
+
+- **Date:** October 2026. **Source:** a message from the mentor to the team; it is not a file in the repository. **Status:** accepted as the mentor's direction; the consequences below are proposals and are not yet in the plan.
+- **Collection policy:** packaged in the measured image. Where it lives in the driver script matters little, because the driver script will also be packaged in the measured image (this closes the open item about the policy in ADR-036).
+- **Certificate checking:** CCBot should note an expired certificate in the source receipt and inform instead of rejecting; downstream quality filters decide whether to include that data in training.
+- **CDX byte range and record verification:** verification should work on a single record. It is on the whole WARC now and has to be broken down.
+- **Performance:** the control is a vanilla CCBot run on the cluster. Benchmarks must compare wrapped and unwrapped runs and more, to find where the cost comes from (the WireGuard mesh, TLS dumping, the wrapped HDFS or something else). This is the core of the experiment; the mentor asked the teammate whether she wants to own part of it.
+- **TLS evidence:** parsing messages from the Java debugger is unlikely to be accepted as production code. The options he names: a different TLS library (maybe Bouncy Castle), building our own TLS stack (no), instrumenting Java internals (brittle, probably not production grade), patching the Java library (no), or generating no TLS signature at all and trusting the TEE (the last and least reliable option).
+- **Threat model:** TEEs are secure unless there is physical access (the tee.fail attack needs a memory-interposition board soldered on). Our threat is insiders: a bad actor within the CC foundation or a frontier lab tampering with the crawl process. Physical access to the machines is a tall assumption. The signature authority (the TEEs) needs its own assumptions, such as physical security, which are acceptable.
+- **Consequences (to apply):** step C3 widens to a piece-by-piece measurement with a vanilla control; the verifier needs a check of a single record (our records hold a hash for every 16 KiB chunk of a file, so a byte range can be checked against the chunks that cover it, but the procedure is not written); the teammate's key-free capture, which needs a JVM debug option, is in question; the certificate setting of her patch (it rejects) should become note-and-continue.
+
+## ADR-038: Reading a file's content and asking about its status are two different questions, with two settings for a file without a record
+
+- **Date:** 13 October 2026. **Status:** accepted (found on the cluster by the contract tests; the mentor's step A2 asked for the first of the two).
+- **Context:** step A2 asked that reading an unrecorded file fail. The first version used the one setting `attested.verify.missing` for that and for status and listing questions; on the real HDFS the contract test `testSyncable` then failed through the wrapper, because a file that is still being written has no record yet and the status question about it was refused.
+- **Decision:** `attested.verify.missing` (default `fail`) governs **opening a file** to read it. `attested.metadata.missing` (default `warn`: answer from storage and log once; `allow` and `fail` are the other values) governs **status and listing questions**. A status question exposes no content; opening an unrecorded file is what is refused.
+- **Consequences:** a file still being written cannot be read through the wrapper (its record is made at close), and shows as one expected difference in the contract comparison; a listing can show an unrecorded file that cannot be opened (limitations rows 75 and 76).
+
+## ADR-039: The wrapper's own settings count only when the site configuration set them
+
+- **Date:** 13 October 2026. **Status:** accepted; it differs from the mentor's wording for step A3 ("mark them final in the site configuration, or remove them"), and meets its pass condition.
+- **Decision:** a setting of the wrapper (`attested.hash.enabled`, `attested.hash.chunk.size`, `attested.sidecar.enabled`, `attested.verify.reads`, `attested.verify.missing`, `attested.metadata.check`, `attested.metadata.mismatch`, `attested.metadata.cache.seconds`, and `attested.metadata.missing`) is obeyed only when its last source, as Hadoop records it, is `core-site.xml` (or the default resources). A setting from a job file, a `-D` on the command line or code is ignored, the secure default is used, and the `INIT` line of the wrapper's audit log names the setting and its source (`ignored=`).
+- **Why not only `final`:** marking a setting final in the site file stops a later settings file but not a `-D` or a call in code; the source rule stops all three, and it lets the smoke tests feed settings from code through a hook that is private to the package.
+- **Scope:** the two log-folder settings (`attested.audit.dir`, `attested.records.dir`) are not covered, because four scripts pass them with `-D`. The rule defends against unmeasured settings, not against code in the JVM; a job that shadows `core-site.xml` on the class path would also replace our classes, which the measured job and the fixed driver close (limitations rows 73 and 74).
