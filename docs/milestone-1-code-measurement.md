@@ -94,7 +94,7 @@ Findings that shaped the design:
   `java-settings` and the CA store are measured as separate components.
 - The CA store files differ in bytes between nodes (same size, same 121 certificates, same package versions) but the sorted fingerprint lists are identical. Pin the list, not the raw file.
 - `classes.jsa` is generated per machine. A single measured image would share one copy; excluding it without disabling the cache would leave it unmeasured. Decision deferred (ADR-009).
-- The worker holds no job file, so the jar's fingerprint cannot be in the worker's boot-time measurement; the handoff's per-task record mechanism covers that (a later milestone).
+- The worker holds no job file, so the jar's fingerprint cannot be in the worker's boot-time measurement; the handoff's per-task record mechanism covers that (a later milestone). **Update, 10 October 2026:** that mechanism was dropped (ADR-034); the job file is checked against its record where the NodeManager reads it (step 4.6.3), and whether the worker's measurement should include the jar is open and belongs with the re-measure (step 4.8).
 - Hadoop lives in the user's home folder, writable by the lab user; its changing data lives outside it (`~/hadoop-data`), and only `~/hadoop/logs` needs excluding.
 - Measuring `hadoop-code` takes about 60 seconds on these VMs; the whole master pass 1 minute 9 seconds.
 - Digests computed on the old 6.8 boot equalled those measured on the 6.17 boot for seven of the eight master components, so the measurement is repeatable across the kernel change.
@@ -158,7 +158,7 @@ This is a point-in-time check: it cannot show that nothing changed during the ru
 3. Line 187, an image digest on an allowlist: raw register values depend on disk identifiers, partition growth on the first boot and GRUB state. A verifier needs event-level policy.
 4. The kernel requirement (6.16 or later) is confirmed. A 6.17 Google kernel exists for Ubuntu 24.04 and works, installed on Ubuntu 22.04, on these VMs. It exists for 22.04 only up to 6.8.
 5. Lines 189 and 190 (substrate, TLS) now have mentor answers (ADR-001, ADR-002).
-6. Line 181: the worker holds no job file; the jar digest needs the task-record mechanism.
+6. Line 181: the worker holds no job file; the jar digest needs the task-record mechanism. (Update, 10 October 2026: that mechanism was dropped, ADR-034; see the note above.)
 7. YARN kept no container logs on this cluster, and the worker's local task logs were removed.
 8. The handoff's Hadoop source references are from release 3.4.1 (line 153); the cluster runs 3.4.3.
 9. Line 239 (does the 6.17 kernel expose RTMR extension and the boot log): yes, for Ubuntu 6.17.0-1022-gcp on these VMs, both nodes. Line 244 (why RTMR0 to RTMR2 differ between nodes): kernel, GRUB configuration and state, disk identifiers and partition growth; one RTMR0 event is not decoded.

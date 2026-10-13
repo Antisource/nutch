@@ -186,7 +186,7 @@ A known cosmetic fault remains in the committed script: its console label "absol
 - **A file without a record** is read with a warning (policy `warn`). In run 8 only the seed file was read that way. A file whose writer was killed before closing it has no record.
 - **Metadata is checked against the records, which are not signed** (step 4.5, section 19). A length that differs from the record, a recorded file that is gone and a file without a record are found; a change that keeps the length is found only by reading the file; someone who rewrites a file and its record together is not caught (step 4.7 and Milestone 5).
 - **The NameNode's audit log is on since 8 October** (section 19.6): reads and changes made behind the wrapper's back are found by comparing it with the wrapper's log. Until step 4.6, the NodeManager's reads of the job file are expected to show as unexplained; this has not yet been seen on a crawl.
-- **No task records or job manifests** (step 4.7). The job file is not checked in a security-relevant way yet: step 4.6 was changed by the mentor on 7 October (ADR-027) and is not done.
+- **No task records or job manifests** (step 4.7). The job file is not checked in a security-relevant way yet: step 4.6 was changed by the mentor on 7 October (ADR-027) and is not done. **Update, 10 October 2026:** step 4.6 was done on 9 October, and step 4.7 was dropped (ADR-034): there will be no task records or job manifests.
 - **The NodeManager still reads the job file through plain HDFS** until step 4.6 is done.
 - **Plain tools see the companion files**, and consumers that list directories without skipping hidden files will see them.
 - **The logs and records are plain files** on the provider's machines.
