@@ -1,7 +1,7 @@
 # Milestone 4: storage integrity (handoff Stage B)
 
-Date: 7 October 2026. Times are UTC. Status: **steps 4.1 to 4.6 done; step 4.7 dropped on 10 October (ADR-034); the wrapper's fail-open cases closed on 13 October as baby steps 4.6.4 to 4.6.7 (section 22); step 4.8 open** (section 4); the recon for step 4.7 is section 21, kept as history.
-Written when step 4.3 closed and extended when step 4.4 closed (section 18), when step 4.5 closed (section 19) and when step 4.6 closed (section 20); the recon for step 4.7 is section 21, and the closing of the fail-open cases is section 22. It is extended as the later steps close.
+Date: 7 October 2026. Times are UTC. Status: **Milestone 4 is closed on 14 October 2026: steps 4.1 to 4.6 done; step 4.7 dropped on 10 October (ADR-034); the wrapper's fail-open cases closed on 13 October as baby steps 4.6.4 to 4.6.7 (section 22); step 4.8 done on 14 October as baby steps 4.8.1 to 4.8.3 (section 23)** (section 4); the recon for step 4.7 is section 21, kept as history.
+Written when step 4.3 closed and extended when step 4.4 closed (section 18), when step 4.5 closed (section 19) and when step 4.6 closed (section 20); the recon for step 4.7 is section 21, the closing of the fail-open cases is section 22, and step 4.8 (the job with the teammate's patch, the re-measure and the first timing pair) is section 23.
 
 ## 1. Goal
 
@@ -40,7 +40,7 @@ Everything the mentor may change sits behind a setting (section 6), and the reco
 | 4.5 | Answer length, existence and listings from records, never from storage | 4 | 4.3 | Done | Baby steps: 4.5.1 metadata from records (`4deed2b33`); 4.5.2 the NameNode's audit log turned on and compared with the wrapper's log (`4ebf7570f`; the mentor, 7 October; ADR-026); section 19 |
 | 4.6 | Check the job file and configuration digests at the start of each task | 6 | 4.2 | Done | Changed by the mentor on 7 October (ADR-027): a task hashing its own job file is not a security check, so the digests are checked where the NodeManager reads the files. Baby steps: 4.6.1 the wrapper's classes on Hadoop's classpath on both nodes (`fcffad09d`); 4.6.2 both lookups set as final in the site configuration, with a switch back to the plain configuration (`fcffad09d`, and `bef3a6452` for the audit tools); 4.6.3 the NodeManager's read is checked against its record and a swapped file is refused (`9ef0f405d`, `28c811ff4`); section 20; 4.6.4 to 4.6.7 the fail-open cases closed on 13 October (`f23c00de2`, `4fe2da927`), section 22 |
 | 4.7 | Task records and job manifests; speculative execution off | 5 | 4.3 | **Dropped** | Dropped on 10 October by Pingshan's decision (ADR-034, [next-steps-storage-signing.md](next-steps-storage-signing.md)): no task records, job manifests or per-file history. The recon of 9 October (section 21) stays as history |
-| 4.8 | Milestone report; re-measure after a reboot (ADR-020) | | 4.4 to 4.6 (4.7 is dropped) | Open | Firewall rules must be saved first; nothing unmeasured is described as measured (ADR-029); the crawl that follows is run as a pair with an unwrapped control in the same hour (ADR-028) |
+| 4.8 | Milestone report; re-measure after a reboot (ADR-020) | | 4.4 to 4.6 (4.7 is dropped) | Done | Baby steps: 4.8.1 the job built with the teammate's patch, the collection policy, and the first integration crawl (run 11); 4.8.2 the reboot and the re-measure, with the patched job and the policy as measured parts; 4.8.3 the first timing pair (runs 12 and 13). Scripts `93745032c`, `169c3887b`, `77fd89180` and `09ebe8565`; section 23 |
 
 Old working labels: B0 = 4.4, B1 = 4.2, B2 = 4.3, B3 = 4.5, B4 = 4.6, B5 = 4.7.
 
@@ -824,3 +824,113 @@ The first two starts of the swap demo failed at once and changed nothing: the sc
 - Read a script's start-up checks before giving the command that starts it, and run a script that is not executable with `bash` (mistakes 85 and 86).
 - Attach a file in the same message that creates it (mistake 87); test secret-removal code with the target's own shell tools (mistake 88); check the class hierarchy before drawing a conclusion from a listing (mistake 89); measure before planning a long transfer (mistake 90).
 - The mistakes are in [guide-pitfalls-and-lessons.md](guide-pitfalls-and-lessons.md) (mistake log 84 to 90).
+
+
+## 23. Step 4.8: the job with the teammate's patch, the re-measure and the first timing pair (14 October 2026)
+
+All times are UTC. Nothing in this section was run before it was rehearsed with stand-ins; every script ran once on the cluster and is committed as it ran (section 23.7).
+
+### 23.1 What it is, in plain words
+
+Picture the project as a tamper-evident shipping line. The crawler downloads web pages (the parcels), our file layer puts a seal on every file it stores, and the hardware keeps a photograph of the exact programs that were running. Step 4.8 does three things:
+
+1. **It puts the teammate's receipt code into the crawler.** For each page the crawler fetched over HTTPS, her code writes a small receipt: which site it came from, the certificate chain that site showed, a fingerprint of the page, and which program wrote the receipt. The receipts are files like any other, so they go through our file layer.
+2. **It takes the hardware's photograph again.** The photograph (the measurement) is wiped at every reboot, and the program changed, so the nodes were rebooted and the new program was photographed together with the collection policy, the file that tells the receipts which certificate authorities to trust.
+3. **It runs the first fair speed test.** One crawl through our file layer (wrapped) and one without it (the unwrapped control), on the same pages, in the same hour, as the mentor's rule (ADR-028) asks.
+
+### 23.2 Baby step 4.8.1: the build, the policy and the first integration crawl
+
+| Item | Result |
+|---|---|
+| The teammate's patch | `source-receipt.patch` without key-free code, at her commit `841c1d3`; 11 files (9 changed, 2 new: `CustodyReceipt.java` and `TcCanonical.java`). The copy with Unix line endings has the git blob id `00446a8c5173f3a2d27eb09ba2c448ed28e46f65` and the SHA-256 `61dbff2eca98cc7b9934f8e5e51e34265298aa22eb6cecf4d22c3bef44ad5516`. Settings: `tc.receipts.enabled`, `tc.nonce` and `tc.policy.file` (a local path). A certificate problem is recorded in the receipt, not refused (ADR-037). The key-free capture and the TLS debug option are not used |
+| The build (kit `m481b`) | the patch applied to a scratch clone of the branch at `4ae2015602c9527dadbfd78b2e6b5836f2ca3948`, built with `ant runtime` next to an unpatched base build; the base build reproduces the job of run 10, and the patched job differs from it only in the patch's classes (13 entries changed and 7 new, inner classes included). The patched job is `91784e1a4a172e6dae6a1b4ce09242cf4c27f8eda858574954db3b3a1d7ff8ad`, 134,838,280 bytes |
+| The collection policy (kit `m481p`) | built on the master with the teammate's `make_policy.py --from-jdk --deployment cluster`: 121 trust anchors, `policy.json` of 1,162 bytes, SHA-256 `0308db735fce6d01ca898c8cf31a3bd0303102c7b4543c0f1862f281cff6c4d8`; a second build gives identical bytes; the same file was verified against the worker's own JDK (anchor-set fingerprint `sha256:55dc41128053bb37b5eaa07a40018cdb67833ee622e804dc460f15679322e38a`, 121 anchors) |
+| Run 11 (kits `m481r2` and `m481a`) | the patched job with receipts on, nonce `41e3f6cc93792ade699c7588db08834c`, exit 0 in 693 s; the standard checks: `AUDIT-CLEAN` (337 paths added, all explained), `RECORDS-COMPLETE` (61 files: 55 as in run 10 and 6 receipt and outcome files), `VERIFY-CLEAN` (265 opens), `NN-AUDIT-COMPARE-CLEAN` (strict 26, negative control 108) |
+| The independent re-hash of run 11 | the first attempt showed 61 mismatches because it ran from a folder that no longer existed and hashed the shell's error text; its output is kept as `run11-records-verify-attempt1-bad-cwd.txt`; the second attempt, from the home folder, gave `RECORDS-VERIFIED` (61 verified, 0 mismatched) |
+| Her receipts in run 11 | read by hand against her receipt-format description: 7 receipts and 10 outcomes in 3 crawl rounds (7 ACCEPTED, 2 HTTP_STATUS, 1 NOT_HTTPS); every receipt carries the run's nonce, the policy hash, `code_hash` of the patched job, a valid chain and a matching hostname, and its content hash equals the SHA-256 of the page in the WARC |
+
+Two faults of our own kit were found at its first real start and fixed in a new file before anything was changed on the cluster: the node-list check expected spaces where Hadoop writes tabs, and the check for a running application would have missed Hadoop's space-padded application ids (mistake log 93 and 94). The build kit's `summary.txt` in its evidence bundle is cut short because it was packed before the last lines were written (mistake log 95); the kit is committed as it ran.
+
+### 23.3 Baby step 4.8.2: the reboot and the re-measure
+
+**Why a plain reboot is not enough.** A reboot returns each node to its pinned 6.8 kernel, which has no interface to extend the measurement register (RTMR3). The kit therefore asks GRUB for one more boot into 6.17 (`grub-reboot`; the packages from Milestone 1 are still installed, and the pin on 6.8 stays, so a reset returns to the old kernel). The firewall is not saved across a reboot, so the kit saves it first and applies it again afterwards with the repository's own step, under a new backup name so that `/root/iptables-before-mesh` is not overwritten.
+
+**What ran.** Before the reboot (kit `m482`, script `m482-pre.sh`; worker 13:00:22, master 13:00:35): checks, a saved copy of the state, one boot into 6.17 requested, the daemons stopped. After the reboot (`m482-post.sh`; master 13:07:00, worker 13:10:44): kernel 6.17 and RTMR3 zero confirmed, the old chain moved aside, the firewall applied and equal to the saved one (11 rule lines), the measurement, the quote, a replay of the log against the quote, every digest recomputed, and only then the daemons started.
+
+| Node | Events | Final RTMR3 (12 hex) | Result |
+|---|---|---|---|
+| Master | 9: `jdk`, `java-settings`, `java-ca-fingerprints`, `hadoop-code`, `hadoop-conf`, `tc-policy`, `nutch-deploy`, `driver`, `seeds` | `0e137cc3e973` | the chain is consistent, the quote's RTMR3 matches, REPORTDATA is the SHA-512 of the log, `ALL-UNCHANGED` for 9 components |
+| Worker | 6: `jdk`, `java-settings`, `java-ca-fingerprints`, `hadoop-code`, `hadoop-conf`, `tc-policy` | `0f1db95fcb1a` | the same results, `ALL-UNCHANGED` for 6 components |
+
+The two test events of Milestone 1 (`test-marker`, `nutch-job`) are gone, because the reboot started a clean chain. The measured set is the main tree's old parts plus the new ones: `NUTCH_DIR` points at the build folder of step 4.8.1 (the plan of ADR-020), and `tc-policy` is the folder `~/tc-policy` on both nodes (ADR-040).
+
+**What changed since the chain of Milestone 1** (compared by `m482_compare.py` from the manifests of both chains):
+
+| Component | Result |
+|---|---|
+| `jdk`, `java-settings`, `java-ca-fingerprints`, `seeds` | unchanged on both nodes |
+| `hadoop-code` | one new file on both nodes, `share/hadoop/common/lib/attested-hdfs.jar`, the wrapper (20,250 files before, 20,251 now): the wrapper is now inside the measured set |
+| `hadoop-conf` | `core-site.xml` changed on both nodes (the wrapper's two settings); `hadoop-env.sh` also changed on the master (the NameNode audit-log block of step 4.5.2) |
+| `nutch-deploy` | one of three files changed: the job, from the baseline to the patched job (`91784e1a…`) |
+| `driver` | grew from 1 file to 84: the measured folder is now the repository's whole `ops` folder at `4ae2015`; the old `run-crawl.sh` inside it is byte-identical |
+| `tc-policy` | new, with the same digest on both nodes |
+
+**What differs between the nodes** (both explained): the JDK folders (345 files each) differ in exactly one file, `lib/server/classes.jsa`, which was already the "JDK difference, recorded and not resolved" of Milestone 1; `hadoop-conf` differs only in `hadoop-env.sh`, the master having the four-line audit-log block of step 4.5.2 (2 marker lines on the master, 0 on the worker). The other components are equal on both nodes.
+
+### 23.4 Baby step 4.8.3: the first timing pair
+
+Run 12 (wrapped) started at 13:42:59 and run 13 (the unwrapped control) at 14:09:16, 26 minutes apart. Both used the patched job, the same seeds and the same receipt settings (receipts on), so the pair isolates the wrapper. The order was wrapped first, then the switch to the plain configuration on both nodes, then the control, then the switch back; after the switch back the measured-set check printed `ALL-UNCHANGED` again (9 and 6 components, `hadoop-conf SAME`), and both nodes' `core-site.xml` is the wrapped version `1c335707555b2427` again, the fingerprint it had before the pair.
+
+| | Run 12, wrapped | Run 13, unwrapped control | Difference |
+|---|---|---|---|
+| Wall time of the crawl command | 709 s | 672 s | wrapped +37 s (+5.5 %) |
+| Jobs completed | 27 | 27 | |
+| HDFS bytes read (job counters) | 421,351 | 407,883 | +13,468 (+3.3 %) |
+| HDFS bytes written (job counters) | 495,707 | 487,613 | +8,094 (+1.7 %) |
+| Bytes stored in HDFS (new files) | 10,802,485 | 10,766,445 | +36,040 (+0.3 %) |
+| New files in HDFS | 282 | 141 | +141, exactly the wrapper's record files (31,928 bytes) |
+| NameNode events during the crawl | 6,704 | 4,224 | +2,480 (+59 %) |
+| Pages fetched and their bytes | 10 pages, 584,381 payload bytes | 10 pages, 584,381 payload bytes | same URL set, 10 of 10 payloads byte-identical |
+
+The fetcher's own byte counter was not in the crawl log, so the bytes fetched come from the WARC files (the payload of every `response` record). The `Under replicated blocks` count of HDFS was 6 before and after the pair.
+
+**This is one data point, not a result.** The wrapped run went first, the run-to-run noise is not known (the three wrapped runs so far took 715 s, 693 s and 709 s), and the pages of a live site could have changed, although here they did not. Step 6.3 needs several pairs with alternating order and a vanilla control.
+
+### 23.5 Run 12's checks, and what the receipts check shows
+
+Run 12 is the first run covered by the measurement. The standard checks of runs 10 and 11 give the same numbers: `AUDIT-CLEAN` (337 added, 0 removed, 0 changed), `RECORDS-COMPLETE` (61 files, 61 with a matching record), `VERIFY-CLEAN` (265 opens), `NN-AUDIT-COMPARE-CLEAN` (strict 26, negative control 108). The independent re-hash gave `RECORDS-VERIFIED` (61 verified, 0 mismatched).
+
+The receipts check (`m483_receipts_check.py`, a structural check that does not replace the teammate's own verifier) gave `RECEIPTS-CHECK-CLEAN`: 7 receipts and 10 outcomes (7 ACCEPTED, 2 HTTP_STATUS, 1 NOT_HTTPS); each ACCEPTED outcome names its receipt by the SHA-256 of the receipt line; for all 7 receipts the content hash equals the page in the WARC and the document id equals the WARC record id; every receipt carries the run's nonce, the policy hash, TLS 1.3, an authenticated chain and a matching hostname, and its `code_hash` is the SHA-256 of the job that ran (`91784e1a…`). One WARC page has no receipt, by design: it did not qualify and has an outcome line instead. The check was tested on run 11's real export and with nine planted faults, and it reports each of them.
+
+### 23.6 What the measurement covers, and what it does not (ADR-029)
+
+- **Covered, as a point-in-time check:** run 12. Its job file is inside the measured `nutch-deploy` folder, whose digest was recomputed as unchanged right after the run, and the quote binds the log.
+- **Not covered:** runs 6 to 11 (they ran before the re-measure), the unwrapped control run 13 (the plain switch changed the measured `core-site.xml` while it ran), and the kit scripts that start our runs (the measured `driver` is the repository's `ops` folder, which does not contain them; the fixed driver of step 5.3.2 closes this).
+- **What it cannot show:** that the running process executed those bytes, and anything about the time between the measurement and the check; the root disk is still not covered (limitations rows 27 and 28).
+
+### 23.7 Evidence and commits
+
+| Item | Value |
+|---|---|
+| Script commits (all new files, mode 100644, each checked against the files that ran and then on GitHub) | `93745032c` (6 files: the build and policy kits), `169c3887b` (4: the run and analysis kits), `77fd89180` (11: the re-measure kit and its comparison tool), `09ebe8565` (9: the control, the metrics, the WARC check and the receipts check); the kits are folders under `ops/kits/` that keep their layout (ADR-042) |
+| Kit zips that ran | `m481b` `3901a185…`, `m481p` `e3b28133…`, `m481r2` `8dcaf3b9…`, `m481a` `ccacd8d4…`, `m482` `f621967b…`, `m483` `66477815…` |
+| Evidence bundles (outside the repository, all `MATCH` on the laptop) | `evidence-m481-build.tar.gz` (`e15b46a3…`, 13 files), `evidence-m481-policy.tar.gz` (`f5559e3e…`, 4), `evidence-m481-run11.tar.gz` (`dc3aa3e8…`, 34), `evidence-m482.tar.gz` (`881c3b2c…`, 27, with the pre and post bundles of both nodes), `evidence-m483-pair1.tar.gz` (`55c46e55…`, 59), `evidence-m483-run12.tar.gz` (`13c271a8…`, 35) |
+| Not committed | the teammate's patch and her policy builder (`make_policy.py` and the three `custody/` modules) come from her private repository; the policy kit's `m481r-src.sha` lists their SHA-256 fingerprints, and a check of the branch (every file hashed) finds none of them. Without them the build and policy kits cannot be re-run from the repository (ADR-042) |
+| Flaws kept as they ran | the build kit's truncated `summary.txt`; the independent re-hash tool `records_verify.sh`, which hashes the shell's error text instead of stopping when a command fails (a fixed version would be a new file, run before it is committed) |
+
+### 23.8 Limits and what stays open
+
+- The teammate's own cryptographic verifier has not been run on our exports (`run11-export.tar.gz`, `run12-export.tar.gz`); no result of it is recorded. The receipts are `binding: unattested` until step 5.1.3.
+- The JDK of the two nodes differs in `lib/server/classes.jsa`, and the two nodes' `hadoop-conf` differ in `hadoop-env.sh`; a verifier must expect these per-node differences or the policy must say how to treat them.
+- `hdfs dfsadmin` refuses the wrapper's file system and needs `-D fs.hdfs.impl=org.apache.hadoop.hdfs.DistributedFileSystem`; `ops/mesh/mesh-hadoop-node.sh report` and `ops/rebuild/node-hadoop.sh` call it without that option, so in wrapped mode their safe-mode and datanode checks cannot see the status (the re-measure kit used only the `start` step).
+- The first pair is one data point (section 23.4).
+- The teammate's patch is not in our repository; the permission to publish it, its licence and its authorship are hers and the mentor's to decide (ADR-042).
+
+### 23.9 Lessons from this step
+
+- A stand-in must print exactly what the real tool prints (tabs, padding), and the guard must be tested against a real sample (mistake log 93 and 94).
+- Start every script from a folder that surely exists, and a re-hash tool must stop on a failed command (mistake log 96).
+- Unpacking with Python's `zipfile` drops the executable flag; the node blocks set it and the post script checks it (mistake log 97).
+- Paste one block at a time and wait for the prompt; host-specific blocks start with a host-name guard; give the tmux command first (mistake log 98 to 100).
+- Test every checking tool with planted faults before it is used: this caught a gap in the GitHub check of today's commits (mistake log 101).
+- The mistakes are in [guide-pitfalls-and-lessons.md](guide-pitfalls-and-lessons.md) (mistake log 91 to 101).
