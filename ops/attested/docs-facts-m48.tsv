@@ -1,0 +1,93 @@
+# Facts of step 4.8 (14 October 2026), tied to the evidence bundles (EVIDENCE_ROOT = the Cloud Shell home folder, where the bundle folders are), to the repository at commit 09ebe8565 and to the documents as committed with this list (valid for the documents as committed with it)
+docs/milestone-4-storage-integrity.md	`93745032c` (6 files: the build and policy kits)	@git-files:93745032c	6
+docs/milestone-4-storage-integrity.md	`169c3887b` (4: the run and analysis kits)	@git-files:169c3887b	4
+docs/milestone-4-storage-integrity.md	`77fd89180` (11: the re-measure kit and its comparison tool)	@git-files:77fd89180	11
+docs/milestone-4-storage-integrity.md	`09ebe8565` (9: the control, the metrics, the WARC check and the receipts check)	@git-files:09ebe8565	9
+docs/milestone-plan.md	Scripts in `93745032c`, `169c3887b`, `77fd89180` and `09ebe8565`	@git-log	feat(ops): add the build and policy kits for the job with the teammate's patch (step 4.8.1)
+docs/milestone-plan.md	Scripts in `93745032c`, `169c3887b`, `77fd89180` and `09ebe8565`	@git-log	feat(ops): add the unwrapped control, the metrics and the receipt and WARC checks of the first timing pair (step 4.8.3)
+docs/decisions.md	`ops/kits/m481-policy/m481r-src.sha`	@repo:ops/kits/m481-policy/m481r-src.sha	policy-src/custody/canonical.py
+docs/milestone-4-storage-integrity.md	After the reboot (`m482-post.sh`;	@repo:ops/kits/m482/m482-post.sh	M482-POST-OK
+docs/milestone-4-storage-integrity.md	(kit `m482`, script `m482-pre.sh`;	@repo:ops/kits/m482/m482-pre.sh	M482-PRE-OK
+docs/milestone-4-storage-integrity.md	The receipts check (`m483_receipts_check.py`,	@repo:ops/attested/m483_receipts_check.py	RECEIPTS-CHECK-CLEAN
+docs/decisions.md	switch both nodes to plain (`cluster-mode.sh plain --restart`, master first)	@repo:ops/kits/m483/ops/attested/cluster-mode.sh	CLUSTER-MODE-OK
+docs/milestone-4-storage-integrity.md	compared by `m482_compare.py`	@repo:ops/attested/m482_compare.py	COMPARE-DONE
+docs/milestone-4-storage-integrity.md	The patched job is `91784e1a4a172e6dae6a1b4ce09242cf4c27f8eda858574954db3b3a1d7ff8ad`, 134,838,280 bytes	evidence-m481-build/fingerprints.txt	patched job 91784e1a4a172e6dae6a1b4ce09242cf4c27f8eda858574954db3b3a1d7ff8ad  134838280
+docs/milestone-4-storage-integrity.md	121 trust anchors, `policy.json` of 1,162 bytes, SHA-256 `0308db735fce6d01ca898c8cf31a3bd0303102c7b4543c0f1862f281cff6c4d8`	evidence-m481-policy/m481p-policy-build-console.txt	policy sha256:0308db735fce6d01ca898c8cf31a3bd0303102c7b4543c0f1862f281cff6c4d8 anchors 121
+docs/milestone-4-storage-integrity.md	a second build gives identical bytes	evidence-m481-policy/m481p-policy-build-console.txt	a second build gives identical bytes (deterministic)
+docs/milestone-4-storage-integrity.md	(anchor-set fingerprint `sha256:55dc41128053bb37b5eaa07a40018cdb67833ee622e804dc460f15679322e38a`, 121 anchors)	evidence-m481-policy/m481p-policy-build-console.txt	re:anchor set / count:\s+sha256:55dc41128053bb37b5eaa07a40018cdb67833ee622e804dc460f15679322e38a\s+121
+docs/milestone-4-storage-integrity.md	the same file was verified against the worker's own JDK	evidence-m481-policy/worker-m481p-policy-verify-console.txt	M481P-POLICY-VERIFY-OK
+docs/milestone-4-storage-integrity.md	nonce `41e3f6cc93792ade699c7588db08834c`	evidence-m481-run11/analysis-out/run11-from-master/nonce	41e3f6cc93792ade699c7588db08834c
+docs/milestone-4-storage-integrity.md	exit 0 in 693 s	evidence-m481-run11/analysis-out/run11-from-master/summary.txt	the crawl finished, exit code 0, 693 s
+docs/milestone-4-storage-integrity.md	`AUDIT-CLEAN` (337 paths added, all explained)	evidence-m481-run11/analysis-out/analysis-summary.txt	re:AUDIT-CLEAN \(explained by the log: added 337, removed 0, changed 0\)
+docs/milestone-4-storage-integrity.md	`RECORDS-COMPLETE` (61 files: 55 as in run 10 and 6 receipt and outcome files)	evidence-m481-run11/analysis-out/analysis-summary.txt	re:RECORDS-COMPLETE \(files judged: 61\s+with a matching record: 61\)
+docs/milestone-4-storage-integrity.md	`VERIFY-CLEAN` (265 opens)	evidence-m481-run11/analysis-out/analysis-summary.txt	VERIFY-CLEAN (opens in total: 265)
+docs/milestone-4-storage-integrity.md	(strict 26, negative control 108)	evidence-m481-run11/analysis-out/analysis-summary.txt	re:with --strict: NN-AUDIT-COMPARE-FINDINGS \(26\)
+docs/milestone-4-storage-integrity.md	(strict 26, negative control 108)	evidence-m481-run11/analysis-out/analysis-summary.txt	re:the comparison reports NN-AUDIT-COMPARE-FINDINGS \(108\)
+docs/milestone-4-storage-integrity.md	its output is kept as `run11-records-verify-attempt1-bad-cwd.txt`	evidence-m481-run11/SHA256SUMS	run11-records-verify-attempt1-bad-cwd.txt
+docs/milestone-4-storage-integrity.md	gave `RECORDS-VERIFIED` (61 verified, 0 mismatched)	evidence-m481-run11/run11-records-verify.txt	re:verified: 61\s+mismatched: 0
+docs/milestone-4-storage-integrity.md	worker 13:00:22, master 13:00:35	evidence-m482/m482-pre-worker-console.txt	m482-pre: 2026-10-14T13:00:22Z on tdx-lab-worker
+docs/milestone-4-storage-integrity.md	worker 13:00:22, master 13:00:35	evidence-m482/m482-pre-master-console.txt	m482-pre: 2026-10-14T13:00:35Z on tdx-lab
+docs/milestone-4-storage-integrity.md	master 13:07:00, worker 13:10:44	evidence-m482/m482-post-master-console.txt	m482-post: 2026-10-14T13:07:00Z on tdx-lab
+docs/milestone-4-storage-integrity.md	master 13:07:00, worker 13:10:44	evidence-m482/m482-post-worker-console.txt	m482-post: 2026-10-14T13:10:44Z on tdx-lab-worker
+docs/milestone-4-storage-integrity.md	| `0e137cc3e973` | the chain is consistent	evidence-m482/m482-post-master-console.txt	RTMR3 in quote: 0e137cc3e973 -> MATCH
+docs/milestone-4-storage-integrity.md	| `0f1db95fcb1a` | the same results	evidence-m482/m482-post-worker-console.txt	RTMR3 in quote: 0f1db95fcb1a -> MATCH
+docs/milestone-4-storage-integrity.md	`ALL-UNCHANGED` for 9 components	evidence-m482/m482-post-master-console.txt	ALL-UNCHANGED (9 components checked)
+docs/milestone-4-storage-integrity.md	`ALL-UNCHANGED` for 6 components	evidence-m482/m482-post-worker-console.txt	ALL-UNCHANGED (6 components checked)
+docs/milestone-4-storage-integrity.md	equal to the saved one (11 rule lines)	evidence-m482/m482-post-master-console.txt	the firewall equals the one saved before the reboot (11 rule lines)
+docs/milestone-4-storage-integrity.md	the wrapper is now inside the measured set	evidence-m482/m482-compare-output.txt	re:only in new\s+\./share/hadoop/common/lib/attested-hdfs\.jar
+docs/milestone-4-storage-integrity.md	(20,250 files before, 20,251 now)	evidence-m482/m482-compare-output.txt	files: old 20250, new 20251, in both 20250
+docs/milestone-4-storage-integrity.md	grew from 1 file to 84	evidence-m482/m482-compare-output.txt	files: old 1, new 84, in both 1 (changed 0, only in old 0, only in new 83)
+docs/milestone-4-storage-integrity.md	differ in exactly one file, `lib/server/classes.jsa`	evidence-m482/m482-compare-output.txt	re:changed\s+\./lib/server/classes\.jsa
+docs/milestone-4-storage-integrity.md	(345 files each)	evidence-m482/m482-compare-output.txt	files: master 345, worker 345, in both 345 (changed 1, only in master 0, only in worker 0)
+docs/milestone-4-storage-integrity.md	`hadoop-conf` differs only in `hadoop-env.sh`	evidence-m482/m482-compare-output.txt	re:changed\s+\./hadoop-env\.sh
+docs/milestone-4-storage-integrity.md	| `tc-policy` | new, with the same digest on both nodes |	evidence-m482/m482-compare-output.txt	re:tc-policy\s+master 56781ae3b285 worker 56781ae3b285 equal
+docs/milestone-4-storage-integrity.md	| `jdk`, `java-settings`, `java-ca-fingerprints`, `seeds` | unchanged on both nodes |	evidence-m482/m482-compare-output.txt	re:seeds\s+old 75568deaa051 new 75568deaa051 SAME
+docs/milestone-4-storage-integrity.md	| Wall time of the crawl command | 709 s | 672 s |	evidence-m483-pair1/pair1-metrics.txt	re:wall time of the crawl \(s\)\s+709\s+672
+docs/milestone-4-storage-integrity.md	| Jobs completed | 27 | 27 |	evidence-m483-pair1/pair1-metrics.txt	re:jobs completed\s+27\s+27
+docs/milestone-4-storage-integrity.md	| HDFS bytes read (job counters) | 421,351 | 407,883 |	evidence-m483-pair1/pair1-metrics.txt	re:HDFS bytes read \(job counters\)\s+421351\s+407883
+docs/milestone-4-storage-integrity.md	| HDFS bytes written (job counters) | 495,707 | 487,613 |	evidence-m483-pair1/pair1-metrics.txt	re:HDFS bytes written \(job counters\)\s+495707\s+487613
+docs/milestone-4-storage-integrity.md	| Bytes stored in HDFS (new files) | 10,802,485 | 10,766,445 |	evidence-m483-pair1/pair1-metrics.txt	re:bytes stored \(new files\)\s+10802485\s+10766445
+docs/milestone-4-storage-integrity.md	| New files in HDFS | 282 | 141 |	evidence-m483-pair1/pair1-metrics.txt	re:new files in HDFS\s+282\s+141
+docs/milestone-4-storage-integrity.md	exactly the wrapper's record files (31,928 bytes)	evidence-m483-pair1/pair1-metrics.txt	re:of which record bytes\s+31928\s+0
+docs/milestone-4-storage-integrity.md	| NameNode events during the crawl | 6,704 | 4,224 |	evidence-m483-pair1/run12-console.txt	NameNode window: lines 37843 to 44546 (6704 events)
+docs/milestone-4-storage-integrity.md	| NameNode events during the crawl | 6,704 | 4,224 |	evidence-m483-pair1/run13-console.txt	NameNode window: lines 44569 to 48792 (4224 events)
+docs/milestone-4-storage-integrity.md	Run 12 (wrapped) started at 13:42:59	evidence-m483-pair1/run12-console.txt	m481r-run: 2026-10-14T13:42:59Z on tdx-lab
+docs/milestone-4-storage-integrity.md	run 13 (the unwrapped control) at 14:09:16	evidence-m483-pair1/run13-console.txt	m483-control: 2026-10-14T14:09:16Z on tdx-lab
+docs/milestone-4-storage-integrity.md	| Wall time of the crawl command | 709 s | 672 s |	evidence-m483-pair1/run12/summary.txt	the crawl finished, exit code 0, 709 s
+docs/milestone-4-storage-integrity.md	| Wall time of the crawl command | 709 s | 672 s |	evidence-m483-pair1/run13/summary.txt	the crawl finished, exit code 0, 672 s
+docs/milestone-4-storage-integrity.md	| Pages fetched and their bytes | 10 pages, 584,381 payload bytes |	evidence-m483-pair1/pair1-warcstats.txt	same URL set: YES
+docs/milestone-4-storage-integrity.md	10 of 10 payloads byte-identical	evidence-m483-pair1/pair1-warcstats.txt	URLs in both runs: 10, byte-identical payloads: 10
+docs/milestone-4-storage-integrity.md	10 pages, 584,381 payload bytes	evidence-m483-pair1/pair1-warcstats.txt	payload bytes 584381
+docs/milestone-4-storage-integrity.md	(9 and 6 components, `hadoop-conf SAME`)	evidence-m483-pair1/pair1-check-restored-master.txt	hadoop-conf SAME
+docs/milestone-4-storage-integrity.md	(9 and 6 components, `hadoop-conf SAME`)	evidence-m483-pair1/pair1-check-restored-master.txt	ALL-UNCHANGED (9 components checked)
+docs/milestone-4-storage-integrity.md	(9 and 6 components, `hadoop-conf SAME`)	evidence-m483-pair1/pair1-check-restored-worker.txt	ALL-UNCHANGED (6 components checked)
+docs/milestone-4-storage-integrity.md	`AUDIT-CLEAN` (337 added, 0 removed, 0 changed)	evidence-m483-run12/analysis-out/analysis-summary.txt	re:AUDIT-CLEAN \(explained by the log: added 337, removed 0, changed 0\)
+docs/milestone-4-storage-integrity.md	`RECORDS-COMPLETE` (61 files, 61 with a matching record)	evidence-m483-run12/analysis-out/analysis-summary.txt	re:RECORDS-COMPLETE \(files judged: 61\s+with a matching record: 61\)
+docs/milestone-4-storage-integrity.md	`VERIFY-CLEAN` (265 opens)	evidence-m483-run12/analysis-out/analysis-summary.txt	VERIFY-CLEAN (opens in total: 265)
+docs/milestone-4-storage-integrity.md	`NN-AUDIT-COMPARE-CLEAN` (strict 26, negative control 108)	evidence-m483-run12/analysis-out/analysis-summary.txt	re:with --strict: NN-AUDIT-COMPARE-FINDINGS \(26\)
+docs/milestone-4-storage-integrity.md	`NN-AUDIT-COMPARE-CLEAN` (strict 26, negative control 108)	evidence-m483-run12/analysis-out/analysis-summary.txt	M481A-ANALYSIS-CLEAN (run12)
+docs/milestone-4-storage-integrity.md	The independent re-hash gave `RECORDS-VERIFIED` (61 verified, 0 mismatched)	evidence-m483-run12/run12-records-verify.txt	re:verified: 61\s+mismatched: 0
+docs/milestone-4-storage-integrity.md	gave `RECEIPTS-CHECK-CLEAN`: 7 receipts and 10 outcomes	evidence-m483-run12/run12-receipts-check.txt	RECEIPTS-CHECK-CLEAN
+docs/milestone-4-storage-integrity.md	gave `RECEIPTS-CHECK-CLEAN`: 7 receipts and 10 outcomes	evidence-m483-run12/run12-receipts-check.txt	re:receipts\s+7\n
+docs/milestone-4-storage-integrity.md	(7 ACCEPTED, 2 HTTP_STATUS, 1 NOT_HTTPS); each ACCEPTED outcome	evidence-m483-run12/run12-receipts-check.txt	re:non-ACCEPTED outcomes \(HTTP_STATUS\)\s+2
+docs/milestone-4-storage-integrity.md	(7 ACCEPTED, 2 HTTP_STATUS, 1 NOT_HTTPS); each ACCEPTED outcome	evidence-m483-run12/run12-receipts-check.txt	re:non-ACCEPTED outcomes \(NOT_HTTPS\)\s+1
+docs/milestone-4-storage-integrity.md	each ACCEPTED outcome names its receipt by the SHA-256 of the receipt line	evidence-m483-run12/run12-receipts-check.txt	re:ACCEPTED outcomes tied to their receipt by hash\s+7
+docs/milestone-4-storage-integrity.md	`evidence-m481-build.tar.gz` (`e15b46a3	evidence-m481-build.sha256	e15b46a3cbd615bbf887ec41bfdb456c3cb3247f2146d9f6918df1ef0569a9df
+docs/milestone-4-storage-integrity.md	`evidence-m481-policy.tar.gz` (`f5559e3e	evidence-m481-policy.sha256	f5559e3ebf27e993de109aa37587a03baab919b9d5c7f7f33e6371d169594b37
+docs/milestone-4-storage-integrity.md	`evidence-m481-run11.tar.gz` (`dc3aa3e8	evidence-m481-run11.sha256	dc3aa3e8bfcd4019da7f9455ca094ececee9223f003a942761b006d324516d2c
+docs/milestone-4-storage-integrity.md	`evidence-m482.tar.gz` (`881c3b2c	evidence-m482.sha256	881c3b2c95662d5545e1fb3fdeb6c9c56bc9acf8661ea260763f7aae41e71e83
+docs/milestone-4-storage-integrity.md	`evidence-m483-pair1.tar.gz` (`55c46e55	evidence-m483-pair1.sha256	55c46e55ab41b214cba9e65d591076bd30c0523b526fa9470930efc5e3e26fa6
+docs/milestone-4-storage-integrity.md	`evidence-m483-run12.tar.gz` (`13c271a8	evidence-m483-run12.sha256	13c271a87af4b7eeb033876df908775112992803b0794ccb3df0818c1557e3bd
+docs/milestone-plan.md	4.8.1 the job built with the teammate's patch	@docs:docs/milestone-4-storage-integrity.md	4.8.1 the job built with the teammate's patch
+docs/milestone-plan.md	4.8.3 the first timing pair, runs 12 and 13 (ADR-041)	@docs:docs/decisions.md	## ADR-041: A timing pair
+docs/milestone-plan.md	4.8.2 the reboot and the re-measure, with the patched job and the policy as measured parts (ADR-040)	@docs:docs/decisions.md	## ADR-040: The re-measure covers the patched job
+docs/decisions.md	so the master has 9 events and the worker 6	@docs:docs/milestone-4-storage-integrity.md	| Master | 9: `jdk`, `java-settings`
+docs/limitations-and-trust.md	the repository's whole `ops` folder at the commit (84 files)	@docs:docs/milestone-4-storage-integrity.md	grew from 1 file to 84
+docs/run-comparison.md	| Wall time of the crawl | 715 s | 693 s | 709 s | 672 s |	@docs:docs/milestone-4-storage-integrity.md	| Wall time of the crawl command | 709 s | 672 s |
+docs/run-comparison.md	| Wall time of the crawl | 715 s | 693 s | 709 s | 672 s |	@docs:docs/milestone-4-storage-integrity.md	Run 10 ran on 13 October from 07:16:58 to 07:28:53 UTC (11 min 55 s)
+docs/session-start.md	(ADR-034 to ADR-042 are the latest)	@docs:docs/decisions.md	## ADR-042: Kits are committed as folders exactly as they ran
+docs/milestone-4-storage-integrity.md	(mistake log 93 and 94)	@docs:docs/guide-pitfalls-and-lessons.md	| 93 | Tools | The run kit refused to start
+docs/milestone-4-storage-integrity.md	(mistake log 91 to 101)	@docs:docs/guide-pitfalls-and-lessons.md	| 101 | Analysis | My first GitHub check
+docs/cluster-configuration.md	ADR-040 to ADR-042	@docs:docs/decisions.md	## ADR-040
+docs/limitations-and-trust.md	[milestone-4-storage-integrity.md §23.5]	@docs:docs/milestone-4-storage-integrity.md	### 23.5 Run 12's checks, and what the receipts check shows
+docs/limitations-and-trust.md	[milestone-4-storage-integrity.md §23.8]	@docs:docs/milestone-4-storage-integrity.md	### 23.8 Limits and what stays open
