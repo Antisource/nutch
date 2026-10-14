@@ -335,3 +335,15 @@ To count what the NodeManager read through the wrapper, on the worker: `cat /tmp
 | What the cluster holds from run 10 | `seeds-run10` and `crawl-run10` in HDFS (the demos removed their own folders); the logs and listings are in `~/run10` on the master; the NameNode's audit log is on |
 | Procedure | unchanged (section 16): rotate the logs, restart the worker's NodeManager, put the seeds in through the wrapper, take the "before" listing, run `ops/run-crawl.sh`, then the checks. A script that is not executable in the repository is run with `bash` |
 | Evidence | `evidence-m4-hardening-run10.tar.gz`, `evidence-m4-hardening-demos10.tar.gz` and `evidence-m4-hardening-build.tar.gz`; the report is [milestone-4-storage-integrity.md](milestone-4-storage-integrity.md) section 22 |
+
+
+## 19. The re-measure and the first timing pair (14 October 2026, step 4.8)
+
+| Item | Value |
+|---|---|
+| What changed | both nodes were rebooted into the 6.17 kernel (one-time boot, the pin on 6.8 unchanged), the firewall was applied again, the stack was measured again with the patched job and the new component `tc-policy`, and the daemons were started afterwards; the plain and the wrapped `core-site.xml` were switched and restored for the first timing pair |
+| The measured set | master: `jdk`, `java-settings`, `java-ca-fingerprints`, `hadoop-code`, `hadoop-conf`, `tc-policy`, `nutch-deploy`, `driver`, `seeds` (9 events, final RTMR3 `0e137cc3e973`); worker: the first six (6 events, `0f1db95fcb1a`); `NUTCH_DIR` is `~/m481/patched` on the master |
+| Files and backups | `~/tc-policy` (`policy.json` and its `.sha256`) on both nodes; `~/m482/` holds the state saved before the reboot, the old chain and the post-boot outputs; the firewall before the re-applied rules is `/root/iptables-after-reboot-m482` (the original backup `/root/iptables-before-mesh` was not overwritten); `~/cluster-mode/before-<time>.core-site.xml` records every switch |
+| Current state | **wrapped on both nodes**, `core-site.xml` fingerprint `1c335707555b2427`, the same as before the pair; the plain version is `d7e7dffd27def2a0` |
+| After a reboot | the nodes return to 6.8 and the stack is not measured; a new re-measure needs another one-time boot (the kit `ops/kits/m482`) |
+| Kits and report | `ops/kits/m482`, `ops/kits/m483`; the report is [milestone-4-storage-integrity.md](milestone-4-storage-integrity.md) section 23, the decisions are ADR-040 to ADR-042 |

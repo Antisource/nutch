@@ -139,6 +139,8 @@ Findings that shaped the design:
 The master's chain still contains the first test marker (`test-marker`, then `nutch-job`), because an extension cannot be undone until the next reboot. A clean chain needs a reboot, which a boot service will give.
 A second master quote taken after the crawl had the same RTMR3 and REPORTDATA.
 
+**Update, 14 October 2026:** the stack was measured again after a reboot with the patched job and the policy folder, and the master's chain is clean (9 events, no test events); see [milestone-4-storage-integrity.md](milestone-4-storage-integrity.md) section 23.3. The chain described here is the history of 5 October.
+
 ## 10. The crawl on the measured stack (run 4)
 
 Seeds `seeds-run4`, crawl `crawl-run4`; segments `20261005175641`, `20261005175947`, `20261005180333`; about 17:56 to 18:07; `Finished loop with 3 iterations`; no failure lines found by the scan; 18 WARC and index files verified.

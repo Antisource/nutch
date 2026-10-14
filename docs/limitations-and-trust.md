@@ -95,7 +95,7 @@ Details: [milestone-3-hdfs-wrapper.md](milestone-3-hdfs-wrapper.md), [decisions.
 | Row | What changed | Where |
 |---|---|---|
 | 26 | Unchanged: outputs are still not signed. The wrapper is where hashing and signing will happen (handoff Stage B), and a real run through it now exists | milestone-3 §6, §10 |
-| 23 | Unchanged: the job file and the new classes are not covered by a measurement yet; re-measurement (which needs a reboot) is deferred until the job next changes (ADR-020) | milestone-3 §12 |
+| 23 | Closed for run 12 and later on 14 October 2026: the job with the teammate's patch, the wrapper's classes and the policy folder are covered by the re-measure of step 4.8.2 (ADR-040); runs 6 to 11 and the unwrapped control run 13 are not covered (ADR-029) | milestone-3 §12; milestone-4 §23.6 |
 | 39 to 44 | New rows (table C below) | this section |
 
 ## Update, 7 October 2026 (after Milestone 4, steps 4.1 to 4.3)
@@ -113,7 +113,7 @@ Details: [milestone-4-storage-integrity.md](milestone-4-storage-integrity.md), [
   - Length, existence and listings still come from storage.
   - There are no task records or job manifests; the job file is not checked at task start; the NodeManager still reads it through plain HDFS.
   - `copyToLocalFile`, opening by path handle and unwrapped programs are not verified; a file created through the builder API would not be hashed (none occurred).
-  - Runs 6 to 8 are not covered by the measurement; one new crawl on measured code is needed after the re-measurement.
+  - Runs 6 to 11 are not covered by the measurement; run 12 (14 October 2026) is the first run covered, and the unwrapped control run 13 is not.
   - One file and one kind of change were tampered with on the cluster.
 
 | Row | What changed | Where |
@@ -134,7 +134,7 @@ The mentor's answers are recorded in ADR-026 to ADR-029 of [decisions.md](decisi
 - **Rows 41 and 46 (reads are not audited):** the mentor said to turn on the NameNode's own audit log (baby step 4.5.2).
 - **Row 52 (the cost was measured once):** the mentor said that every wrapped crawl gets an unwrapped control in the same hour, with wall time and bytes fetched recorded for each (ADR-028); performance is the result that matters most. The results table is step 6.3.
 - **Rows 18 and 34 (the content is not authenticated; certificate checking off):** the mentor put per-fetch TLS evidence in scope, as teammate S's patch (step 5.3; [milestone-plan.md](milestone-plan.md) section 6). Certificate checking stays off for now (ADR-002, provisional).
-- **The language rule (ADR-029):** the re-measurement stays deferred, and nothing that ran outside the measured set is described as measured.
+- **The language rule (ADR-029):** the re-measurement was done on 14 October 2026 (ADR-040), and the rule stays: nothing that ran outside the measured set is described as measured.
 
 ## Update, 8 October 2026 (after Milestone 4, step 4.5)
 
@@ -273,6 +273,14 @@ The mentor's answers are recorded in ADR-026 to ADR-029 of [decisions.md](decisi
 | 75 | A file that is still being written cannot be read through the wrapper, because its record is made when the file is closed | Low | By design (the record is made at close); run 10 read 265 files and every one was verified, so a crawl does not need it; it shows as the one expected difference in the contract comparison (`testSyncable`) | Accepted | `CONTRACT-SAME-AS-HDFS (1 explained difference)`; 265 of 265 opens `verify=ok`. our runs [milestone-4-storage-integrity.md §22.3, §22.5] | Our runs |
 | 76 | A status or listing question about a file with no record is answered and logged once (`attested.metadata.missing`, default `warn`), so a listing can show a file that cannot be opened | Low | Opening such a file is refused; the setting can be `fail` in the site configuration if listings must be refused too | Accepted | Two settings for two questions (ADR-038). our runs [milestone-4-storage-integrity.md §22.3] | Our runs |
 | 77 | The list of doors to the plain file system was made against Hadoop 3.4.1's `FilterFileSystem`; a newer Hadoop could forward more methods | Low to medium | Repeat the listing of the methods that are forwarded and not overridden whenever Hadoop is upgraded, and add its result to the smoke test | New | The listing was made with the real Hadoop classes and the compiled wrapper. our code [milestone-4-storage-integrity.md §22.2] | Our code reading |
+| 78 | The measured `driver` is the repository's whole `ops` folder at the commit (84 files); the kit scripts that start our runs are outside it, so what starts a run is not measured | Medium | Closed only by the fixed driver of step 5.3.2; until then every document says which run is covered and that the starting scripts are not | New | `m482_compare.py` shows `driver` growing from 1 to 84 files. our measurement [milestone-4-storage-integrity.md §23.3, §23.6] | Our measurement |
+| 79 | The JDK folders of the two nodes differ in exactly one file, `lib/server/classes.jsa` (345 files each) | Low | Decide whether the verifier ignores that file or accepts a per-node JDK digest; recorded since Milestone 1 and now narrowed to one file | New | the comparison of the two manifests. our measurement [milestone-4-storage-integrity.md §23.3] | Our measurement |
+| 80 | `hadoop-conf` differs between the nodes in `hadoop-env.sh` only: the master has the four-line NameNode audit-log block of step 4.5.2 (2 marker lines on the master, 0 on the worker) | Low | A verifier must expect per-role differences, or the audit setting moves to a file that both nodes share | New | the comparison and the marker counts. our measurement [milestone-4-storage-integrity.md §23.3] | Our measurement |
+| 81 | A timing control needs the plain configuration, which changes a measured file: the control run is outside the measurement | Low | The wrapped run is checked right after it, the settings are restored, and the restore is proved by the measured-set check (ADR-041) | New | `ALL-UNCHANGED` before and after the pair, the same `core-site.xml` fingerprint. our measurement [milestone-4-storage-integrity.md §23.4] | Our measurement |
+| 82 | `hdfs dfsadmin` refuses the wrapper's file system; `ops/mesh/mesh-hadoop-node.sh report` and `ops/rebuild/node-hadoop.sh` call it without the plain option and cannot see the status in wrapped mode | Low | Call it with `-D fs.hdfs.impl=org.apache.hadoop.hdfs.DistributedFileSystem`, as `cluster-mode.sh` and `nn-audit.sh` do; a fixed version of those two scripts is a new file that must run first | New | the refusal message on the master. our test [milestone-4-storage-integrity.md §23.8] | Our test |
+| 83 | The teammate's cryptographic verifier has not been run on our exports, and the receipts check is structural only; the receipts are `binding: unattested` until step 5.1.3 | Medium | Run her verifier on `run11-export.tar.gz` and `run12-export.tar.gz` and record the result | New | `RECEIPTS-CHECK-CLEAN` on runs 11 and 12. our test [milestone-4-storage-integrity.md §23.5] | Our test |
+| 84 | The first timing pair is one data point: the wrapped run went first, the noise between runs is not known, and the fetcher's own byte counter was not in the crawl log | Low | Several pairs with alternating order and a vanilla control (step 6.3); the bytes fetched come from the WARC files | New | wall time 709 s against 672 s on identical pages. our measurement [milestone-4-storage-integrity.md §23.4] | Our measurement |
+| 85 | The teammate's patch and policy builder are not in our repository, so the build and policy kits cannot be re-run from it; publishing them needs her consent, a licence and her authorship | Low | Referred to by her commit, the blob id and the SHA-256 fingerprints (ADR-042); her own commit to our branch at step 5.3.3 is the preferred route | New | a check of the branch that hashes every file. our test [decisions.md ADR-042] | Our test |
 
 ### D. Host, availability and platform
 

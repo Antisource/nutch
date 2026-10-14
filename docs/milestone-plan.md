@@ -17,7 +17,7 @@ Date: 7 October 2026. This is the plan made on 6 October 2026: a pre-flight (Mil
 | 1 | Measure the code that runs | We can show which program ran: fingerprints of the code are written into the hardware quote | Gate A, item 3 | Done, 5 to 6 October | [milestone-1](milestone-1-code-measurement.md) |
 | 2 | Mesh for node-to-node traffic | The machines talk to each other only over an encrypted private network | Gate A, item 1 | Done, 6 October, with limits | [milestone-2](milestone-2-wireguard-mesh.md) |
 | 3 | Pass-through wrapper (no crypto yet) | Every storage request goes through our layer, which changes nothing yet | Gate A, item 2 | Done, 6 October | [milestone-3](milestone-3-hdfs-wrapper.md) |
-| 4 | Storage integrity (the first plan called it "sign on write, verify on read") | Storage cannot be changed unnoticed: files are fingerprinted when written and checked when read; the signing comes with step 5.1 | Stage B, items 4 to 6 | In progress: steps 4.1 to 4.6 done (baby steps 4.6.4 to 4.6.7 on 13 October), 4.7 dropped on 10 October, 4.8 open | [milestone-4](milestone-4-storage-integrity.md) |
+| 4 | Storage integrity (the first plan called it "sign on write, verify on read") | Storage cannot be changed unnoticed: files are fingerprinted when written and checked when read; the signing comes with step 5.1 | Stage B, items 4 to 6 | **Done on 14 October 2026:** steps 4.1 to 4.6 done (baby steps 4.6.4 to 4.6.7 on 13 October), 4.7 dropped on 10 October, 4.8 done (baby steps 4.8.1 to 4.8.3) | [milestone-4](milestone-4-storage-integrity.md) |
 | 5 | Identity, ledger, lockdown | Each machine has a key that only an attested machine can use, the machine cannot be fiddled with, and (deferred on 10 October) an outside witness checks an append-only log | Stage C, items 7 to 9 | Not started | none yet |
 | 6 | Verifier and evidence | Anyone can check a crawl, our attacks on our own system are caught, and the cost is known | Stage D, items 10 to 13 | Not started | none yet |
 
@@ -36,7 +36,7 @@ Milestone 4 (the committed names; the report has the dependencies and results):
 | 4.5 | Answer length, existence and listings from records, never from storage | Done. Baby steps: 4.5.1 metadata from records (done); 4.5.2 the NameNode's audit log turned on and compared with the wrapper's log (done) |
 | 4.6 | Check the job file and configuration digests at the start of each task | Done (9 October; baby steps 4.6.4 to 4.6.7 on 13 October). Changed by the mentor on 7 October (ADR-027). Baby steps: 4.6.1 the wrapper's classes on Hadoop's classpath (done); 4.6.2 both lookups set as final, with a switch back to the plain configuration (done); 4.6.3 the NodeManager's read of the job file checked against its record, and a swapped file refused (done); 4.6.4 `append`, `concat` and `truncate` refused (done); 4.6.5 a file with no record cannot be opened (done); 4.6.6 the wrapper's settings count only when the site configuration set them (done); 4.6.7 the doors to the plain file system closed (done) |
 | 4.7 | Task records and job manifests; speculative execution off | **Dropped** (10 October, ADR-034): no task records, job manifests or per-file history; what they were for, tying outputs to attested code, is done by the signed per-file records of step 5.1. The recon ([milestone-4](milestone-4-storage-integrity.md) section 21) stays as history |
-| 4.8 | Milestone report; re-measure after a reboot (ADR-020) | Open. The measured job must contain teammate S's code (the mentor's note of 10 October, section 8). The job changes with every code change, so whether to re-measure before or after step 5.1 is to be confirmed with the mentor |
+| 4.8 | Milestone report; re-measure after a reboot (ADR-020) | **Done on 14 October 2026.** Baby steps: 4.8.1 the job built with the teammate's patch, the collection policy and the first integration crawl (run 11); 4.8.2 the reboot and the re-measure, with the patched job and the policy as measured parts (ADR-040); 4.8.3 the first timing pair, runs 12 and 13 (ADR-041). Scripts in `93745032c`, `169c3887b`, `77fd89180` and `09ebe8565`; report: [milestone-4](milestone-4-storage-integrity.md) section 23 |
 
 Milestone 5 and Milestone 6 (the items of the first plan; their reports will list the details):
 
@@ -121,7 +121,7 @@ The HTTP client is okhttp (`protocol-okhttp`), as the handoff requires; a change
 ## 7. Timeline
 
 - The workshop paper is planned for mid-November to 20 November, 5 pages plus 2 (the mentor, 7 October). Nothing new for the paper is started before the 16 October list.
-- The plan has no dates of its own; the handoff attaches none on purpose. After 10 October the order is baby steps 4.6.4 to 4.6.7 (done on 13 October), then step 5.1 (the signed records, the folder identity, the real key) and step 5.2, with step 4.8 (the re-measure, once teammate S's patch is in the job) placed as the mentor confirms, then Milestone 6 (section 8 maps the mentor's labels to the steps). Any dates are proposals until the mentor confirms them.
+- The plan has no dates of its own; the handoff attaches none on purpose. After 10 October the order is baby steps 4.6.4 to 4.6.7 (done on 13 October), then step 5.1 (the signed records, the folder identity, the real key) and step 5.2, with step 4.8 (the re-measure) done on 14 October, then Milestone 6 (section 8 maps the mentor's labels to the steps). Any dates are proposals until the mentor confirms them.
 - The handoff's rule applies: security work is not cut to meet a date. What is not done in time is written down as a limitation, and the paper claims only what exists:
 
 | When it is done | What can honestly be claimed |
@@ -151,7 +151,7 @@ The mentor's decisions of 10 October (ADR-034 to ADR-039) drop step 4.7 and chan
 
 The note groups C1 to C4 as evidence, which is Milestone 6; the review in C4 also informs step 5.3 (the locked image). Step 5.3 (locked image, fixed driver, TLS checking on with the teammate's patch) is otherwise unchanged. Our own fail-open findings were in the limitations (row 72, closed on 13 October 2026).
 
-**Status on 13 October 2026: A1 to A4 are done (baby steps 4.6.4 to 4.6.7 of step 4.6)** ([milestone-4](milestone-4-storage-integrity.md) section 22: run 10 and two demos with the new wrapper); the signing starts with step 5.1, and step 4.8 is placed as the mentor confirms.
+**Status on 13 October 2026: A1 to A4 are done (baby steps 4.6.4 to 4.6.7 of step 4.6)** ([milestone-4](milestone-4-storage-integrity.md) section 22: run 10 and two demos with the new wrapper); the signing starts with step 5.1. **Status on 14 October 2026: step 4.8 is done and Milestone 4 is closed** ([milestone-4](milestone-4-storage-integrity.md) section 23).
 
 ## 9. Rules that apply to every milestone
 

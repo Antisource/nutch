@@ -25,7 +25,7 @@ Times are UTC.
 | 017 | Replace the implementation behind `hdfs://` with the wrapper (Option B) | Accepted (mentor) |
 | 018 | The storage audit is the proof that the wrapper was used | Accepted |
 | 019 | Build and test in scratch folders; commit exactly what ran | Accepted |
-| 020 | Defer the re-measurement until the job next changes | Accepted (mentor confirmation asked) |
+| 020 | Defer the re-measurement until the job next changes | Accepted (mentor confirmation asked); carried out on 14 October (ADR-040) |
 | 021 | Keep each file's record next to the file | Accepted (mentor confirmation asked) |
 | 022 | Records come from the wrapper when a file is closed, not from the commit hook | Accepted (question 13 is moot since ADR-034 dropped the task records) |
 | 023 | A file without a record is allowed but logged, for now | Accepted (provisional) |
@@ -45,6 +45,9 @@ Times are UTC.
 | 037 | The mentor's answers of October 2026 (policy, certificates, single-record verification, performance, TLS capture, threat model) | Accepted as direction; the plan is not yet updated |
 | 038 | Reading a file's content and asking about its status are two different questions, with two settings for a file without a record | Accepted |
 | 039 | The wrapper's own settings count only when the site configuration set them | Accepted |
+| 040 | The re-measure covers the patched job, the policy folder and the repository's ops folder, and needs a one-time boot into 6.17 | Accepted |
+| 041 | A timing pair: the wrapped run first, then a plain control with the same job, seeds and settings, then the wrapped settings restored and proved | Accepted |
+| 042 | Kits are committed as folders exactly as they ran, without other people's code and without evidence | Accepted; publishing the teammate's files needs her consent |
 
 ---
 
@@ -193,7 +196,7 @@ Times are UTC.
 
 ## ADR-020: Defer the re-measurement until the job next changes
 
-- **Date:** 6 October 2026. **Status:** accepted by the author and the maintainer; the mentor is asked to confirm.
+- **Date:** 6 October 2026. **Status:** accepted by the author and the maintainer; the mentor is asked to confirm. **Carried out on 14 October 2026 (ADR-040).**
 - **Context:** the measured set is the main tree, and it is unchanged (all ten components `SAME` after run 6). Run 6 ran from a scratch build outside it. `measure-all.sh` refuses to measure twice in one boot, so covering the new job needs a reboot of both nodes. A reboot also removes the firewall rules, stops the daemons that were started by hand, returns each node to the pinned 6.8 kernel (which has no measurement interface) and needs a one-time boot into 6.17.
 - **Decision:** do not reboot now. Re-measure, from a clean boot, when the job next changes; the next milestone changes it. Until then, record that run 6 is not covered by the chain and keep running `check-unchanged.sh` to show the measured tree is intact.
 - **Why:** a measurement now would cover a state that is about to be replaced, at the price of a reboot's risks; the Gate A measurement item already passed in Milestone 1.
@@ -366,3 +369,28 @@ Times are UTC.
 - **Decision:** a setting of the wrapper (`attested.hash.enabled`, `attested.hash.chunk.size`, `attested.sidecar.enabled`, `attested.verify.reads`, `attested.verify.missing`, `attested.metadata.check`, `attested.metadata.mismatch`, `attested.metadata.cache.seconds`, and `attested.metadata.missing`) is obeyed only when its last source, as Hadoop records it, is `core-site.xml` (or the default resources). A setting from a job file, a `-D` on the command line or code is ignored, the secure default is used, and the `INIT` line of the wrapper's audit log names the setting and its source (`ignored=`).
 - **Why not only `final`:** marking a setting final in the site file stops a later settings file but not a `-D` or a call in code; the source rule stops all three, and it lets the smoke tests feed settings from code through a hook that is private to the package.
 - **Scope:** the two log-folder settings (`attested.audit.dir`, `attested.records.dir`) are not covered, because four scripts pass them with `-D`. The rule defends against unmeasured settings, not against code in the JVM; a job that shadows `core-site.xml` on the class path would also replace our classes, which the measured job and the fixed driver close (limitations rows 73 and 74).
+
+
+## ADR-040: The re-measure covers the patched job, the policy folder and the repository's ops folder, and needs a one-time boot into 6.17
+
+- **Date:** 14 October 2026. **Status:** accepted. It carries out ADR-020; the mentor's note of 10 October (section 8) asks for the job to be built with the teammate's patch and re-measured; ADR-029 (nothing unmeasured is described as measured) stays.
+- **Context:** the measured job was still the baseline of 5 October, while runs 6 to 11 used other jobs. The teammate's design puts the collection policy into the measured image (ADR-037). A normal reboot returns both nodes to the pinned 6.8 kernel, which cannot extend RTMR3, and the firewall rules are not saved across a reboot.
+- **Decision:** (1) point `NUTCH_DIR` at the scratch build of step 4.8.1 (`~/m481/patched`), as ADR-020 planned, so that the old tree is not touched; (2) add one measured component, `tc-policy` (the folder `~/tc-policy` with `policy.json`), on both nodes, so the master has 9 events and the worker 6, and drop the two test events of Milestone 1; (3) before each re-measure ask GRUB for one more boot into 6.17 (`grub-reboot`; the pin on 6.8 stays); (4) after the boot, in this order: the firewall (saved before, applied again under a new backup name and compared with the saved one), the measurement, the quote and its replay, a recompute of every digest, and only then the daemons.
+- **Why:** the order proves the measurement before anything runs; the new backup name keeps the original rules that the undo instructions refer to; the policy must have the same digest on both nodes because the receipts check it on whichever node runs a task.
+- **Consequences:** the measured `driver` is the repository's whole `ops` folder at the commit (84 files); the kit scripts that start our runs are not in it, and only the fixed driver (step 5.3.2) closes that (limitations row 78). Every re-measure costs a reboot of both nodes and about an hour. The kit is `ops/kits/m482/`; the results are in [milestone-4-storage-integrity.md](milestone-4-storage-integrity.md) section 23.3.
+
+## ADR-041: A timing pair: the wrapped run first, then a plain control with the same job, seeds and settings, then the wrapped settings restored and proved
+
+- **Date:** 14 October 2026. **Status:** accepted. It carries out ADR-028 for the first pair.
+- **Context:** the control needs the plain configuration, and switching to it changes `core-site.xml`, which is in the measured set.
+- **Decision:** run the wrapped run first and check the measured set right after it; switch both nodes to plain (`cluster-mode.sh plain --restart`, master first); run the control with the same patched job, the same seeds and the same receipt settings (receipts on in both, so that only the file system differs); switch both nodes back and prove with the measured-set check that `core-site.xml` and every other component equal the measurement. The control is outside the measurement and is called so. The numbers are the wall time of the crawl command, the jobs completed, Hadoop's byte counters per file system, the bytes stored in HDFS (new files, the record files separately), the NameNode events of the window, and, from the WARC files, the pages and their payload bytes; a value that cannot be found is printed as "not found", never as 0.
+- **Why:** it keeps the covered run covered, it makes the control a real control (same pages), and the proof after the restore shows that the switch left no trace.
+- **Consequences:** a pair costs about 40 minutes and two switches of both nodes; the order should alternate in later pairs (ADR-028); the results table belongs to step 6.3 and one pair is not a result.
+
+## ADR-042: Kits are committed as folders exactly as they ran, without other people's code and without evidence
+
+- **Date:** 14 October 2026. **Status:** accepted; publishing the teammate's files needs her consent and the mentor's.
+- **Context:** the scripts of step 4.8 ran from kit folders (zips) with fingerprints; the first rule of the project is that committed files are identical to the files that ran. Two kits also held the teammate's patch and her policy builder, which come from her private repository.
+- **Decision:** each kit goes under `ops/kits/<kit>/` with its layout unchanged, in script-only commits, after a gate compared every file with the fingerprint of the zip (or of the evidence copy, for the three tools that ran as single files) that ran. Rehearsal transcripts and file lists are evidence and stay outside the repository with their fingerprints. The teammate's patch and policy builder are not committed: they are identified by her repository, commit `841c1d3`, the patch's blob id and SHA-256, and the fingerprints in `ops/kits/m481-policy/m481r-src.sha`; a check of the branch hashes every file and finds none of them. Known flaws stay as they ran.
+- **Why:** her work is unpublished and its licence and authorship are hers to decide; a copy committed by us would also show us as its author. The experiment stays identifiable and checkable without it.
+- **Consequences:** the build and policy kits cannot be re-run from the repository alone; the paper's artifact will need her consent (preferably through her own commit to our branch, step 5.3.3). A fixed version of a flawed script is a new file that must run before it is committed.

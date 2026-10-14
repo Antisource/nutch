@@ -26,6 +26,7 @@ Runs 3 and 4 (5 October 2026) are compared with run 2 in section 9, run 5 (6 Oct
   - [9.4 Run 8 with verified reads (added 7 October 2026)](#94-run-8-with-verified-reads-added-7-october-2026)
   - [9.5 A condition from the mentor (7 October 2026)](#95-a-condition-from-the-mentor-7-october-2026)
   - [9.6 Run 9 through the cluster's own wrapper (added 9 October 2026)](#96-run-9-through-the-clusters-own-wrapper-added-9-october-2026)
+  - [9.7 Runs 10 to 13 (added 14 October 2026)](#97-runs-10-to-13-added-14-october-2026)
 
 ## 1. Side by side
 
@@ -283,3 +284,20 @@ Run 9 is a procedure run for step 4.6. It is **not covered by the measurement** 
 | Storage audit, expected records, verification summary, re-hash, tamper test | as in [milestone-4-storage-integrity.md](milestone-4-storage-integrity.md) sections 10 and 11 | `AUDIT-CLEAN` (322 added, all explained), `RECORDS-COMPLETE` (55 of 55), `VERIFY-CLEAN` (265 opens), `RECORDS-VERIFIED` (55 of 55), `TAMPER-PROVEN`, with nothing exempted |
 
 Details and the evidence are in [milestone-4-storage-integrity.md](milestone-4-storage-integrity.md) section 20.
+
+
+### 9.7 Runs 10 to 13 (added 14 October 2026)
+
+Runs 10 and 11 are procedure runs; runs 12 and 13 are the first timing pair (ADR-028, ADR-041). Only run 12 is covered by the measurement (ADR-029); run 13 is the unwrapped control, which is outside it.
+
+| | Run 10 | Run 11 | Run 12 | Run 13 |
+|---|---|---|---|---|
+| Date | 13 October | 14 October | 14 October, started 13:42:59 | 14 October, started 14:09:16 |
+| File system | wrapped | wrapped | wrapped | plain (the wrapper switched off) |
+| Job | the job of step 4.6.7 (section 22.8 of the report) | the patched job `91784e1a…` | the patched job `91784e1a…` | the patched job `91784e1a…` |
+| Receipts | none | on | on | on |
+| Covered by the measurement | no | no (before the re-measure) | **yes** (point-in-time) | no (plain mode) |
+| Wall time of the crawl | 715 s | 693 s | 709 s | 672 s |
+| Compared with a control in the same hour | no | no | yes: run 13 | yes: run 12 |
+
+Runs 12 and 13 fetched the same pages: 10 pages from the same 10 URLs, 584,381 payload bytes each, 10 of 10 payloads byte-identical, 9 WARC files each. The wrapped run took 37 s (5.5 %) longer, read 3.3 % more and wrote 1.7 % more through HDFS, stored 0.3 % more (the wrapper's 141 record files), and made 59 % more NameNode calls. It is one pair with the wrapped run first, so it is a data point and not a result. The table and the evidence are in [milestone-4-storage-integrity.md](milestone-4-storage-integrity.md) section 23.4; run 10 is in section 22.5.
