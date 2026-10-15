@@ -1,0 +1,66 @@
+# Facts of step 5.1.1 and the shared cluster setup (15 October 2026), tied to the evidence folders in the Cloud Shell home (evidence-m511, evidence-tcshared), to the repository after the shared kit's commit, and to the documents as committed with this list
+docs/milestone-5-signed-records.md	`240df4dca` (9 files: 6 new, 3 modified)	@git-files:240df4dca	9
+docs/milestone-5-signed-records.md	`efc4a730f` (17 files: the three kits	@git-files:efc4a730f	17
+docs/milestone-plan.md	step 5.1.1 is done	@git-log	feat(attested): sign records with a test key and refuse files that were rewritten together with their record (step 5.1.1)
+docs/milestone-plan.md	step 5.1.1 is done	@git-log	feat(ops): add the test, build and window kits of the signed wrapper (step 5.1.1)
+docs/decisions.md	the kit is `ops/kits/tcshared`	@git-log	feat(ops): add the shared cluster setup kit (the measured client in /opt/tc-shared, per-user HDFS folders, the seed tool and the reservation marker)
+docs/milestone-5-signed-records.md	A record in the new format `ATTEST02`	@repo:src/java/org/apache/nutch/attested/AttestedRecordCodec.java	ATTEST02
+docs/milestone-5-signed-records.md	`attested.signature.allow.test.keys` | true	@repo:src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	attested.signature.allow.test.keys
+docs/milestone-5-signed-records.md	`attested.signature.required` | false	@repo:src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java	attested.signature.required
+docs/milestone-5-signed-records.md	A test key's id is `TEST-` followed by the first 16 hex characters	@repo:src/java/org/apache/nutch/attested/TestKeys.java	static final String PREFIX = "TEST-";
+docs/milestone-5-signed-records.md	ECDSA with P-256 and SHA-256	@repo:src/java/org/apache/nutch/attested/AttestedSignatures.java	SHA256withECDSA
+docs/milestone-5-signed-records.md	`M511Tools verify`	@repo:ops/kits/m511-window/ops/attested/M511Tools.java	VERIFY-DIR-CLEAN
+docs/decisions.md	`tc-busy.sh` is a reservation marker	@repo:ops/kits/tcshared/tc-busy.sh	TC-BUSY-REFUSED
+docs/decisions.md	`tc-seed.sh` puts a seed file into HDFS	@repo:ops/kits/tcshared/tc-seed.sh	TC-SEED-OK
+docs/decisions.md	`/etc/tmpfiles.d/zz-tc-shared.conf`	@repo:ops/kits/tcshared/tcs-install.sh	zz-tc-shared.conf
+docs/milestone-5-signed-records.md	fake mode 167 of 167, hash mode 18 of 18, **the real-HDFS mode 140 of 140 with the new code**, signing core 48 of 48 (`M511-TEST-OK`)	evidence-m511/m511-test-console.txt	re:the fake-mode smoke test passes 167 of 167 checks
+docs/milestone-5-signed-records.md	fake mode 167 of 167, hash mode 18 of 18, **the real-HDFS mode 140 of 140 with the new code**, signing core 48 of 48 (`M511-TEST-OK`)	evidence-m511/m511-test-console.txt	re:mode hash: ALL-PASS \(18 of 18
+docs/milestone-5-signed-records.md	fake mode 167 of 167, hash mode 18 of 18, **the real-HDFS mode 140 of 140 with the new code**, signing core 48 of 48 (`M511-TEST-OK`)	evidence-m511/m511-test-console.txt	re:mode hdfs \(the real HDFS\): ALL-PASS \(140 of 140
+docs/milestone-5-signed-records.md	fake mode 167 of 167, hash mode 18 of 18, **the real-HDFS mode 140 of 140 with the new code**, signing core 48 of 48 (`M511-TEST-OK`)	evidence-m511/m511-test-console.txt	the signing core passes 48 of 48 checks
+docs/milestone-5-signed-records.md	fake mode 167 of 167, hash mode 18 of 18, **the real-HDFS mode 140 of 140 with the new code**, signing core 48 of 48 (`M511-TEST-OK`)	evidence-m511/m511-test-console.txt	M511-TEST-OK
+docs/milestone-5-signed-records.md	(`m511-test`, on the master, 15 October 07:42:09)	evidence-m511/m511-test-console.txt	m511-test: 2026-10-15T07:42:09Z on tdx-lab
+docs/milestone-5-signed-records.md	(`m511-build`, 07:56:00)	evidence-m511/m511b-build-console.txt	m511-build: 2026-10-15T07:56:00Z on tdx-lab
+docs/milestone-5-signed-records.md	the job built with ant in 36 s	evidence-m511/m511b-build-console.txt	BUILD SUCCESSFUL in 36 s
+docs/milestone-5-signed-records.md	6 classes changed, 6 are new, none unexpected (`JOB-DIFF-ONLY-THE-PATCH`)	evidence-m511/m511b-build-console.txt	JOB-DIFF-ONLY-THE-PATCH (changed 6, new 6, removed 0, unexpected 0)
+docs/milestone-5-signed-records.md	the wrapper jar `f20364cf2ba34639…` has 20 classes (14 installed now)	evidence-m511/m511b-build-console.txt	re:20 classes written; sha256 f20364cf2ba34639
+docs/milestone-5-signed-records.md	the wrapper jar `f20364cf2ba34639…` has 20 classes (14 installed now)	evidence-m511/m511b-build-console.txt	re:installed jar: 14 classes, new jar: 20 classes
+docs/cluster-configuration.md	the job `9a6dcb5f0c6fbe27…` (134,851,125 bytes)	evidence-m511/m511b-build-console.txt	re:new job:\s+9a6dcb5f0c6fbe27\.\.\.\s+134851125 bytes
+docs/milestone-5-signed-records.md	(master open 08:19:47, worker open 08:26:04)	evidence-m511/m511w-open-master-console.txt	m511-window open: 2026-10-15T08:19:47Z on tdx-lab
+docs/milestone-5-signed-records.md	(master open 08:19:47, worker open 08:26:04)	evidence-m511/m511w-open-worker-console.txt	m511-window open: 2026-10-15T08:26:04Z on tdx-lab-worker
+docs/milestone-5-signed-records.md	the installed jar `027f29942fe2a69d…` and `core-site.xml` `1c335707555b2427…`	evidence-m511/m511w-open-master-console.txt	re:saved the jar \(027f29942fe2a69d\.\.\.\) and core-site\.xml \(1c335707555b2427
+docs/cluster-configuration.md	key id `TEST-37c2a6aaa70d55b2`	evidence-m511/m511w-open-master-console.txt	key id TEST-37c2a6aaa70d55b2
+docs/milestone-5-signed-records.md	(9 components on the master, 6 on the worker)	evidence-m511/m511w-close-master-console.txt	ALL-UNCHANGED (9 components checked)
+docs/milestone-5-signed-records.md	(9 components on the master, 6 on the worker)	evidence-m511/m511w-close-worker-console.txt	ALL-UNCHANGED (6 components checked)
+docs/milestone-5-signed-records.md	(master close 08:29:48, worker close 08:33:32)	evidence-m511/m511w-close-master-console.txt	m511-window close: 2026-10-15T08:29:48Z on tdx-lab
+docs/milestone-5-signed-records.md	(master close 08:29:48, worker close 08:33:32)	evidence-m511/m511w-close-worker-console.txt	m511-window close: 2026-10-15T08:33:32Z on tdx-lab-worker
+docs/milestone-5-signed-records.md	are byte for byte the saved ones	evidence-m511/m511w-close-master-console.txt	the installed jar is byte for byte the saved one
+docs/milestone-5-signed-records.md	On 15 October at 08:28:26	evidence-m511/m511-demo-console.txt	m511-demo: 2026-10-15T08:28:26Z on tdx-lab
+docs/milestone-5-signed-records.md	| 1. only the file changed | chunk 0 (hash does not match the record) |	evidence-m511/m511-demo-console.txt	attack 1, only the file changed: the read FAILS: chunk 0 (hash does not match the record)
+docs/milestone-5-signed-records.md	| 2. the file and an unsigned record | the record is not signed and signatures are required |	evidence-m511/m511-demo-console.txt	re:attack 2, file and an UNSIGNED record: the read FAILS: the record is not signed and signatures are required
+docs/milestone-5-signed-records.md	| 3. the file and a record with the old signature copied | the signature of the record does not verify |	evidence-m511/m511-demo-console.txt	re:attack 3, file and a record with the OLD signature copied: the read FAILS: the signature of the record does not verify
+docs/milestone-5-signed-records.md	| 4. a record signed with the attacker's key under the real key id | the signature of the record does not verify |	evidence-m511/m511-demo-console.txt	re:attack 4, file and a record signed by the attacker under the REAL key id: the read FAILS: the signature of the record does not verify
+docs/milestone-5-signed-records.md	| 5. a record signed with the attacker's key under its own key id | the record is signed by a key that is not trusted here |	evidence-m511/m511-demo-console.txt	re:attack 5, file and a record signed by the attacker under its OWN key id: the read FAILS: the record is signed by a key that is not trusted here
+docs/milestone-5-signed-records.md	| 6. the record deleted, the file kept | the file has no record |	evidence-m511/m511-demo-console.txt	attack 6, the record deleted (the file stays): the read FAILS: the file has no record
+docs/milestone-5-signed-records.md	| 7. a new file with no record at all | the file has no record |	evidence-m511/m511-demo-console.txt	re:attack 7, a new file with no record at all: the read FAILS: .*the file has no record
+docs/milestone-5-signed-records.md	The audit log held exactly 7 new `VERIFY-FAIL` lines.	evidence-m511/m511-demo-console.txt	the audit log has 7 new VERIFY-FAIL lines
+docs/milestone-5-signed-records.md	accepted the honest copy and found the forgery of attack 4	evidence-m511/m511-demo-console.txt	offline: the same forgery is found on a local copy
+docs/milestone-5-signed-records.md	(`SOURCE-IDENTICAL`)	evidence-m511/master-tree-source-sha.txt	re:5e4462ade9f01ac3[0-9a-f]+\s+src/java/org/apache/nutch/attested/AttestedHdfsFileSystem\.java
+docs/milestone-5-signed-records.md	the test bundle `a746144e…`	evidence-m511/SHA256SUMS	re:a746144e6a51c1473907b104ad321ae9049957aa37872ec5259dbff5f7e127a8\s+\./evidence-m511-test\.tar\.gz
+docs/milestone-5-signed-records.md	the build bundle `7bbb0020…`	evidence-m511/SHA256SUMS	re:7bbb0020a5fea1a4173513ea78136c3e420697fdff7ac7ea19ff18e251cd8cf9\s+\./evidence-m511b-build\.tar\.gz
+docs/milestone-5-signed-records.md	the demonstration bundle `ed9efcb4…`	evidence-m511/SHA256SUMS	re:ed9efcb4aca7b7ce200bbdea91f4c7caaaedc5156bfce2edb7df148ed8fbd904\s+\./evidence-m511-demo\.tar\.gz
+docs/milestone-5-signed-records.md	`evidence-m511.tar.gz` (`391d383e…`, 39 files)	evidence-m511.sha256	391d383e673f7049bab63a6ba02ac880d9bf1e1bb2986da50ba35adece8615f1
+docs/cluster-configuration.md	(`hadoop-code` `9f5b29d6258642f2…`, `hadoop-conf` `6593ba442a9d9a00…`, `nutch-deploy` `9976e227f2c4378b…`)	evidence-tcshared/tcs-install-console.txt	re:hadoop-code: the copy's digest equals the measurement \(9f5b29d6258642f2
+docs/cluster-configuration.md	(`hadoop-code` `9f5b29d6258642f2…`, `hadoop-conf` `6593ba442a9d9a00…`, `nutch-deploy` `9976e227f2c4378b…`)	evidence-tcshared/tcs-install-console.txt	re:hadoop-conf: the copy's digest equals the measurement \(6593ba442a9d9a00
+docs/cluster-configuration.md	(`hadoop-code` `9f5b29d6258642f2…`, `hadoop-conf` `6593ba442a9d9a00…`, `nutch-deploy` `9976e227f2c4378b…`)	evidence-tcshared/tcs-install-console.txt	re:nutch-deploy: the copy's digest equals the measurement \(9976e227f2c4378b
+docs/cluster-configuration.md	1,225 MB of Hadoop and 129 MB of job	evidence-tcshared/tcs-install-console.txt	copied: 1225 MB of Hadoop, 129 MB of job
+docs/decisions.md	proved equal to the measurement of 14 October	evidence-tcshared/tcs-install-console.txt	TCS-INSTALL-OK
+docs/milestone-plan.md	[milestone-5](milestone-5-signed-records.md) section 3, ADR-044	@docs:docs/decisions.md	## ADR-044: Records are signed with ECDSA P-256
+docs/session-start.md	ADR-044, ADR-045	@docs:docs/decisions.md	## ADR-045: A window
+docs/limitations-and-trust.md	[milestone-5-signed-records.md §3.4, ADR-044]	@docs:docs/milestone-5-signed-records.md	### 3.4 The settings and the rules
+docs/limitations-and-trust.md	[milestone-5-signed-records.md §3.8]	@docs:docs/milestone-5-signed-records.md	### 3.8 Limits and what stays open
+docs/decisions.md	(limitations rows 92 to 95)	@docs:docs/limitations-and-trust.md	| 95 | Our own scripts
+docs/decisions.md	(limitations row 86)	@docs:docs/limitations-and-trust.md	| 86 | Signing is off by default
+docs/milestone-5-signed-records.md	(mistake log 102)	@docs:docs/guide-pitfalls-and-lessons.md	| 102 | Tests | A signing test
+docs/milestone-5-signed-records.md	(mistake log 104)	@docs:docs/guide-pitfalls-and-lessons.md	| 104 | Communication | I said that I was preparing
+docs/session-start.md	(ADR-043)	@docs:docs/decisions.md	## ADR-043: The teammate works on the cluster
+docs/cluster-configuration.md	[milestone-5-signed-records.md](milestone-5-signed-records.md) section 3	@docs:docs/milestone-5-signed-records.md	## 3. Step 5.1.1: signing the records with a test key
