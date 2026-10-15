@@ -193,7 +193,10 @@ public class AttestedFsSmoke {
       runFake();
       break;
     case "mr-fake":
-      runMr();
+      runMr(false);
+      break;
+    case "mr-bound":
+      runMr(true);
       break;
     case "hash":
       runHash();
@@ -244,6 +247,7 @@ public class AttestedFsSmoke {
     exercise(conf, base, plain, FakeHdfs.class.getName());
     verifyChecks(conf, base, plain);
     signatureChecks(conf, base, plain);
+    bindingChecks(conf, base, plain);
     metadataChecks(conf, base, plain);
     fileContext(conf, new Path("hdfs://fake:9000" + tmp + "/fc"));
     refusalChecks(conf, base, plain);
@@ -270,6 +274,8 @@ public class AttestedFsSmoke {
       exercise(conf, base, plain, DistributedFileSystem.class.getName());
       verifyChecks(conf, base, plain);
       metadataChecks(conf, base, plain);
+      signatureChecks(conf, base, plain);
+      bindingChecks(conf, base, plain);
       fileContext(conf, new Path("hdfs://" + authority + work + "-fc"));
       refusalChecks(conf, base, plain);
       auditLines(conf, tmp + "/audit", DistributedFileSystem.class.getName(),
@@ -605,9 +611,22 @@ public class AttestedFsSmoke {
     }
   }
 
-  static void runMr() throws Exception {
+  /**
+   * The word-count job through Hadoop's real output committer. With bound true (mode mr-bound) signing and folder binding are on and
+   * required, as in the combined crawl: the committer's folders, renames and merges must leave every file with a record bound to its
+   * folder and every folder with an identity, and the output must read back through the wrapper.
+   */
+  static void runMr(boolean bound) throws Exception {
     java.nio.file.Path tmp = Files.createTempDirectory("attested-mr");
     Configuration conf = fakeConf(tmp);
+    if (bound) {
+      TestKeys key = TestKeys.generate(tmp.resolve("test-key.txt"));
+      conf.setBoolean(AttestedHdfsFileSystem.SIGN_KEY, true);
+      conf.setBoolean(AttestedHdfsFileSystem.SIGN_REQUIRED_KEY, true);
+      conf.setBoolean(AttestedHdfsFileSystem.FOLDER_BIND_KEY, true);
+      conf.setBoolean(AttestedHdfsFileSystem.FOLDER_REQUIRED_KEY, true);
+      conf.set(AttestedHdfsFileSystem.SIGN_TESTKEY_FILE_KEY, tmp.resolve("test-key.txt").toString());
+    }
     conf.set("mapreduce.framework.name", "local");
     conf.set("hadoop.tmp.dir", tmp + "/hadoop-tmp");
     conf.set("mapreduce.jobtracker.staging.root.dir", tmp + "/staging");
@@ -653,6 +672,15 @@ public class AttestedFsSmoke {
       }
     }
     eq("word counts equal the expected counts", expected, got);
+    if (bound) {
+      FakeHdfs rawFs = new FakeHdfs();
+      rawFs.initialize(URI.create("hdfs://fake:9000"), new Configuration(false));
+      int[] inCount = boundCount(rawFs, in), outCount = boundCount(rawFs, out);
+      check("every file of the job's input (" + inCount[0] + ") has a record bound to its folder (ATTEST03)", inCount[0] >= 2 && inCount[0] == inCount[1]);
+      check("every file of the job's output (" + outCount[0] + ", with _SUCCESS) has a record bound to its folder (ATTEST03), after the committer's folders, renames and merges", outCount[0] >= 2 && outCount[0] == outCount[1]);
+      check("the output folder has a signed identity as a top folder, and the input folder too", identityOf(rawFs, out).top() && identityOf(rawFs, in).top());
+      check("the committer's _temporary folder and its identity files are gone with the commit", !rawFs.exists(new Path(out, "_temporary")));
+    }
     List<String[]> log = new ArrayList<>();
     File[] logs = new File(tmp + "/audit").listFiles((d, n) -> n.endsWith(".tsv"));
     for (String l : Files.readAllLines(logs[0].toPath(), StandardCharsets.UTF_8)) {
@@ -682,6 +710,26 @@ public class AttestedFsSmoke {
     check("with the original bytes put back the same job completes again",
         runWordCount(conf, in, new Path("hdfs://fake:9000" + tmp + "/out3")));
     deleteTree(tmp.toFile());
+  }
+
+  /** {files, files whose record is ATTEST03 and names the identity of the folder they are in}, for the files directly in the folder. */
+  static int[] boundCount(FileSystem raw, Path dir) throws Exception {
+    int files = 0, ok = 0;
+    AttestedFolderCodec.Decoded id = raw.exists(new Path(dir, AttestedFolderCodec.FILE_NAME)) ? identityOf(raw, dir) : null;
+    for (FileStatus s : raw.listStatus(dir)) {
+      String n = s.getPath().getName();
+      if (s.isDirectory() || AttestedFolderCodec.isIdentityName(n) || (n.startsWith(".") && n.endsWith(".attested"))) {
+        continue;
+      }
+      files++;
+      if (raw.exists(sc(s.getPath())) && id != null) {
+        AttestedRecordCodec.Decoded r = AttestedRecordCodec.decode(readAll(raw, sc(s.getPath())));
+        if (r.bound() && Arrays.equals(r.folderId, id.folderId) && r.fileName.equals(n)) {
+          ok++;
+        }
+      }
+    }
+    return new int[] {files, ok};
   }
 
   static boolean runWordCount(Configuration conf, Path in, Path out) throws Exception {
@@ -1362,6 +1410,303 @@ public class AttestedFsSmoke {
         Arrays.equals(data(300, 8), readAll(fs, new Path(dir, "moved/deep/x"))));
     fs.delete(new Path(dir, "moved"), true);
     check("deleting signed files removes their records", !plain.exists(new Path(dir, "moved")));
+  }
+
+
+  /**
+   * A fake HDFS in which a writer that loses the race to create a file gets what the real HDFS gives it while the winner is still writing:
+   * an IOException that says the file is already being created (the real one is AlreadyBeingCreatedException), not FileAlreadyExistsException.
+   * The barrier makes all racers try at the same moment, so the race is certain and not a matter of timing.
+   */
+  public static class RacingHdfs extends FakeHdfs {
+    static volatile java.util.concurrent.CyclicBarrier barrier;
+
+    /** The race itself, for both overloads of create that a caller can reach (the local file system routes one around the other). */
+    private void race(Path f, boolean overwrite) throws IOException {
+      if (!overwrite && AttestedFolderCodec.isIdentityName(f.getName()) && barrier != null) {
+        try {
+          barrier.await(5, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (Exception e) {
+          // the others did not come: go on alone
+        }
+      }
+    }
+
+    private void loser(Path f, boolean overwrite) throws IOException {
+      if (!overwrite && exists(f)) {
+        throw new IOException("Failed to create file " + f + " for DFSClient_NONMAPREDUCE_1 because this file is already being created by DFSClient_NONMAPREDUCE_2");
+      }
+    }
+
+    @Override
+    public FSDataOutputStream create(Path f, org.apache.hadoop.fs.permission.FsPermission permission, boolean overwrite, int bufferSize,
+        short replication, long blockSize, org.apache.hadoop.util.Progressable progress) throws IOException {
+      race(f, overwrite);
+      synchronized (RacingHdfs.class) {
+        loser(f, overwrite);
+        return super.create(f, permission, overwrite, bufferSize, replication, blockSize, progress);
+      }
+    }
+
+    @Override
+    public FSDataOutputStream create(Path f, boolean overwrite, int bufferSize, short replication, long blockSize,
+        org.apache.hadoop.util.Progressable progress) throws IOException {
+      race(f, overwrite);
+      synchronized (RacingHdfs.class) {
+        loser(f, overwrite);
+        return super.create(f, overwrite, bufferSize, replication, blockSize, progress);
+      }
+    }
+  }
+
+  public static class RacingWrapper extends AttestedHdfsFileSystem {
+    @Override
+    protected FileSystem createInner() {
+      try {
+        FakeHdfs inner = new RacingHdfs();
+        inner.initialize(URI.create("hdfs://fake:9000"), new Configuration(false));
+        return inner;
+      } catch (IOException e) {
+        throw new IllegalStateException(e);
+      }
+    }
+  }
+
+  static AttestedFolderCodec.Decoded identityOf(FileSystem plain, Path dir) throws Exception {
+    return AttestedFolderCodec.decode(readAll(plain, new Path(dir, AttestedFolderCodec.FILE_NAME)));
+  }
+
+  static void copyTree(FileSystem plain, Path from, Path to, Configuration conf) throws IOException {
+    org.apache.hadoop.fs.FileUtil.copy(plain, from, plain, to, false, conf);
+  }
+
+  /**
+   * Step 5.1.2: every file is bound to its folder. Folders have signed identity files, records name the folder and the file, renames sign a
+   * new record (a folder rename only its identity file), and the attacks of the mentor's list that move or copy signed files fail the read.
+   */
+  static void bindingChecks(Configuration baseConf, Path base, FileSystem plain) throws Exception {
+    java.nio.file.Path keyDir = Files.createTempDirectory("bindkeys");
+    java.nio.file.Path keyFile = keyDir.resolve("test-key.txt");
+    TestKeys key = TestKeys.generate(keyFile);
+    TestKeys attacker = TestKeys.generate(keyDir.resolve("attacker.txt"));
+    String auditDir = baseConf.get(AttestedAudit.DIR_KEY);
+    Configuration bc = new Configuration(baseConf);
+    bc.setBoolean(AttestedHdfsFileSystem.SIGN_KEY, true);
+    bc.setBoolean(AttestedHdfsFileSystem.SIGN_REQUIRED_KEY, true);
+    bc.setBoolean(AttestedHdfsFileSystem.FOLDER_BIND_KEY, true);
+    bc.setBoolean(AttestedHdfsFileSystem.FOLDER_REQUIRED_KEY, true);
+    bc.set(AttestedHdfsFileSystem.SIGN_TESTKEY_FILE_KEY, keyFile.toString());
+    bc.setLong(AttestedHdfsFileSystem.META_CACHE_KEY, 0);
+    FileSystem fs = FileSystem.newInstance(base.toUri(), bc);
+    Path top = new Path(base, "bound");
+    byte[] d1 = data(40000, 21), d2 = data(30000, 22);
+
+    // 1. folders get identities: a top folder (bound to its path) and children (bound to the parent's ID)
+    check("making a folder through the wrapper gives it a signed identity file (a top folder, bound to its full path)",
+        fs.mkdirs(new Path(top, "seg1")) && plain.exists(new Path(top, "_attested-folder")) && identityOf(plain, top).top() && identityOf(plain, top).topPath.equals(top.toUri().getPath()));
+    AttestedFolderCodec.Decoded topId = identityOf(plain, top), seg1Id = identityOf(plain, new Path(top, "seg1"));
+    check("the child folder's identity names its parent's ID and its own name", !seg1Id.top() && Arrays.equals(seg1Id.parentId, topId.folderId) && seg1Id.name.equals("seg1"));
+    check("identity files are hidden from listings made through the wrapper, and visible to the plain client",
+        fs.listStatus(top).length == 1 && plain.listStatus(top).length == 2);
+    check("the INIT line says binding is on and required", auditHas(auditDir, "bind=true bindrequired=true"));
+    check("making a folder that exists does not change its identity", fs.mkdirs(new Path(top, "seg1")) && Arrays.equals(identityOf(plain, new Path(top, "seg1")).folderId, seg1Id.folderId));
+
+    // 2. a file in the folder: its record is bound
+    Path f = new Path(top, "seg1/part-r-00000");
+    put(fs, f, d1);
+    AttestedRecordCodec.Decoded rec = AttestedRecordCodec.decode(readAll(plain, sc(f)));
+    check("the record of a file is ATTEST03, names the folder's ID and the file's name", rec.bound() && Arrays.equals(rec.folderId, seg1Id.folderId) && rec.fileName.equals("part-r-00000"));
+    check("reading it through the wrapper works and is logged as bind=ok", Arrays.equals(d1, readAll(fs, f)) && auditHas(auditDir, "sig=ok-test bind=ok"));
+    check("the audit log of the write names the folder: sidecar signed=... bound=", auditHas(auditDir, "sidecar signed=" + key.signingKeyId() + " bound=" + MerkleHasher.hex(seg1Id.folderId).substring(0, 8)));
+
+    // 3. creating a file creates the missing folders, each with an identity
+    Path deep = new Path(top, "seg2/deep/x.bin");
+    put(fs, deep, d2);
+    check("creating a file in folders that do not exist makes each folder with an identity (parent ID chain)",
+        identityOf(plain, new Path(top, "seg2")).parentId != null && Arrays.equals(identityOf(plain, new Path(top, "seg2/deep")).parentId, identityOf(plain, new Path(top, "seg2")).folderId)
+        && Arrays.equals(identityOf(plain, new Path(top, "seg2")).parentId, topId.folderId) && Arrays.equals(d2, readAll(fs, deep)));
+
+    // 4. renames: a file gets a new record, no data is read; a folder only a new identity file
+    Path g = new Path(top, "seg2/part-r-00000");
+    byte[] before = readAll(plain, sc(f));
+    check("renaming a file into another folder works and the file reads", fs.rename(f, g) && Arrays.equals(d1, readAll(fs, g)));
+    AttestedRecordCodec.Decoded recG = AttestedRecordCodec.decode(readAll(plain, sc(g)));
+    check("the new record names the new folder's ID and the file's name, with the same content hash", Arrays.equals(recG.folderId, identityOf(plain, new Path(top, "seg2")).folderId) && Arrays.equals(recG.root, rec.root) && recG.fileName.equals("part-r-00000") && !Arrays.equals(readAll(plain, sc(g)), before));
+    check("the old record is gone", !plain.exists(sc(f)));
+    Path g2 = new Path(top, "seg2/renamed");
+    check("renaming a file inside its folder signs a new record for the new name", fs.rename(g, g2) && Arrays.equals(d1, readAll(fs, g2)) && AttestedRecordCodec.decode(readAll(plain, sc(g2))).fileName.equals("renamed"));
+    byte[] recBefore = readAll(plain, sc(deep));
+    Path seg2b = new Path(top, "seg2b");
+    AttestedFolderCodec.Decoded seg2Id = identityOf(plain, new Path(top, "seg2"));
+    check("renaming a folder works, and the files and folders inside still read", fs.rename(new Path(top, "seg2"), seg2b) && Arrays.equals(d2, readAll(fs, new Path(seg2b, "deep/x.bin"))) && Arrays.equals(d1, readAll(fs, new Path(seg2b, "renamed"))));
+    check("a folder rename signs only the folder's own identity file: same folder ID, new name, records inside byte for byte unchanged",
+        Arrays.equals(identityOf(plain, seg2b).folderId, seg2Id.folderId) && identityOf(plain, seg2b).name.equals("seg2b") && Arrays.equals(readAll(plain, sc(new Path(seg2b, "deep/x.bin"))), recBefore));
+    Path nested = new Path(top, "seg1/seg2c");
+    check("renaming a folder into another parent re-signs it with the new parent's ID", fs.rename(seg2b, nested) && Arrays.equals(identityOf(plain, nested).parentId, seg1Id.folderId) && Arrays.equals(d2, readAll(fs, new Path(nested, "deep/x.bin"))));
+    Path intoDir = new Path(top, "seg1");
+    put(fs, new Path(top, "loose.bin"), data(500, 23));
+    check("renaming a file onto a folder moves it into the folder, with a record for the new place", fs.rename(new Path(top, "loose.bin"), intoDir) && Arrays.equals(data(500, 23), readAll(fs, new Path(intoDir, "loose.bin"))));
+
+    // 5. the attacks of the mentor's list, played with the plain client
+    Path s1 = new Path(top, "att1"), s2 = new Path(top, "att2");
+    put(fs, new Path(s1, "part-r-00000"), data(20000, 31));
+    put(fs, new Path(s2, "part-r-00000"), data(20000, 32));
+    check("both honest same-named files read", Arrays.equals(data(20000, 31), readAll(fs, new Path(s1, "part-r-00000"))) && Arrays.equals(data(20000, 32), readAll(fs, new Path(s2, "part-r-00000"))));
+    byte[] f1 = readAll(plain, new Path(s1, "part-r-00000")), r1 = readAll(plain, sc(new Path(s1, "part-r-00000")));
+    byte[] f2 = readAll(plain, new Path(s2, "part-r-00000")), r2 = readAll(plain, sc(new Path(s2, "part-r-00000")));
+    put(plain, new Path(s1, "part-r-00000"), f2); put(plain, sc(new Path(s1, "part-r-00000")), r2);
+    put(plain, new Path(s2, "part-r-00000"), f1); put(plain, sc(new Path(s2, "part-r-00000")), r1);
+    check("swapping two same-named files (with their records) between folders: both reads fail",
+        tryRead(fs, new Path(s1, "part-r-00000")) == null && lastError.contains("another folder") && tryRead(fs, new Path(s2, "part-r-00000")) == null && lastError.contains("another folder"));
+    put(plain, new Path(s1, "part-r-00000"), f1); put(plain, sc(new Path(s1, "part-r-00000")), r1);
+    put(plain, new Path(s2, "part-r-00000"), f2); put(plain, sc(new Path(s2, "part-r-00000")), r2);
+    check("undone, both read again", Arrays.equals(data(20000, 31), readAll(fs, new Path(s1, "part-r-00000"))));
+    Path moved = new Path(s2, "stolen");
+    put(plain, moved, f1); put(plain, sc(moved), r1);
+    check("moving a signed file and its record into another folder (and under another name): the read fails", tryRead(fs, moved) == null && (lastError.contains("another folder") || lastError.contains("named")));
+    Path moved2 = new Path(s1, "renamed-behind");
+    put(plain, moved2, f1); put(plain, sc(moved2), r1);
+    check("renaming a signed file and its record behind the wrapper's back, in the same folder: the read fails", tryRead(fs, moved2) == null && lastError.contains("is for a file named"));
+    Path copied = new Path(top, "copy-of-att1");
+    copyTree(plain, s1, copied, bc);
+    check("copying a whole folder elsewhere: its files fail the read (the identity belongs to the other folder)", tryRead(fs, new Path(copied, "part-r-00000")) == null && (lastError.contains("named") || lastError.contains("path") || lastError.contains("another")));
+    put(plain, new Path(s1, "unsigned.bin"), data(100, 5));
+    check("adding an unsigned file with no record: the read fails", tryRead(fs, new Path(s1, "unsigned.bin")) == null && lastError.contains("no record"));
+    byte[] idS1 = readAll(plain, new Path(s1, "_attested-folder")), idS2 = readAll(plain, new Path(s2, "_attested-folder"));
+    put(plain, new Path(s1, "_attested-folder"), idS2);
+    check("putting the identity of another folder into this folder: the read fails", tryRead(fs, new Path(s1, "part-r-00000")) == null && (lastError.contains("named") || lastError.contains("another") || lastError.contains("path")));
+    put(plain, new Path(s1, "_attested-folder"), idS1);
+    check("restored, it reads again", Arrays.equals(data(20000, 31), readAll(fs, new Path(s1, "part-r-00000"))));
+    plain.delete(new Path(s1, "_attested-folder"), false);
+    check("deleting the identity file behind the wrapper's back: the read fails (the folder has no identity)", tryRead(fs, new Path(s1, "part-r-00000")) == null && lastError.contains("has no identity"));
+    put(plain, new Path(s1, "_attested-folder"), idS1);
+    AttestedFolderCodec.Decoded real1 = AttestedFolderCodec.decode(idS1);
+    byte[] evilId = AttestedFolderCodec.encode(real1.folderId, real1.name, real1.parentId, real1.topPath, real1.keyId, attacker.sign(AttestedFolderCodec.statement(real1.keyId, real1.folderId, real1.name, real1.parentId, real1.topPath)));
+    put(plain, new Path(s1, "_attested-folder"), evilId);
+    check("an identity signed with the attacker's key: the read fails", tryRead(fs, new Path(s1, "part-r-00000")) == null && lastError.contains("does not verify"));
+    put(plain, new Path(s1, "_attested-folder"), idS1);
+    check("restored again, it reads", Arrays.equals(data(20000, 31), readAll(fs, new Path(s1, "part-r-00000"))));
+    Path s1renamed = new Path(top, "att1-renamed");
+    plain.rename(s1, s1renamed);
+    check("renaming a folder behind the wrapper's back: the read fails (the identity names another folder name)", tryRead(fs, new Path(s1renamed, "part-r-00000")) == null && lastError.contains("is for a folder named"));
+    boolean refusedRename = false;
+    try { fs.rename(s1renamed, new Path(top, "att1-again")); } catch (IOException e) { refusedRename = e.getMessage().contains("rename refused"); }
+    check("the wrapper does not sign a folder that was moved behind its back: its rename is refused", refusedRename);
+    plain.rename(s1renamed, s1);
+    Path victim = new Path(s2, "part-r-00000");
+    MerkleHasher mh = new MerkleHasher(16384, true); byte[] evil = data(20000, 77); mh.update(evil, 0, evil.length); byte[] er = mh.finish();
+    AttestedFolderCodec.Decoded s2Id = identityOf(plain, s2);
+    byte[] forgedRec = AttestedRecordCodec.encodeBound(16384, evil.length, er, mh.leaves(), s2Id.folderId, "part-r-00000", key.signingKeyId(), attacker.sign(AttestedRecordCodec.statementBound(key.signingKeyId(), s2Id.folderId, "part-r-00000", 16384, evil.length, er)));
+    put(plain, victim, evil); put(plain, sc(victim), forgedRec);
+    boolean launder = false;
+    try { fs.rename(victim, new Path(s2, "laundered")); } catch (IOException e) { launder = e.getMessage().contains("rename refused"); }
+    check("a forged bound record is not signed again by a rename (the old record is checked first): the rename is refused", launder && tryRead(fs, victim) == null);
+    put(plain, victim, f2); put(plain, sc(victim), r2);
+
+    // the two copies that keep the folder's own name: only the top path and the parent link can catch them
+    Path topB = new Path(base, "boundB");
+    put(fs, new Path(topB, "t.bin"), data(900, 71));
+    Path elsewhere = new Path(base, "elsewhere");
+    plain.mkdirs(elsewhere);
+    copyTree(plain, topB, new Path(elsewhere, "boundB"), bc);
+    check("copying a top folder elsewhere under the same name: the read fails (the top identity is for another path)", tryRead(fs, new Path(elsewhere, "boundB/t.bin")) == null && lastError.contains("is for the path"));
+    Path otherParent = new Path(top, "other");
+    fs.mkdirs(otherParent);
+    Path childCopy = new Path(otherParent, "att2");
+    copyTree(plain, s2, childCopy, bc);
+    check("copying a folder under another parent with the same name: the read fails (its identity points to another parent)", tryRead(fs, new Path(childCopy, "part-r-00000")) == null && lastError.contains("points to another parent"));
+
+    // 6. the reserved name, legacy files, and the settings
+    boolean denied = false;
+    try { fs.create(new Path(s2, "_attested-folder"), true).close(); } catch (IOException e) { denied = e.getMessage().contains("reserved"); }
+    boolean deniedRename = false;
+    try { fs.rename(new Path(s2, "part-r-00000"), new Path(s2, "_attested-folder")); } catch (IOException e) { deniedRename = e.getMessage().contains("reserved"); }
+    boolean deniedDelete = false;
+    try { fs.delete(new Path(s2, "_attested-folder"), false); } catch (IOException e) { deniedDelete = e.getMessage().contains("reserved"); }
+    check("the identity file's name cannot be created, renamed to or deleted through the wrapper", denied && deniedRename && deniedDelete && plain.exists(new Path(s2, "_attested-folder")));
+    Configuration signOnly = new Configuration(bc);
+    signOnly.setBoolean(AttestedHdfsFileSystem.FOLDER_BIND_KEY, false);
+    signOnly.setBoolean(AttestedHdfsFileSystem.FOLDER_REQUIRED_KEY, false);
+    FileSystem unbound = FileSystem.newInstance(base.toUri(), signOnly);
+    Path legacy = new Path(top, "legacy.bin");
+    put(unbound, legacy, data(700, 41));
+    check("with binding off, a record is the signed unbound ATTEST02 and no identity is made for its folder", AttestedRecordCodec.decode(readAll(plain, sc(legacy))).version == 2);
+    check("an unbound record is accepted when binding is not required (logged bind=none), and refused when it is",
+        Arrays.equals(data(700, 41), readAll(unbound, legacy)) && auditHas(auditDir, "bind=none") && tryRead(fs, legacy) == null && lastError.contains("not bound to a folder"));
+    check("a reader that does not require binding still checks a bound record (a swapped pair fails)",
+        Arrays.equals(data(20000, 32), readAll(unbound, new Path(s2, "part-r-00000"))) && tryRead(unbound, moved) == null);
+    Configuration noSign = new Configuration(baseConf);
+    noSign.setBoolean(AttestedHdfsFileSystem.FOLDER_BIND_KEY, true);
+    boolean needSign = false;
+    try { FileSystem.newInstance(base.toUri(), noSign); } catch (IOException e) { needSign = e.getMessage().contains("needs signed records"); }
+    check("folder binding without signing refuses to start", needSign);
+
+    // 7. adopting a folder that the plain client made, and two tasks making the same folder at once
+    Path adopted = new Path(top, "plain-made");
+    plain.mkdirs(adopted);
+    put(fs, new Path(adopted, "a.bin"), data(300, 51));
+    check("writing into a folder that the plain client made adopts it: it gets an identity and the file reads", plain.exists(new Path(adopted, "_attested-folder")) && Arrays.equals(data(300, 51), readAll(fs, new Path(adopted, "a.bin"))));
+    Path plainA = new Path(top, "plainA"), plainB = new Path(plainA, "plainB");
+    plain.mkdirs(plainB);
+    put(fs, new Path(plainB, "x.bin"), data(200, 52));
+    check("writing two levels below an identified folder, where both folders in between were made by the plain client, adopts them as children (the chain is closed, no top folder inside the tree)",
+        Arrays.equals(identityOf(plain, plainA).parentId, topId.folderId) && !identityOf(plain, plainA).top() && Arrays.equals(identityOf(plain, plainB).parentId, identityOf(plain, plainA).folderId) && Arrays.equals(data(200, 52), readAll(fs, new Path(plainB, "x.bin"))));
+    Path nestedTopTry = new Path(base, "unrelated-plain/inner");
+    plain.mkdirs(nestedTopTry);
+    put(fs, new Path(nestedTopTry, "y.bin"), data(100, 53));
+    check("writing into a folder under old folders where no ancestor has an identity makes that one folder a top folder, bound to its full path, and nothing above it is touched",
+        identityOf(plain, nestedTopTry).top() && identityOf(plain, nestedTopTry).topPath.equals(nestedTopTry.toUri().getPath()) && !plain.exists(new Path(base, "unrelated-plain/_attested-folder")) && Arrays.equals(data(100, 53), readAll(fs, new Path(nestedTopTry, "y.bin"))));
+    final Path race = new Path(top, "race/folder");
+    final FileSystem[] fss = new FileSystem[] {FileSystem.newInstance(base.toUri(), bc), FileSystem.newInstance(base.toUri(), bc), FileSystem.newInstance(base.toUri(), bc), FileSystem.newInstance(base.toUri(), bc)};
+    final Throwable[] errs = new Throwable[fss.length];
+    Thread[] ts = new Thread[fss.length];
+    for (int i = 0; i < ts.length; i++) {
+      final int n = i;
+      ts[i] = new Thread(() -> { try { put(fss[n], new Path(race, "f" + n), data(2000, 60 + n)); } catch (Throwable e) { errs[n] = e; } });
+    }
+    for (Thread t : ts) t.start();
+    for (Thread t : ts) t.join();
+    boolean noErr = true; for (Throwable e : errs) { if (e != null) { noErr = false; e.printStackTrace(); } }
+    boolean allRead = true; for (int i = 0; i < fss.length; i++) { if (!Arrays.equals(data(2000, 60 + i), readAll(fs, new Path(race, "f" + i)))) allRead = false; }
+    check("four writers making the same new folder at once: no error, one identity wins, every file reads", noErr && allRead && plain.exists(new Path(race, "_attested-folder")) && Arrays.equals(AttestedRecordCodec.decode(readAll(plain, sc(new Path(race, "f0")))).folderId, identityOf(plain, race).folderId));
+
+    // the same race on a file system whose losers get "already being created" (as the real HDFS gives them): every racer must still succeed
+    if (!plain.getClass().getName().contains("DistributedFileSystem")) {
+      Configuration rc = new Configuration(bc);
+      rc.set("fs.hdfs.impl", RacingWrapper.class.getName());
+      final FileSystem[] racers = new FileSystem[] {FileSystem.newInstance(base.toUri(), rc), FileSystem.newInstance(base.toUri(), rc), FileSystem.newInstance(base.toUri(), rc), FileSystem.newInstance(base.toUri(), rc)};
+      final Path race2 = new Path(top, "race2/folder");
+      RacingHdfs.barrier = new java.util.concurrent.CyclicBarrier(racers.length);
+      final Throwable[] errs2 = new Throwable[racers.length];
+      Thread[] ts2 = new Thread[racers.length];
+      for (int i = 0; i < ts2.length; i++) {
+        final int n = i;
+        ts2[i] = new Thread(() -> { try { put(racers[n], new Path(race2, "f" + n), data(1800, 90 + n)); } catch (Throwable e) { errs2[n] = e; } });
+      }
+      for (Thread th : ts2) th.start();
+      for (Thread th : ts2) th.join();
+      RacingHdfs.barrier = null;
+      boolean clean = true; for (Throwable e : errs2) { if (e != null) { clean = false; e.printStackTrace(); } }
+      boolean readable = true; for (int i = 0; i < racers.length; i++) { if (!Arrays.equals(data(1800, 90 + i), readAll(fs, new Path(race2, "f" + i)))) readable = false; }
+      check("four writers racing for the same new folders, where the losers get \"already being created\" as on the real HDFS: no error, one identity per folder, every file reads",
+          clean && readable && Arrays.equals(identityOf(plain, race2).parentId, identityOf(plain, race2.getParent()).folderId));
+    }
+
+    // with the identity cache on (the production setting), ordinary work still passes: create, read, rename a file and a folder, read again
+    Configuration cached = new Configuration(bc);
+    cached.setLong(AttestedHdfsFileSystem.META_CACHE_KEY, 10);
+    FileSystem cfs = FileSystem.newInstance(base.toUri(), cached);
+    Path ctop = new Path(base, "cached-top");
+    for (int i = 0; i < 6; i++) { put(cfs, new Path(ctop, "a/f" + i), data(1500, 80 + i)); }
+    boolean cacheOk = true;
+    for (int i = 0; i < 6; i++) { if (!Arrays.equals(data(1500, 80 + i), readAll(cfs, new Path(ctop, "a/f" + i)))) cacheOk = false; }
+    cacheOk &= cfs.rename(new Path(ctop, "a/f0"), new Path(ctop, "a/g0")) && Arrays.equals(data(1500, 80), readAll(cfs, new Path(ctop, "a/g0")));
+    cacheOk &= cfs.rename(new Path(ctop, "a"), new Path(ctop, "b")) && Arrays.equals(data(1500, 85), readAll(cfs, new Path(ctop, "b/f5"))) && Arrays.equals(data(1500, 80), readAll(cfs, new Path(ctop, "b/g0")));
+    check("with the identity cache on (10 s), creating, reading, renaming a file and renaming a folder all work", cacheOk && identityOf(plain, new Path(ctop, "b")).name.equals("b"));
+
+    // 8. deleting
+    check("deleting a folder removes it with its identity and records", fs.delete(new Path(top, "seg1"), true) && !plain.exists(new Path(top, "seg1")));
+    check("deleting a file leaves its folder's identity", fs.delete(new Path(top, "att2/part-r-00000"), false) && plain.exists(new Path(top, "att2/_attested-folder")) && !plain.exists(sc(new Path(top, "att2/part-r-00000"))));
   }
 
   static void runHash() throws Exception {

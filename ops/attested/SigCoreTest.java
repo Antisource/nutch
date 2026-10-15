@@ -138,6 +138,58 @@ public final class SigCoreTest {
       AttestedRecordCodec.Decoded r = AttestedRecordCodec.decode(on.encode(e.chunk, e.length, e.root, e.leaves));
       chk("size " + size + ": signs, decodes and verifies (" + r.leaves.length + " chunks)", need.check(r).equals("ok-test") && r.length == size);
     }
+    System.out.println("== 9. records bound to a folder and a name (ATTEST03, step 5.1.2)");
+    byte[] folderA = new byte[16]; Arrays.fill(folderA, (byte) 0x11); byte[] folderB = new byte[16]; Arrays.fill(folderB, (byte) 0x22);
+    byte[] b3 = on.encodeBound(a.chunk, a.length, a.root, a.leaves, folderA, "part-r-00000");
+    AttestedRecordCodec.Decoded d3 = AttestedRecordCodec.decode(b3);
+    chk("a bound record starts with ATTEST03 and carries the folder ID and the name", new String(b3, 0, 8).equals("ATTEST03") && d3.bound() && d3.signed() && Arrays.equals(d3.folderId, folderA) && d3.fileName.equals("part-r-00000"));
+    chk("its signature verifies (the folder and the name are the caller's to compare)", need.check(d3).equals("ok-test"));
+    chk("a name with a non-ASCII letter round-trips", AttestedRecordCodec.decode(on.encodeBound(a.chunk, a.length, a.root, a.leaves, folderA, "r\u00e9sum\u00e9 \u30c6\u30b9\u30c8")).fileName.equals("r\u00e9sum\u00e9 \u30c6\u30b9\u30c8"));
+    // swapping the folder or the name in the record without the key breaks the signature
+    AttestedRecordCodec.Decoded moved = new AttestedRecordCodec.Decoded(3, d3.chunkSize, d3.length, d3.root, d3.leaves, d3.keyId, d3.signature, folderB, d3.fileName);
+    chk("the same record claiming another folder ID: refused", refuses(() -> need.check(moved), "does not verify"));
+    AttestedRecordCodec.Decoded renamedRec = new AttestedRecordCodec.Decoded(3, d3.chunkSize, d3.length, d3.root, d3.leaves, d3.keyId, d3.signature, folderA, "part-r-00001");
+    chk("the same record claiming another name: refused", refuses(() -> need.check(renamedRec), "does not verify"));
+    byte[] unbound = on.encode(a.chunk, a.length, a.root, a.leaves);
+    chk("an ATTEST02 record has no folder or name (it is unbound)", !AttestedRecordCodec.decode(unbound).bound() && AttestedRecordCodec.decode(unbound).folderId == null);
+    chk("a bound record's statement differs from the unbound one (a signature of one never fits the other)", !Arrays.equals(AttestedRecordCodec.statementBound(d3.keyId, folderA, "x", 1, 2, a.root), AttestedRecordCodec.statement(d3.keyId, 1, 2, a.root)));
+    chk("the statement is unambiguous: folder ID and name never run into each other", !Arrays.equals(AttestedRecordCodec.statementBound("K", folderA, "ab", 1, 2, a.root), AttestedRecordCodec.statementBound("K", folderA, "a", 1, 2, a.root)));
+    byte[] cutName = b3.clone(); cutName[v1.length + 16] = 0; cutName[v1.length + 17] = 0;
+    chk("a name of length 0 is refused", refuses(() -> AttestedRecordCodec.decode(cutName), "impossible name length"));
+    chk("a truncated bound record is refused", refuses(() -> AttestedRecordCodec.decode(Arrays.copyOf(b3, b3.length - 3)), "too short"));
+    chk("a name with a slash cannot be signed", refuses(() -> on.encodeBound(a.chunk, a.length, a.root, a.leaves, folderA, "a/b"), "cannot build the statement to sign"));
+    chk("a bound record cannot be made with signing off", refuses(() -> sigs(key, false, false, true).encodeBound(a.chunk, a.length, a.root, a.leaves, folderA, "x"), "needs signing to be on"));
+
+    System.out.println("== 10. the folder identity file");
+    byte[] idTop = new byte[16]; Arrays.fill(idTop, (byte) 0x33);
+    byte[] top = on.encodeFolder(idTop, "crawl", null, "/user/x/crawl");
+    AttestedFolderCodec.Decoded t = AttestedFolderCodec.decode(top);
+    chk("a top folder's identity binds its full path, has no parent, and verifies", t.top() && t.parentId == null && t.topPath.equals("/user/x/crawl") && t.name.equals("crawl") && need.checkFolder(t).equals("ok-test"));
+    byte[] child = on.encodeFolder(folderA, "segments", idTop, null);
+    AttestedFolderCodec.Decoded c = AttestedFolderCodec.decode(child);
+    chk("a child's identity binds its name and its parent's ID, and verifies", !c.top() && Arrays.equals(c.parentId, idTop) && c.topPath == null && need.checkFolder(c).equals("ok-test"));
+    chk("the identity file starts with ATTESTFD and its name is hidden by an underscore", new String(top, 0, 8).equals("ATTESTFD") && AttestedFolderCodec.isIdentityName("_attested-folder") && "_attested-folder".startsWith("_"));
+    AttestedFolderCodec.Decoded otherName = new AttestedFolderCodec.Decoded(c.folderId, "other", c.parentId, null, c.keyId, c.signature);
+    chk("the same identity under another folder name: refused", refuses(() -> need.checkFolder(otherName), "does not verify"));
+    AttestedFolderCodec.Decoded otherParent = new AttestedFolderCodec.Decoded(c.folderId, c.name, folderB, null, c.keyId, c.signature);
+    chk("the same identity under another parent: refused", refuses(() -> need.checkFolder(otherParent), "does not verify"));
+    AttestedFolderCodec.Decoded otherPath = new AttestedFolderCodec.Decoded(t.folderId, t.name, null, "/user/x/other", t.keyId, t.signature);
+    chk("the same top identity at another path: refused", refuses(() -> need.checkFolder(otherPath), "does not verify"));
+    AttestedFolderCodec.Decoded asChild = new AttestedFolderCodec.Decoded(t.folderId, t.name, folderB, null, t.keyId, t.signature);
+    chk("a top identity turned into a child (to hide the path): refused", refuses(() -> need.checkFolder(asChild), "does not verify"));
+    byte[] foreign = other.sign(AttestedFolderCodec.statement(c.keyId, c.folderId, c.name, c.parentId, null));
+    AttestedFolderCodec.Decoded forgedF1 = AttestedFolderCodec.decode(AttestedFolderCodec.encode(c.folderId, c.name, c.parentId, null, c.keyId, foreign));
+    chk("an identity signed with the attacker's key under the real key id: refused", refuses(() -> need.checkFolder(forgedF1), "does not verify"));
+    AttestedFolderCodec.Decoded forgedF2 = AttestedFolderCodec.decode(AttestedFolderCodec.encode(c.folderId, c.name, c.parentId, null, other.signingKeyId(), other.sign(AttestedFolderCodec.statement(other.signingKeyId(), c.folderId, c.name, c.parentId, null))));
+    chk("an identity signed with the attacker's own key: refused as not trusted", refuses(() -> need.checkFolder(forgedF2), "not trusted here"));
+    chk("a test-signed identity is refused when test keys are not allowed", refuses(() -> noTest.checkFolder(c), "not accepted"));
+    chk("damaged identity files are refused: header, length, kind, extra bytes", refuses(() -> AttestedFolderCodec.decode(concat("ATTESTXX".getBytes(), Arrays.copyOfRange(child, 8, child.length))), "wrong header")
+        && refuses(() -> AttestedFolderCodec.decode(Arrays.copyOf(child, 20)), "too short")
+        && refuses(() -> AttestedFolderCodec.decode(concat(child, new byte[]{1})), "extra bytes")
+        && refuses(() -> { byte[] k = child.clone(); k[8 + 16 + 2 + 8] = 7; AttestedFolderCodec.decode(k); }, "impossible kind"));
+    chk("a name or a path that cannot be signed is refused", refuses(() -> on.encodeFolder(idTop, "a/b", null, "/x"), "cannot build a folder identity") && refuses(() -> on.encodeFolder(idTop, "x", null, null), "cannot build a folder identity"));
+    chk("an identity cannot be made with signing off", refuses(() -> sigs(key, false, false, true).encodeFolder(idTop, "x", null, "/x"), "needs signing to be on"));
+
     System.out.println("== 8. the key tool");
     java.io.ByteArrayOutputStream o1 = new java.io.ByteArrayOutputStream(), e1 = new java.io.ByteArrayOutputStream();
     Path tk = dir.resolve("tool-key.txt");

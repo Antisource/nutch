@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -133,6 +134,13 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
   public static final String SIGN_ALLOW_TEST_KEY = "attested.signature.allow.test.keys";
   /** The file with the test key; the default is ~/tc-test-key/test-key.txt of the user the JVM runs as. */
   public static final String SIGN_TESTKEY_FILE_KEY = "attested.signature.test.key.file";
+  /**
+   * Step 5.1.2: bind every file to its folder. Records are then written in format ATTEST03 (they name the folder's ID and the file's name)
+   * and every folder the wrapper makes or adopts gets a signed identity file. Needs signing. Off by default.
+   */
+  public static final String FOLDER_BIND_KEY = "attested.folder.binding.enabled";
+  /** Refuse a file whose record is not bound to its folder (an older format). A record that is bound is always checked, whatever this says. */
+  public static final String FOLDER_REQUIRED_KEY = "attested.folder.binding.required";
   private static final int META_CACHE_MAX = 4096;
   private static final int META_REPORTED_MAX = 20000;
 
@@ -172,6 +180,9 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
   private String missingPolicy = "fail";
   private String metaMissingPolicy = "warn";
   private AttestedSignatures signatures;
+  private AttestedFolders folders;
+  private boolean bindOn = false;
+  private boolean bindRequired = false;
   private long chunkSize = DEFAULT_CHUNK_SIZE;
   private String jobId = "";
   private String attemptId = "";
@@ -240,6 +251,11 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
           + keyFile);
     }
     this.signatures = new AttestedSignatures(keys, signOn, signRequired, allowTestKeys);
+    this.bindOn = AttestedSettings.getBoolean(conf, FOLDER_BIND_KEY, false, ignored);
+    this.bindRequired = AttestedSettings.getBoolean(conf, FOLDER_REQUIRED_KEY, false, ignored);
+    if (bindOn && !(signOn && sidecars)) {
+      throw new IOException(FOLDER_BIND_KEY + " needs signed records: " + SIGN_KEY + ", " + SIDECAR_KEY + " and " + HASH_ENABLED_KEY + " must be true");
+    }
     long cacheSeconds = AttestedSettings.getLong(conf, META_CACHE_KEY, 10, ignored);
     if (cacheSeconds < 0) {
       throw new IOException(META_CACHE_KEY + " must not be negative, got " + cacheSeconds);
@@ -261,6 +277,7 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
           + "this wrapper again and loop.");
     }
     this.fs = inner;
+    this.folders = new AttestedFolders(inner, signatures, cacheNanos, this::audit);
     super.initialize(name, conf);
     AttestedAudit.log("INIT", null, null, "uri=" + name + " inner="
         + inner.getClass().getName() + " wrapper=" + getClass().getName()
@@ -270,6 +287,7 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
         + " sign=" + signatures.signing() + " sigrequired=" + signatures.required()
         + " testkeys=" + signatures.allowTestKeys() + " key="
         + (signatures.signingKeyId() == null ? "none" : signatures.signingKeyId())
+        + " bind=" + bindOn + " bindrequired=" + bindRequired
         + " from=" + where()
         + (ignored.isEmpty() ? "" : " ignored=" + String.join(",", ignored)));
   }
@@ -338,9 +356,21 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
       byte[] root, List<byte[]> leaves) throws IOException {
     Path sc = AttestedSidecar.pathFor(new Path(filePath));
     forget(sc);
-    byte[] bytes = signatures.encode((int) chunk, length, root, leaves);
+    byte[] bytes = null;
+    String bound = "";
+    if (bindOn) {
+      Path file = new Path(filePath);
+      AttestedFolderCodec.Decoded fd = folders.ensure(file.getParent());
+      if (fd != null) {
+        bytes = signatures.encodeBound((int) chunk, length, root, leaves, fd.folderId, file.getName());
+        bound = " bound=" + MerkleHasher.hex(fd.folderId).substring(0, 8);
+      }
+    }
+    if (bytes == null) {
+      bytes = signatures.encode((int) chunk, length, root, leaves);
+    }
     audit("CREATE", sc, null,
-        signatures.signing() ? "sidecar signed=" + signatures.signingKeyId() : "sidecar");
+        signatures.signing() ? "sidecar signed=" + signatures.signingKeyId() + bound : "sidecar");
     try (FSDataOutputStream out = fs.create(sc, true)) {
       out.write(bytes);
     }
@@ -384,7 +414,7 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
   private FSDataInputStream verified(Path f, FSDataInputStream raw, String how)
       throws IOException {
     String tag = how == null ? "" : how + " ";
-    if (!verifyReads || AttestedSidecar.isSidecar(f)) {
+    if (!verifyReads || AttestedSidecar.isCompanion(f)) {
       audit("OPEN", f, null, tag + "verify=off");
       return raw;
     }
@@ -419,6 +449,19 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
       throw new ChecksumException("Attested verification failed for " + f
           + ": " + e.getMessage(), 0);
     }
+    String bind = "none";
+    try {
+      if (rec.decoded.bound()) {
+        checkBinding(f, rec.decoded);
+        bind = "ok";
+      } else if (bindRequired) {
+        throw new IOException("the record is not bound to a folder and folder binding is required");
+      }
+    } catch (IOException e) {
+      raw.close();
+      audit("VERIFY-FAIL", f, null, tag + e.getMessage());
+      throw new ChecksumException("Attested verification failed for " + f + ": " + e.getMessage(), 0);
+    }
     long len = fs.getFileStatus(f).getLen();
     if (rec.length != len) {
       raw.close();
@@ -428,8 +471,135 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
       throw new ChecksumException("Attested verification failed for " + f
           + ": " + why, 0);
     }
-    audit("OPEN", f, null, tag + "verify=ok sig=" + sig);
+    audit("OPEN", f, null, tag + "verify=ok sig=" + sig + " bind=" + bind);
     return new FSDataInputStream(new VerifyingInputStream(raw, rec, q(f)));
+  }
+
+  // ------------------------------------------------------------- folder binding (step 5.1.2)
+
+  /** The folder identity file's name is the wrapper's own: nobody creates, renames or deletes it through the wrapper. */
+  private void denyReserved(Path p) throws IOException {
+    if (p != null && AttestedFolderCodec.isIdentityName(p.getName())) {
+      audit("REFUSED", p, null, "op=RESERVED-NAME");
+      throw new IOException("attested: the name " + AttestedFolderCodec.FILE_NAME
+          + " is reserved for the folder identity and cannot be created, renamed or deleted: " + p);
+    }
+  }
+
+  /** Before a file is created: its folder (and any missing parent) has an identity. */
+  private void prepareParent(Path f, boolean makeParents) throws IOException {
+    if (!bindOn) {
+      return;
+    }
+    Path parent = q(f).getParent();
+    if (AttestedFolders.isRoot(parent)) {
+      return;
+    }
+    if (makeParents) {
+      folders.ensureTree(parent);
+    } else if (fs.exists(parent)) {
+      folders.ensure(parent);
+    }
+  }
+
+  /** The record is bound to a folder and a name: both must be the ones this file has now, all the way up to the top folder. */
+  private void checkBinding(Path f, AttestedRecordCodec.Decoded d) throws IOException {
+    Path parent = f.getParent();
+    if (AttestedFolders.isRoot(parent)) {
+      throw new IOException("the record is bound to a folder but the file is at the top");
+    }
+    byte[] id = folders.verifyChain(parent);
+    if (!Arrays.equals(id, d.folderId)) {
+      throw new IOException("the record belongs to another folder than the one this file is in");
+    }
+    if (!f.getName().equals(d.fileName)) {
+      throw new IOException("the record is for a file named '" + d.fileName + "', not '" + f.getName() + "'");
+    }
+  }
+
+  /**
+   * Before a file with a bound record is renamed: the old record, its signature and its binding are checked (a forged record must never be
+   * signed again), and the new folder gets its identity. Returns the old record, or null when the file has none or an unbound one, which is
+   * then moved as it is.
+   */
+  private AttestedSidecar beforeFileMove(Path src, Path target) throws IOException {
+    if (!bindOn) {
+      return null;
+    }
+    AttestedSidecar rec;
+    try {
+      rec = AttestedSidecar.read(fs, AttestedSidecar.pathFor(src));
+    } catch (FileNotFoundException e) {
+      return null;
+    }
+    if (!rec.decoded.bound()) {
+      return null;
+    }
+    try {
+      signatures.check(rec.decoded);
+      checkBinding(src, rec.decoded);
+      Path np = target.getParent();
+      if (!AttestedFolders.isRoot(np) && fs.exists(np)) {
+        folders.ensure(np);
+      }
+    } catch (IOException e) {
+      audit("VERIFY-FAIL", src, target, "rename " + e.getMessage());
+      throw new IOException("Attested rename refused for " + src + ": " + e.getMessage());
+    }
+    return rec;
+  }
+
+  /** After a file was renamed: a new record for the new folder and name, from the old one, with no data read; or the old record moved. */
+  private void afterFileMove(Path src, Path target, AttestedSidecar moved) throws IOException {
+    if (moved == null) {
+      moveSidecar(src, target);
+      return;
+    }
+    Path from = AttestedSidecar.pathFor(src);
+    Path to = AttestedSidecar.pathFor(target);
+    forget(from);
+    forget(to);
+    AttestedFolderCodec.Decoded fd = folders.ensure(q(target).getParent());
+    List<byte[]> leaves = Arrays.asList(moved.leaves);
+    byte[] bytes = fd != null
+        ? signatures.encodeBound(moved.chunkSize, moved.length, moved.root, leaves, fd.folderId, target.getName())
+        : signatures.encode(moved.chunkSize, moved.length, moved.root, leaves);
+    audit("CREATE", to, null, "sidecar signed=" + signatures.signingKeyId() + " rebound");
+    try (FSDataOutputStream out = fs.create(to, true)) {
+      out.write(bytes);
+    }
+    if (fs.exists(from)) {
+      audit("DELETE", from, null, "recursive=false sidecar");
+      fs.delete(from, false);
+    }
+  }
+
+  /** Before a folder with an identity is renamed: its chain is checked, and the new parent has its identity. Null when it has none. */
+  private AttestedFolderCodec.Decoded beforeDirMove(Path src, Path target) throws IOException {
+    try {
+      AttestedFolderCodec.Decoded old = folders.read(src);
+      if (old == null) {
+        return null;
+      }
+      folders.verifyChain(src);
+      Path np = target.getParent();
+      if (!AttestedFolders.isRoot(np) && fs.exists(np)) {
+        folders.ensure(np);
+      }
+      return old;
+    } catch (IOException e) {
+      audit("VERIFY-FAIL", src, target, "rename folder " + e.getMessage());
+      throw new IOException("Attested rename refused for the folder " + src + ": " + e.getMessage());
+    }
+  }
+
+  /** After a folder was renamed: only its own identity file is signed again; the files and folders inside are untouched. */
+  private void afterDirMove(Path src, Path target, AttestedFolderCodec.Decoded old) throws IOException {
+    folders.forgetTree(src);
+    folders.forgetTree(target);
+    if (old != null) {
+      folders.resign(q(target), old);
+    }
   }
 
   // ------------------------------------------------------------- metadata (step 4.5)
@@ -579,7 +749,7 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
     if (all.length == 1 && !all[0].isDirectory()
         && all[0].getPath().toUri().getPath().equals(f.toUri().getPath())) {
       // the listing of a single file shows the file only, not its record
-      if (!AttestedSidecar.isSidecar(all[0].getPath())) {
+      if (!AttestedSidecar.isCompanion(all[0].getPath())) {
         checkFile(all[0].getPath(), all[0].getLen(), null);
       }
       return;
@@ -591,6 +761,9 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
     for (FileStatus s : all) {
       Path p = s.getPath();
       String name = p.getName();
+      if (AttestedFolderCodec.isIdentityName(name)) {
+        continue;
+      }
       if (AttestedSidecar.isSidecar(p)) {
         String dataName = name.substring(1, name.length() - ".attested".length());
         if (!byName.containsKey(dataName)) {
@@ -617,7 +790,7 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
     checkListing(dir, all.toArray(new FileStatus[0]));
     final List<T> kept = new ArrayList<>();
     for (T s : all) {
-      if (!AttestedSidecar.isSidecar(s.getPath())
+      if (!AttestedSidecar.isCompanion(s.getPath())
           && (filter == null || filter.accept(s.getPath()))) {
         kept.add(s);
       }
@@ -645,13 +818,13 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
     try {
       st = super.getFileStatus(f);
     } catch (FileNotFoundException e) {
-      if (metadataCheck && !AttestedSidecar.isSidecar(f) && f.getParent() != null
+      if (metadataCheck && !AttestedSidecar.isCompanion(f) && f.getParent() != null
           && fs.exists(AttestedSidecar.pathFor(f))) {
         orphan(f);
       }
       throw e;
     }
-    if (metadataCheck && st.isFile() && !AttestedSidecar.isSidecar(f)) {
+    if (metadataCheck && st.isFile() && !AttestedSidecar.isCompanion(f)) {
       checkFile(f, st.getLen(), null);
     }
     return st;
@@ -660,7 +833,7 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
   private static FileStatus[] withoutSidecars(FileStatus[] all) {
     int keep = 0;
     for (FileStatus s : all) {
-      if (!AttestedSidecar.isSidecar(s.getPath())) {
+      if (!AttestedSidecar.isCompanion(s.getPath())) {
         keep++;
       }
     }
@@ -670,7 +843,7 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
     FileStatus[] out = new FileStatus[keep];
     int i = 0;
     for (FileStatus s : all) {
-      if (!AttestedSidecar.isSidecar(s.getPath())) {
+      if (!AttestedSidecar.isCompanion(s.getPath())) {
         out[i++] = s;
       }
     }
@@ -768,6 +941,8 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
       boolean overwrite, int bufferSize, short replication, long blockSize,
       Progressable progress) throws IOException {
     audit("CREATE", f, null, "overwrite=" + overwrite);
+    denyReserved(f);
+    prepareParent(f, true);
     return hashed(f, super.create(f, permission, overwrite, bufferSize,
         replication, blockSize, progress));
   }
@@ -778,6 +953,8 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
       long blockSize, Progressable progress, ChecksumOpt checksumOpt)
       throws IOException {
     audit("CREATE", f, null, "flags=" + flags);
+    denyReserved(f);
+    prepareParent(f, true);
     return hashed(f, super.create(f, permission, flags, bufferSize,
         replication, blockSize, progress, checksumOpt));
   }
@@ -788,6 +965,8 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
       EnumSet<CreateFlag> flags, int bufferSize, short replication,
       long blockSize, Progressable progress) throws IOException {
     audit("CREATE", f, null, "createNonRecursive flags=" + flags);
+    denyReserved(f);
+    prepareParent(f, false);
     return hashed(f, super.createNonRecursive(f, permission, flags, bufferSize,
         replication, blockSize, progress));
   }
@@ -798,6 +977,8 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
       int bufferSize, short replication, long blockSize, Progressable progress,
       ChecksumOpt checksumOpt) throws IOException {
     audit("CREATE", f, null, "primitiveCreate flags=" + flag);
+    denyReserved(f);
+    prepareParent(f, true);
     return hashed(f, super.primitiveCreate(f, absolutePermission, flag,
         bufferSize, replication, blockSize, progress, checksumOpt));
   }
@@ -944,14 +1125,22 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
   @Override
   public boolean rename(Path src, Path dst) throws IOException {
     audit("RENAME", src, dst, null);
+    denyReserved(src);
+    denyReserved(dst);
     boolean file = track() && isPlainFile(src);
+    boolean dir = bindOn && !file && isDir(src);
     Path target = dst;
-    if (file && isDir(dst)) {
+    if ((file || dir) && isDir(dst)) {
       target = new Path(dst, src.getName());
     }
+    AttestedSidecar moved = file ? beforeFileMove(src, target) : null;
+    AttestedFolderCodec.Decoded oldDir = dir ? beforeDirMove(src, target) : null;
     boolean ok = super.rename(src, dst);
     if (ok && file) {
-      moveSidecar(src, target);
+      afterFileMove(src, target, moved);
+    }
+    if (ok && dir) {
+      afterDirMove(src, target, oldDir);
     }
     return ok;
   }
@@ -960,20 +1149,32 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
   protected void rename(Path src, Path dst, Rename... options)
       throws IOException {
     audit("RENAME", src, dst, "options");
+    denyReserved(src);
+    denyReserved(dst);
     boolean file = track() && isPlainFile(src);
+    boolean dir = bindOn && !file && isDir(src);
+    AttestedSidecar moved = file ? beforeFileMove(src, dst) : null;
+    AttestedFolderCodec.Decoded oldDir = dir ? beforeDirMove(src, dst) : null;
     super.rename(src, dst, options);
     if (file) {
-      moveSidecar(src, dst);
+      afterFileMove(src, dst, moved);
+    }
+    if (dir) {
+      afterDirMove(src, dst, oldDir);
     }
   }
 
   @Override
   public boolean delete(Path f, boolean recursive) throws IOException {
     audit("DELETE", f, null, "recursive=" + recursive);
+    denyReserved(f);
     boolean file = track() && isPlainFile(f);
     boolean ok = super.delete(f, recursive);
     if (ok && file) {
       dropSidecar(f);
+    }
+    if (ok) {
+      folders.forgetTree(f);
     }
     return ok;
   }
@@ -981,20 +1182,35 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
   @Override
   public boolean mkdirs(Path f, FsPermission permission) throws IOException {
     audit("MKDIRS", f, null, null);
-    return super.mkdirs(f, permission);
+    List<Path> fresh = bindOn ? folders.missingAncestors(q(f)) : null;
+    boolean ok = super.mkdirs(f, permission);
+    if (ok && fresh != null) {
+      folders.adopt(fresh);
+    }
+    return ok;
   }
 
   @Override
   public boolean mkdirs(Path f) throws IOException {
     audit("MKDIRS", f, null, null);
-    return super.mkdirs(f);
+    List<Path> fresh = bindOn ? folders.missingAncestors(q(f)) : null;
+    boolean ok = super.mkdirs(f);
+    if (ok && fresh != null) {
+      folders.adopt(fresh);
+    }
+    return ok;
   }
 
   @Override
   protected boolean primitiveMkdir(Path f, FsPermission abdolutePermission)
       throws IOException {
     audit("MKDIRS", f, null, "primitiveMkdir");
-    return super.primitiveMkdir(f, abdolutePermission);
+    List<Path> fresh = bindOn ? folders.missingAncestors(q(f)) : null;
+    boolean ok = super.primitiveMkdir(f, abdolutePermission);
+    if (ok && fresh != null) {
+      folders.adopt(fresh);
+    }
+    return ok;
   }
 
   @Override

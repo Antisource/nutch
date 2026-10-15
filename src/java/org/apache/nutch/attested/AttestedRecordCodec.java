@@ -39,16 +39,26 @@ import java.util.List;
  * signature (ECDSA with P-256 and SHA-256, DER). The signature covers
  * {@link #statement}: a fixed tag, the key id, the chunk size, the length and the root.
  * The root commits to every chunk hash, so the chunk hashes need no second signature.</p>
+ *
+ * <p>Format ATTEST03 (step 5.1.2) is ATTEST02 with the folder binding: between the chunk hashes and the signature block come the
+ * 16-byte ID of the folder the file lives in, an unsigned short for the length of the file's name (1 to 1024) and the name
+ * in UTF-8. The signature covers {@link #statementBound}: the same fields plus the folder ID and the name, so a signed file copied
+ * into another folder, or under another name, no longer verifies.</p>
  */
 final class AttestedRecordCodec {
 
   static final byte[] MAGIC1 = "ATTEST01".getBytes(StandardCharsets.US_ASCII);
   static final byte[] MAGIC2 = "ATTEST02".getBytes(StandardCharsets.US_ASCII);
+  static final byte[] MAGIC3 = "ATTEST03".getBytes(StandardCharsets.US_ASCII);
+  static final int FOLDER_ID = 16;
+  static final int MAX_NAME = 1024;
   static final int HASH = 32;
   static final int MAX_KEY_ID = 64;
   static final int MAX_SIGNATURE = 200;
   private static final byte[] STATEMENT_TAG =
       "ATTEST02-SIGNED\n".getBytes(StandardCharsets.US_ASCII);
+  private static final byte[] STATEMENT_TAG_BOUND =
+      "ATTEST03-SIGNED\n".getBytes(StandardCharsets.US_ASCII);
 
   private AttestedRecordCodec() {
   }
@@ -63,9 +73,17 @@ final class AttestedRecordCodec {
     /** Null for an unsigned (version 1) record. */
     final String keyId;
     final byte[] signature;
+    /** The ID of the folder the file lives in, and the file's name: null unless the record is bound (version 3). */
+    final byte[] folderId;
+    final String fileName;
 
     Decoded(int version, int chunkSize, long length, byte[] root, byte[][] leaves,
         String keyId, byte[] signature) {
+      this(version, chunkSize, length, root, leaves, keyId, signature, null, null);
+    }
+
+    Decoded(int version, int chunkSize, long length, byte[] root, byte[][] leaves,
+        String keyId, byte[] signature, byte[] folderId, String fileName) {
       this.version = version;
       this.chunkSize = chunkSize;
       this.length = length;
@@ -73,10 +91,17 @@ final class AttestedRecordCodec {
       this.leaves = leaves;
       this.keyId = keyId;
       this.signature = signature;
+      this.folderId = folderId;
+      this.fileName = fileName;
     }
 
     boolean signed() {
-      return version == 2;
+      return version >= 2;
+    }
+
+    /** True for a record bound to a folder and a name (ATTEST03). */
+    boolean bound() {
+      return version == 3;
     }
   }
 
@@ -114,6 +139,63 @@ final class AttestedRecordCodec {
     out.writeInt(chunkSize);
     out.writeLong(length);
     out.write(root);
+    out.flush();
+    return bytes.toByteArray();
+  }
+
+  static boolean validName(String name) {
+    if (name == null || name.isEmpty() || name.indexOf('/') >= 0 || name.indexOf('\0') >= 0) {
+      return false;
+    }
+    return name.getBytes(StandardCharsets.UTF_8).length <= MAX_NAME;
+  }
+
+  /** The bytes that are signed for a record bound to a folder and a name (ATTEST03). */
+  static byte[] statementBound(String keyId, byte[] folderId, String fileName, int chunkSize,
+      long length, byte[] root) throws IOException {
+    if (!validKeyId(keyId) || root == null || root.length != HASH || folderId == null
+        || folderId.length != FOLDER_ID || !validName(fileName)) {
+      throw new IOException("cannot build the statement to sign (bad key id, folder ID, name or root)");
+    }
+    byte[] id = keyId.getBytes(StandardCharsets.US_ASCII);
+    byte[] name = fileName.getBytes(StandardCharsets.UTF_8);
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    DataOutputStream out = new DataOutputStream(bytes);
+    out.write(STATEMENT_TAG_BOUND);
+    out.writeByte(id.length);
+    out.write(id);
+    out.write(folderId);
+    out.writeShort(name.length);
+    out.write(name);
+    out.writeInt(chunkSize);
+    out.writeLong(length);
+    out.write(root);
+    out.flush();
+    return bytes.toByteArray();
+  }
+
+  /** A signed record bound to a folder and a name (ATTEST03). */
+  static byte[] encodeBound(int chunkSize, long length, byte[] root, List<byte[]> leaves,
+      byte[] folderId, String fileName, String keyId, byte[] signature) throws IOException {
+    if (!validKeyId(keyId) || signature == null || signature.length < 1
+        || signature.length > MAX_SIGNATURE || folderId == null || folderId.length != FOLDER_ID
+        || !validName(fileName)) {
+      throw new IOException("cannot write a bound record (bad key id, signature, folder ID or name)");
+    }
+    byte[] id = keyId.getBytes(StandardCharsets.US_ASCII);
+    byte[] name = fileName.getBytes(StandardCharsets.UTF_8);
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream(
+        8 + 4 + 8 + HASH + 4 + HASH * leaves.size() + FOLDER_ID + 2 + name.length + 1 + id.length + 2
+            + signature.length);
+    DataOutputStream out = new DataOutputStream(bytes);
+    body(out, MAGIC3, chunkSize, length, root, leaves);
+    out.write(folderId);
+    out.writeShort(name.length);
+    out.write(name);
+    out.writeByte(id.length);
+    out.write(id);
+    out.writeShort(signature.length);
+    out.write(signature);
     out.flush();
     return bytes.toByteArray();
   }
@@ -175,6 +257,8 @@ final class AttestedRecordCodec {
         version = 1;
       } else if (Arrays.equals(magic, MAGIC2)) {
         version = 2;
+      } else if (Arrays.equals(magic, MAGIC3)) {
+        version = 3;
       } else {
         throw new IOException("record is damaged (wrong header)");
       }
@@ -191,9 +275,29 @@ final class AttestedRecordCodec {
       for (int i = 0; i < n; i++) {
         in.readFully(leaves[i]);
       }
+      byte[] folderId = null;
+      String fileName = null;
+      if (version == 3) {
+        folderId = new byte[FOLDER_ID];
+        in.readFully(folderId);
+        int nameLen = in.readUnsignedShort();
+        if (nameLen < 1 || nameLen > MAX_NAME) {
+          throw new IOException("record is damaged (impossible name length)");
+        }
+        byte[] nameBytes = new byte[nameLen];
+        in.readFully(nameBytes);
+        try {
+          fileName = StandardCharsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(nameBytes)).toString();
+        } catch (java.nio.charset.CharacterCodingException e) {
+          throw new IOException("record is damaged (the name is not UTF-8)");
+        }
+        if (!validName(fileName)) {
+          throw new IOException("record is damaged (impossible name)");
+        }
+      }
       String keyId = null;
       byte[] signature = null;
-      if (version == 2) {
+      if (version >= 2) {
         int idLen = in.readUnsignedByte();
         if (idLen < 1 || idLen > MAX_KEY_ID) {
           throw new IOException("record is damaged (impossible key id length)");
@@ -222,7 +326,7 @@ final class AttestedRecordCodec {
         throw new IOException(
             "record is damaged (its root does not match its own chunk hashes)");
       }
-      return new Decoded(version, chunk, length, root, leaves, keyId, signature);
+      return new Decoded(version, chunk, length, root, leaves, keyId, signature, folderId, fileName);
     } catch (EOFException e) {
       throw new IOException("record is damaged (too short)");
     }

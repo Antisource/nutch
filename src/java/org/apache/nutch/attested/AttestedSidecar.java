@@ -63,6 +63,11 @@ final class AttestedSidecar {
     this.decoded = d;
   }
 
+  /** A file the wrapper keeps next to the data and hides from listings: a record, or a folder identity file (step 5.1.2). */
+  static boolean isCompanion(Path p) {
+    return isSidecar(p) || AttestedFolderCodec.isIdentityName(p.getName());
+  }
+
   static boolean isSidecar(Path p) {
     String n = p.getName();
     return n.length() > ".attested".length() + 1 && n.startsWith(".")
@@ -98,7 +103,8 @@ final class AttestedSidecar {
       byte[] magic = new byte[MAGIC.length];
       in.readFully(magic);
       if (!Arrays.equals(magic, AttestedRecordCodec.MAGIC1)
-          && !Arrays.equals(magic, AttestedRecordCodec.MAGIC2)) {
+          && !Arrays.equals(magic, AttestedRecordCodec.MAGIC2)
+          && !Arrays.equals(magic, AttestedRecordCodec.MAGIC3)) {
         throw new IOException("record is damaged (wrong header)");
       }
       int chunk = in.readInt();

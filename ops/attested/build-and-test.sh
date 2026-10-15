@@ -46,6 +46,7 @@ run() {  # run <label> <mode> [args]
 
 run fake fake
 run mr-fake mr-fake
+run mr-bound mr-bound
 run hash hash
 
 echo "== hash cross-check: the wrapper's roots against merkle_root.py, on the same files"

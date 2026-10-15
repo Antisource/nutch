@@ -84,7 +84,8 @@ final class AttestedSignatures {
   /**
    * Checks the signature of a decoded record. Returns "none" (an unsigned record that is
    * accepted), "ok" or "ok-test" (a test key). Throws an IOException saying why when the record
-   * must be refused.
+   * must be refused. For a record bound to a folder (ATTEST03) this checks the signature only; that the
+   * folder ID and the name are the right ones is the caller's job (see AttestedFolders).
    */
   String check(AttestedRecordCodec.Decoded rec) throws IOException {
     if (!rec.signed()) {
@@ -93,27 +94,58 @@ final class AttestedSignatures {
       }
       return "none";
     }
-    boolean test = TestKeys.isTestKeyId(rec.keyId);
+    byte[] statement = rec.bound()
+        ? AttestedRecordCodec.statementBound(rec.keyId, rec.folderId, rec.fileName, rec.chunkSize, rec.length, rec.root)
+        : AttestedRecordCodec.statement(rec.keyId, rec.chunkSize, rec.length, rec.root);
+    return verify("record", rec.keyId, statement, rec.signature);
+  }
+
+  /** The signature of a folder identity file: always signed, so there is no legacy form. */
+  String checkFolder(AttestedFolderCodec.Decoded d) throws IOException {
+    return verify("folder identity", d.keyId,
+        AttestedFolderCodec.statement(d.keyId, d.folderId, d.name, d.parentId, d.topPath), d.signature);
+  }
+
+  private String verify(String what, String keyId, byte[] statement, byte[] signature) throws IOException {
+    boolean test = TestKeys.isTestKeyId(keyId);
     if (test && !allowTestKeys) {
-      throw new IOException("the record is signed with a test key (" + rec.keyId
-          + "), which is not accepted");
+      throw new IOException("the " + what + " is signed with a test key (" + keyId + "), which is not accepted");
     }
-    PublicKey pub = keys == null ? null : keys.publicKey(rec.keyId);
+    PublicKey pub = keys == null ? null : keys.publicKey(keyId);
     if (pub == null) {
-      throw new IOException("the record is signed by a key that is not trusted here ("
-          + rec.keyId + ")");
+      throw new IOException("the " + what + " is signed by a key that is not trusted here (" + keyId + ")");
     }
     try {
       Signature s = Signature.getInstance("SHA256withECDSA");
       s.initVerify(pub);
-      s.update(AttestedRecordCodec.statement(rec.keyId, rec.chunkSize, rec.length, rec.root));
-      if (!s.verify(rec.signature)) {
-        throw new IOException("the signature of the record does not verify (" + rec.keyId + ")");
+      s.update(statement);
+      if (!s.verify(signature)) {
+        throw new IOException("the signature of the " + what + " does not verify (" + keyId + ")");
       }
     } catch (GeneralSecurityException e) {
-      throw new IOException("the signature of the record does not verify (" + rec.keyId
-          + "): " + e.getMessage());
+      throw new IOException("the signature of the " + what + " does not verify (" + keyId + "): " + e.getMessage());
     }
     return test ? "ok-test" : "ok";
+  }
+
+  /** The bytes of a finished record bound to a folder and a name (ATTEST03); signing must be on. */
+  byte[] encodeBound(int chunkSize, long length, byte[] root, List<byte[]> leaves, byte[] folderId,
+      String fileName) throws IOException {
+    if (!sign) {
+      throw new IOException("a record bound to a folder needs signing to be on");
+    }
+    String id = keys.signingKeyId();
+    byte[] sig = keys.sign(AttestedRecordCodec.statementBound(id, folderId, fileName, chunkSize, length, root));
+    return AttestedRecordCodec.encodeBound(chunkSize, length, root, leaves, folderId, fileName, id, sig);
+  }
+
+  /** The bytes of a signed folder identity file; signing must be on. */
+  byte[] encodeFolder(byte[] folderId, String name, byte[] parentId, String topPath) throws IOException {
+    if (!sign) {
+      throw new IOException("a folder identity needs signing to be on");
+    }
+    String id = keys.signingKeyId();
+    byte[] sig = keys.sign(AttestedFolderCodec.statement(id, folderId, name, parentId, topPath));
+    return AttestedFolderCodec.encode(folderId, name, parentId, topPath, id, sig);
   }
 }
