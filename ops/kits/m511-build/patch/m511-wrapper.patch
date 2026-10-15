@@ -1,0 +1,1279 @@
+diff --git a/ops/attested/AttestedFsSmoke.java b/ops/attested/AttestedFsSmoke.java
+index 05ecebbed..b7893218f 100644
+--- a/ops/attested/AttestedFsSmoke.java
++++ b/ops/attested/AttestedFsSmoke.java
+@@ -243,6 +243,7 @@ public class AttestedFsSmoke {
+ 
+     exercise(conf, base, plain, FakeHdfs.class.getName());
+     verifyChecks(conf, base, plain);
++    signatureChecks(conf, base, plain);
+     metadataChecks(conf, base, plain);
+     fileContext(conf, new Path("hdfs://fake:9000" + tmp + "/fc"));
+     refusalChecks(conf, base, plain);
+@@ -1203,6 +1204,166 @@ public class AttestedFsSmoke {
+   // ------------------------------------------------------------ hashing
+ 
+   /** The hash mode: roots against an independent computation, several sizes and settings. */
++
++  /** True when any audit log file in the folder contains the text. */
++  static boolean auditHas(String dir, String needle) throws IOException {
++    File[] files = new File(dir).listFiles();
++    if (files != null) {
++      for (File f : files) {
++        if (new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8).contains(needle)) {
++          return true;
++        }
++      }
++    }
++    return false;
++  }
++
++  static byte[] unsignedRecordFor(byte[] content) throws IOException {
++    MerkleHasher mh = new MerkleHasher(16384, true);
++    mh.update(content, 0, content.length);
++    byte[] root = mh.finish();
++    return AttestedSidecar.encode(16384, content.length, root, mh.leaves());
++  }
++
++  /**
++   * Step 5.1.1: records are signed with a test key, and a file that is rewritten together with its
++   * record, by someone without the key, fails the read.
++   */
++  static void signatureChecks(Configuration baseConf, Path base, FileSystem plain) throws Exception {
++    java.nio.file.Path keyDir = Files.createTempDirectory("sigkeys");
++    java.nio.file.Path keyFile = keyDir.resolve("test-key.txt");
++    TestKeys key = TestKeys.generate(keyFile);
++    String auditDir = baseConf.get(AttestedAudit.DIR_KEY);
++
++    Configuration signedConf = new Configuration(baseConf);
++    signedConf.setBoolean(AttestedHdfsFileSystem.SIGN_KEY, true);
++    signedConf.setBoolean(AttestedHdfsFileSystem.SIGN_REQUIRED_KEY, true);
++    signedConf.set(AttestedHdfsFileSystem.SIGN_TESTKEY_FILE_KEY, keyFile.toString());
++    FileSystem fs = FileSystem.newInstance(base.toUri(), signedConf);
++    Path dir = new Path(base, "signed");
++    fs.mkdirs(dir);
++
++    // 1. a signed write and read
++    Path f = new Path(dir, "a.bin");
++    byte[] d = data(50000, 71);
++    put(fs, f, d);
++    byte[] rec = readAll(plain, sc(f));
++    check("a file written with signing on has an ATTEST02 record next to it",
++        rec.length > 8 && new String(rec, 0, 8, StandardCharsets.US_ASCII).equals("ATTEST02"));
++    check("the record names the test key (its id starts with TEST-)",
++        new String(rec, StandardCharsets.ISO_8859_1).contains(key.signingKeyId()));
++    check("reading it through the wrapper returns the bytes (signature checked, required)",
++        Arrays.equals(d, readAll(fs, f)));
++    check("the audit log says how it was checked: verify=ok sig=ok-test",
++        auditHas(auditDir, "verify=ok sig=ok-test"));
++    check("the audit log of the write names the key: sidecar signed=" + key.signingKeyId(),
++        auditHas(auditDir, "sidecar signed=" + key.signingKeyId()));
++    check("the INIT line says that signing is on, required, with test keys allowed, and names the key",
++        auditHas(auditDir, "sign=true sigrequired=true testkeys=true key=" + key.signingKeyId()));
++    check("status questions work on a signed file (length) and listings do not show the record",
++        fs.getFileStatus(f).getLen() == 50000 && fs.listStatus(dir).length == 1 && plain.listStatus(dir).length == 2);
++    Path g = new Path(dir, "b.bin");
++    check("renaming a signed file keeps it readable (the signature does not cover the name yet: step 5.1.2)",
++        fs.rename(f, g) && Arrays.equals(d, readAll(fs, g)) && !plain.exists(sc(f)) && plain.exists(sc(g)));
++
++    // 2. the pass condition: someone without the key rewrites the file together with its record
++    byte[] evil = data(50000, 99);
++    put(plain, g, evil);                                          // new content, behind the wrapper's back
++    check("only the file changed: the read fails (the chunk hashes no longer match)", tryRead(fs, g) == null);
++    put(plain, sc(g), unsignedRecordFor(evil));                   // and a matching record in the old format
++    check("file and record rewritten, the record unsigned: the read fails (signatures are required)",
++        tryRead(fs, g) == null && lastError.contains("not signed"));
++    MerkleHasher mh = new MerkleHasher(16384, true);
++    mh.update(evil, 0, evil.length);
++    byte[] evilRoot = mh.finish();
++    java.nio.file.Path other = keyDir.resolve("attacker.txt");
++    TestKeys attacker = TestKeys.generate(other);
++    byte[] oldSig = AttestedRecordCodec.decode(rec).signature;
++    put(plain, sc(g), AttestedRecordCodec.encodeSigned(16384, evil.length, evilRoot, mh.leaves(), key.signingKeyId(), oldSig));
++    check("file and record rewritten, the OLD signature copied over: the read fails",
++        tryRead(fs, g) == null && lastError.contains("does not verify"));
++    byte[] ownSig = attacker.sign(AttestedRecordCodec.statement(key.signingKeyId(), 16384, evil.length, evilRoot));
++    put(plain, sc(g), AttestedRecordCodec.encodeSigned(16384, evil.length, evilRoot, mh.leaves(), key.signingKeyId(), ownSig));
++    check("signed with the attacker's own key under the real key id: the read fails",
++        tryRead(fs, g) == null && lastError.contains("does not verify"));
++    byte[] ownSig2 = attacker.sign(AttestedRecordCodec.statement(attacker.signingKeyId(), 16384, evil.length, evilRoot));
++    put(plain, sc(g), AttestedRecordCodec.encodeSigned(16384, evil.length, evilRoot, mh.leaves(), attacker.signingKeyId(), ownSig2));
++    check("signed with the attacker's own key under its own id: the read fails (not a trusted key)",
++        tryRead(fs, g) == null && lastError.contains("not trusted"));
++    check("each of these failures is in the audit log as VERIFY-FAIL", auditHas(auditDir, "VERIFY-FAIL"));
++    put(plain, g, d);                                             // restore the honest content
++    put(plain, sc(g), rec);                                       // and the honest record
++    check("the honest file with its honest record reads again", Arrays.equals(d, readAll(fs, g)));
++
++    // 3. legacy files and the settings
++    Configuration legacyConf = new Configuration(baseConf);
++    legacyConf.setBoolean(AttestedHdfsFileSystem.SIGN_KEY, false);
++    legacyConf.setBoolean(AttestedHdfsFileSystem.SIGN_REQUIRED_KEY, false);
++    legacyConf.set(AttestedHdfsFileSystem.SIGN_TESTKEY_FILE_KEY, keyDir.resolve("none.txt").toString());
++    FileSystem legacy = FileSystem.newInstance(base.toUri(), legacyConf);
++    Path old = new Path(dir, "legacy.bin");
++    byte[] od = data(20000, 5);
++    put(legacy, old, od);
++    byte[] oldRec = readAll(plain, sc(old));
++    check("with signing off the record is the old format, byte for byte (ATTEST01)",
++        new String(oldRec, 0, 8, StandardCharsets.US_ASCII).equals("ATTEST01") && Arrays.equals(oldRec, unsignedRecordFor(od)));
++    check("a legacy file reads when signatures are not required (and is logged as sig=none)",
++        Arrays.equals(od, readAll(legacy, old)) && auditHas(auditDir, "verify=ok sig=none"));
++    check("the same legacy file is refused when signatures are required", tryRead(fs, old) == null && lastError.contains("not signed"));
++    check("a signed file is refused by a reader that has no key file (not a trusted key)",
++        tryRead(legacy, g) == null && lastError.contains("not trusted"));
++    Configuration noTest = new Configuration(signedConf);
++    noTest.setBoolean(AttestedHdfsFileSystem.SIGN_ALLOW_TEST_KEY, false);
++    boolean refusedAtStart = false;
++    try {
++      FileSystem.newInstance(base.toUri(), noTest);
++    } catch (IOException e) {
++      refusedAtStart = e.getMessage().contains("test key, which is not allowed");
++    }
++    check("signing with a test key is refused at start when test keys are not allowed", refusedAtStart);
++    Configuration readNoTest = new Configuration(signedConf);
++    readNoTest.setBoolean(AttestedHdfsFileSystem.SIGN_KEY, false);
++    readNoTest.setBoolean(AttestedHdfsFileSystem.SIGN_ALLOW_TEST_KEY, false);
++    FileSystem strict = FileSystem.newInstance(base.toUri(), readNoTest);
++    check("a reader that does not allow test keys refuses a test-signed file (the real-key mode)",
++        tryRead(strict, g) == null && lastError.contains("not accepted"));
++    Configuration missingKey = new Configuration(signedConf);
++    missingKey.set(AttestedHdfsFileSystem.SIGN_TESTKEY_FILE_KEY, keyDir.resolve("missing.txt").toString());
++    boolean missingRefused = false;
++    try {
++      FileSystem.newInstance(base.toUri(), missingKey);
++    } catch (IOException e) {
++      missingRefused = e.getMessage().contains("test key file is missing");
++    }
++    check("signing on with no key file refuses to start (no unsigned files are written by mistake)", missingRefused);
++    Configuration noRecords = new Configuration(signedConf);
++    noRecords.setBoolean(AttestedHdfsFileSystem.SIDECAR_KEY, false);
++    boolean needRecords = false;
++    try {
++      FileSystem.newInstance(base.toUri(), noRecords);
++    } catch (IOException e) {
++      needRecords = e.getMessage().contains("need records");
++    }
++    check("signatures without records are refused at start", needRecords);
++    Configuration publicOnly = new Configuration(signedConf);
++    publicOnly.setBoolean(AttestedHdfsFileSystem.SIGN_KEY, false);
++    java.nio.file.Path pubFile = keyDir.resolve("public.txt");
++    Files.write(pubFile, key.publicFileText().getBytes(StandardCharsets.US_ASCII));
++    publicOnly.set(AttestedHdfsFileSystem.SIGN_TESTKEY_FILE_KEY, pubFile.toString());
++    FileSystem reader = FileSystem.newInstance(base.toUri(), publicOnly);
++    check("a reader with only the public key verifies signed files, and cannot sign",
++        Arrays.equals(d, readAll(reader, g)));
++    // 4. a signed file inside a job's folder tree still works with the other operations
++    Path sub = new Path(dir, "tree/deep");
++    fs.mkdirs(sub);
++    put(fs, new Path(sub, "x"), data(300, 8));
++    fs.rename(new Path(dir, "tree"), new Path(dir, "moved"));
++    check("a folder of signed files can be renamed and its files still verify",
++        Arrays.equals(data(300, 8), readAll(fs, new Path(dir, "moved/deep/x"))));
++    fs.delete(new Path(dir, "moved"), true);
++    check("deleting signed files removes their records", !plain.exists(new Path(dir, "moved")));
++  }
++
+   static void runHash() throws Exception {
+     java.nio.file.Path tmp = Files.createTempDirectory("attested-hash");
+     Configuration conf = fakeConf(tmp);
+diff --git a/ops/attested/SigCoreTest.java b/ops/attested/SigCoreTest.java
+new file mode 100644
+index 000000000..9d91c13d4
+--- /dev/null
++++ b/ops/attested/SigCoreTest.java
+@@ -0,0 +1,167 @@
++package org.apache.nutch.attested;
++
++import java.io.IOException;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.nio.file.attribute.PosixFilePermission;
++import java.util.ArrayList;
++import java.util.Arrays;
++import java.util.List;
++import java.util.Set;
++
++/** Tests of the signing core (step 5.1.1) with no Hadoop: the codec, the test key and the signature rules. */
++public final class SigCoreTest {
++  static int pass = 0, fail = 0;
++
++  static void chk(String what, boolean ok) {
++    if (ok) { pass++; System.out.println("  pass: " + what); } else { fail++; System.out.println("  FAIL: " + what); }
++  }
++
++  interface Thrower { void run() throws Exception; }
++
++  static boolean refuses(Thrower t, String text) {
++    try { t.run(); return false; } catch (Exception e) { return e.getMessage() != null && e.getMessage().contains(text); }
++  }
++
++  /** A real file's record: the Merkle root and the leaves of the given bytes, as the wrapper makes them. */
++  static final class Made { int chunk; long length; byte[] root; List<byte[]> leaves; }
++
++  static Made made(byte[] content, int chunk) {
++    MerkleHasher h = new MerkleHasher(chunk, true);
++    h.update(content, 0, content.length);
++    Made m = new Made(); m.root = h.finish(); m.length = h.length(); m.chunk = chunk; m.leaves = h.leaves();
++    return m;
++  }
++
++  static byte[] bytes(int n, int seed) { byte[] b = new byte[n]; for (int i = 0; i < n; i++) b[i] = (byte) (i * 31 + seed); return b; }
++
++  static AttestedSignatures sigs(AttestedKeys k, boolean sign, boolean required, boolean allowTest) throws IOException {
++    return new AttestedSignatures(k, sign, required, allowTest);
++  }
++
++  public static void main(String[] args) throws Exception {
++    Path dir = Files.createTempDirectory("sigcore");
++    Path kf = dir.resolve("test-key.txt");
++    TestKeys key = TestKeys.generate(kf);
++    Made a = made(bytes(50000, 1), 16384);
++
++    System.out.println("== 1. the old format is unchanged, the new one round-trips");
++    byte[] v1 = AttestedRecordCodec.encode(a.chunk, a.length, a.root, a.leaves);
++    chk("a version 1 record is 8+4+8+32+4+32n bytes and starts with ATTEST01", v1.length == 8 + 4 + 8 + 32 + 4 + 32 * a.leaves.size() && new String(v1, 0, 8).equals("ATTEST01"));
++    AttestedRecordCodec.Decoded d1 = AttestedRecordCodec.decode(v1);
++    chk("it decodes as unsigned with the same length, chunk size and root", !d1.signed() && d1.length == a.length && d1.chunkSize == a.chunk && Arrays.equals(d1.root, a.root) && d1.leaves.length == 4);
++    AttestedSignatures on = sigs(key, true, true, true);
++    byte[] v2 = on.encode(a.chunk, a.length, a.root, a.leaves);
++    AttestedRecordCodec.Decoded d2 = AttestedRecordCodec.decode(v2);
++    chk("a signed record starts with ATTEST02 and carries the test key id", new String(v2, 0, 8).equals("ATTEST02") && d2.signed() && d2.keyId.equals(key.signingKeyId()) && d2.keyId.startsWith("TEST-"));
++    chk("the signed record is the unsigned body plus the signature block", v2.length > v1.length && v2.length < v1.length + 1 + 64 + 2 + 200);
++    chk("signing with the right key verifies, and the status says test key", on.check(d2).equals("ok-test"));
++    chk("two signatures of the same record both verify (the signature is not deterministic, the statement is)", on.check(AttestedRecordCodec.decode(on.encode(a.chunk, a.length, a.root, a.leaves))).equals("ok-test"));
++
++    System.out.println("== 2. damaged records are refused with a reason");
++    chk("wrong header", refuses(() -> AttestedRecordCodec.decode(concat("ATTESTXX".getBytes(), Arrays.copyOfRange(v2, 8, v2.length))), "wrong header"));
++    chk("too short (cut in the leaves)", refuses(() -> AttestedRecordCodec.decode(Arrays.copyOf(v2, 100)), "too short"));
++    chk("too short (cut in the signature)", refuses(() -> AttestedRecordCodec.decode(Arrays.copyOf(v2, v2.length - 5)), "too short"));
++    chk("extra bytes after the signature", refuses(() -> AttestedRecordCodec.decode(concat(v2, new byte[]{1})), "extra bytes"));
++    chk("extra bytes after an unsigned record", refuses(() -> AttestedRecordCodec.decode(concat(v1, new byte[]{1})), "extra bytes"));
++    byte[] badRoot = v2.clone(); badRoot[8 + 4 + 8] ^= 1;
++    chk("a root that does not match its own chunk hashes", refuses(() -> AttestedRecordCodec.decode(badRoot), "root does not match"));
++    byte[] badLen = v2.clone(); badLen[8 + 4 + 2] ^= 1;
++    chk("a length that does not fit the number of chunks", refuses(() -> AttestedRecordCodec.decode(badLen), "impossible sizes"));
++    int idLenPos = v1.length;
++    byte[] zeroId = v2.clone(); zeroId[idLenPos] = 0;
++    chk("a key id of length 0", refuses(() -> AttestedRecordCodec.decode(zeroId), "key id length"));
++    byte[] badChar = v2.clone(); badChar[idLenPos + 1] = ' ';
++    chk("a key id with a character that is not allowed", refuses(() -> AttestedRecordCodec.decode(badChar), "impossible key id"));
++
++    System.out.println("== 3. the pass condition of the step: a file rewritten together with its record, by someone without the key");
++    AttestedSignatures need = sigs(key.publicOnly(), false, true, true);   // a reader: verifies, never signs, signatures required
++    chk("the honest record is accepted by a reader that has only the public key", need.check(d2).equals("ok-test"));
++    Made b = made(bytes(50000, 2), 16384);                                // the attacker's new content
++    byte[] oldSig = d2.signature;
++    byte[] forged1 = AttestedRecordCodec.encodeSigned(b.chunk, b.length, b.root, b.leaves, d2.keyId, oldSig);
++    chk("new content and a new record, with the OLD signature copied over: refused", refuses(() -> need.check(AttestedRecordCodec.decode(forged1)), "does not verify"));
++    TestKeys other = TestKeys.generate(dir.resolve("attacker.txt"));
++    byte[] own = other.sign(AttestedRecordCodec.statement(d2.keyId, b.chunk, b.length, b.root));
++    byte[] forged2 = AttestedRecordCodec.encodeSigned(b.chunk, b.length, b.root, b.leaves, d2.keyId, own);
++    chk("signed with the attacker's own key under the real key id: refused", refuses(() -> need.check(AttestedRecordCodec.decode(forged2)), "does not verify"));
++    byte[] own2 = other.sign(AttestedRecordCodec.statement(other.signingKeyId(), b.chunk, b.length, b.root));
++    byte[] forged3 = AttestedRecordCodec.encodeSigned(b.chunk, b.length, b.root, b.leaves, other.signingKeyId(), own2);
++    chk("signed with the attacker's own key under its own id: refused as not trusted", refuses(() -> need.check(AttestedRecordCodec.decode(forged3)), "not trusted here"));
++    byte[] downgraded = AttestedRecordCodec.encode(b.chunk, b.length, b.root, b.leaves);
++    chk("downgraded to the unsigned format: refused when signatures are required", refuses(() -> need.check(AttestedRecordCodec.decode(downgraded)), "signatures are required"));
++    chk("the same downgrade is accepted as legacy when signatures are not required (the documented limit of the default)", sigs(key.publicOnly(), false, false, true).check(AttestedRecordCodec.decode(downgraded)).equals("none"));
++
++    System.out.println("== 4. every signed field is covered");
++    for (int field = 0; field < 4; field++) {
++      final int f = field;
++      Made m = made(bytes(50000, 1), 16384);
++      int chunk = f == 0 ? 8192 : m.chunk; long len = f == 1 ? m.length + 1 : m.length; byte[] root = m.root.clone(); if (f == 2) root[0] ^= 1;
++      String id = f == 3 ? d2.keyId.substring(0, d2.keyId.length() - 1) + (d2.keyId.endsWith("0") ? "1" : "0") : d2.keyId;
++      List<byte[]> leaves = m.leaves;
++      if (f == 0 || f == 1) { /* keep the record self-consistent where the codec would catch it first: only the signature check is under test */ }
++      AttestedRecordCodec.Decoded fake = new AttestedRecordCodec.Decoded(2, chunk, len, root, m.leaves.toArray(new byte[0][]), id, d2.signature);
++      chk("changing the " + new String[]{"chunk size", "length", "root", "key id"}[f] + " breaks the signature", refuses(() -> need.check(fake), f == 3 ? "not trusted" : "does not verify"));
++    }
++    chk("the statement is unambiguous: different (key id, chunk size, length) never give the same bytes",
++        !Arrays.equals(AttestedRecordCodec.statement("A", 1, 2, a.root), AttestedRecordCodec.statement("A", 2, 1, a.root))
++        && !Arrays.equals(AttestedRecordCodec.statement("AB", 1, 2, a.root), AttestedRecordCodec.statement("A", 1, 2, a.root)));
++
++    System.out.println("== 5. the settings");
++    AttestedSignatures noTest = sigs(key.publicOnly(), false, true, false);
++    chk("with test keys not allowed, a test-signed record is refused (the real-key mode)", refuses(() -> noTest.check(d2), "not accepted"));
++    chk("signing with a test key is refused when test keys are not allowed", refuses(() -> sigs(key, true, true, false), "test key, which is not allowed"));
++    chk("signing without a private key is refused at start", refuses(() -> sigs(key.publicOnly(), true, true, true), "no private key"));
++    chk("a signed record is checked even when signatures are not required (a bad signature is never accepted)", refuses(() -> sigs(key.publicOnly(), false, false, true).check(AttestedRecordCodec.decode(forged1)), "does not verify"));
++    chk("a reader with no keys at all refuses a signed record", refuses(() -> sigs(null, false, false, true).check(d2), "not trusted"));
++    chk("signing off writes the old format byte for byte", Arrays.equals(sigs(key, false, false, true).encode(a.chunk, a.length, a.root, a.leaves), v1));
++
++    System.out.println("== 6. the test key file");
++    TestKeys again = TestKeys.load(kf);
++    chk("a key file loads with the same id and can sign what the original verified", again.signingKeyId().equals(key.signingKeyId()) && need.check(AttestedRecordCodec.decode(sigs(again, true, true, true).encode(a.chunk, a.length, a.root, a.leaves))).equals("ok-test"));
++    boolean ownerOnly;
++    try { Set<PosixFilePermission> p = Files.getPosixFilePermissions(kf); ownerOnly = p.size() == 2 && p.contains(PosixFilePermission.OWNER_READ) && p.contains(PosixFilePermission.OWNER_WRITE); } catch (UnsupportedOperationException e) { ownerOnly = true; }
++    chk("the key file is readable by its owner only (mode 600)", ownerOnly);
++    chk("an existing key file is never overwritten", refuses(() -> TestKeys.generate(kf), "exists already"));
++    Path pubFile = dir.resolve("public.txt"); Files.write(pubFile, key.publicFileText().getBytes());
++    TestKeys pubOnly = TestKeys.load(pubFile);
++    chk("a public-only file loads, verifies and cannot sign", pubOnly.signingKeyId() == null && refuses(() -> pubOnly.sign(new byte[]{1}), "cannot sign") && sigs(pubOnly, false, true, true).check(d2).equals("ok-test"));
++    List<String> lines = Files.readAllLines(kf); lines.set(1, "id=TEST-0000000000000000"); Path badId = dir.resolve("badid.txt"); Files.write(badId, lines);
++    chk("a key file whose id does not match its public key is refused", refuses(() -> TestKeys.load(badId), "does not match"));
++    Path junk = dir.resolve("junk.txt"); Files.write(junk, "hello\n".getBytes());
++    chk("a file that is not a key file is refused", refuses(() -> TestKeys.load(junk), "not a test key file"));
++    chk("the key id of a test key always starts with TEST- and is 21 characters", key.signingKeyId().startsWith("TEST-") && key.signingKeyId().length() == 21 && TestKeys.isTestKeyId(key.signingKeyId()) && !TestKeys.isTestKeyId("VM-abc"));
++
++    System.out.println("== 7. an empty file and a file of exactly one chunk");
++    for (int size : new int[]{0, 1, 16384, 16385}) {
++      Made e = made(bytes(size, 3), 16384);
++      AttestedRecordCodec.Decoded r = AttestedRecordCodec.decode(on.encode(e.chunk, e.length, e.root, e.leaves));
++      chk("size " + size + ": signs, decodes and verifies (" + r.leaves.length + " chunks)", need.check(r).equals("ok-test") && r.length == size);
++    }
++    System.out.println("== 8. the key tool");
++    java.io.ByteArrayOutputStream o1 = new java.io.ByteArrayOutputStream(), e1 = new java.io.ByteArrayOutputStream();
++    Path tk = dir.resolve("tool-key.txt");
++    int rc1 = AttestedKeyTool.run(new String[]{"generate", tk.toString()}, new java.io.PrintStream(o1), new java.io.PrintStream(e1));
++    String text1 = o1.toString();
++    chk("generate makes a key file and prints its TEST- id (never the private key)", rc1 == 0 && Files.exists(tk) && text1.contains("TEST-") && !text1.contains("private"));
++    java.io.ByteArrayOutputStream o2 = new java.io.ByteArrayOutputStream();
++    int rc2 = AttestedKeyTool.run(new String[]{"generate", tk.toString()}, new java.io.PrintStream(o2), new java.io.PrintStream(e1));
++    chk("generate never overwrites an existing key file", rc2 == 1 && e1.toString().contains("exists already"));
++    java.io.ByteArrayOutputStream o3 = new java.io.ByteArrayOutputStream();
++    int rc3 = AttestedKeyTool.run(new String[]{"info", tk.toString()}, new java.io.PrintStream(o3), new java.io.PrintStream(e1));
++    chk("info prints the key id and says it can sign", rc3 == 0 && o3.toString().contains("can sign: true"));
++    Path pubCopy = dir.resolve("tool-public.txt");
++    java.io.ByteArrayOutputStream o4 = new java.io.ByteArrayOutputStream();
++    int rc4 = AttestedKeyTool.run(new String[]{"public", tk.toString(), pubCopy.toString()}, new java.io.PrintStream(o4), new java.io.PrintStream(e1));
++    java.io.ByteArrayOutputStream o5 = new java.io.ByteArrayOutputStream();
++    AttestedKeyTool.run(new String[]{"info", pubCopy.toString()}, new java.io.PrintStream(o5), new java.io.PrintStream(e1));
++    chk("public writes a copy that can verify and cannot sign, with the same key id",
++        rc4 == 0 && o5.toString().contains("can sign: false") && o5.toString().contains(TestKeys.load(tk).keyId()) && !new String(Files.readAllBytes(pubCopy)).contains("private="));
++    chk("an unknown command gives the usage", AttestedKeyTool.run(new String[]{"nope"}, new java.io.PrintStream(o5), new java.io.PrintStream(e1)) == 2);
++    System.out.println("\npass: " + pass + "   fail: " + fail);
++    System.out.println(fail == 0 ? "SIGCORE-PASS" : "SIGCORE-FAIL");
++    if (fail != 0) System.exit(1);
++  }
++
++  static byte[] concat(byte[] x, byte[] y) { byte[] r = Arrays.copyOf(x, x.length + y.length); System.arraycopy(y, 0, r, x.length, y.length); return r; }
++}
+diff --git a/src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java b/src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java
+index 9fc26be5f..961cca190 100644
+--- a/src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java
++++ b/src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java
+@@ -117,6 +117,22 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+   public static final String META_MISMATCH_KEY = "attested.metadata.mismatch";
+   /** How many seconds a record's length is remembered when no listing can vouch for it. */
+   public static final String META_CACHE_KEY = "attested.metadata.cache.seconds";
++
++  /**
++   * Step 5.1.1: sign every record that is written. Off by default, so that nothing changes until it
++   * is switched on in the site configuration. A signed record is ATTEST02 (see AttestedRecordCodec).
++   */
++  public static final String SIGN_KEY = "attested.signature.enabled";
++  /**
++   * Refuse to read a file whose record is not signed (the old format). Off by default, so that the
++   * files of earlier runs stay readable as legacy; a record whose signature does not verify is
++   * refused whatever this says.
++   */
++  public static final String SIGN_REQUIRED_KEY = "attested.signature.required";
++  /** Accept records signed with a TEST key. True in step 5.1.1 (only test keys exist); the real key turns it off. */
++  public static final String SIGN_ALLOW_TEST_KEY = "attested.signature.allow.test.keys";
++  /** The file with the test key; the default is ~/tc-test-key/test-key.txt of the user the JVM runs as. */
++  public static final String SIGN_TESTKEY_FILE_KEY = "attested.signature.test.key.file";
+   private static final int META_CACHE_MAX = 4096;
+   private static final int META_REPORTED_MAX = 20000;
+ 
+@@ -155,6 +171,7 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+   private boolean verifyReads = true;
+   private String missingPolicy = "fail";
+   private String metaMissingPolicy = "warn";
++  private AttestedSignatures signatures;
+   private long chunkSize = DEFAULT_CHUNK_SIZE;
+   private String jobId = "";
+   private String attemptId = "";
+@@ -205,6 +222,24 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+       throw new IOException(META_MISMATCH_KEY + " must be allow, warn or fail, got "
+           + mismatchPolicy);
+     }
++    boolean signOn = AttestedSettings.getBoolean(conf, SIGN_KEY, false, ignored);
++    boolean signRequired = AttestedSettings.getBoolean(conf, SIGN_REQUIRED_KEY, false, ignored);
++    boolean allowTestKeys = AttestedSettings.getBoolean(conf, SIGN_ALLOW_TEST_KEY, true, ignored);
++    String keyFile = AttestedSettings.get(conf, SIGN_TESTKEY_FILE_KEY,
++        System.getProperty("user.home") + "/tc-test-key/test-key.txt", ignored).trim();
++    if ((signOn || signRequired) && !sidecars) {
++      throw new IOException(SIGN_KEY + " and " + SIGN_REQUIRED_KEY + " need records: "
++          + SIDECAR_KEY + " and " + HASH_ENABLED_KEY + " must be true");
++    }
++    AttestedKeys keys = null;
++    java.nio.file.Path keyPath = java.nio.file.Paths.get(keyFile);
++    if (java.nio.file.Files.isReadable(keyPath)) {
++      keys = TestKeys.load(keyPath);
++    } else if (signOn) {
++      throw new IOException(SIGN_KEY + " is true but the test key file is missing or unreadable: "
++          + keyFile);
++    }
++    this.signatures = new AttestedSignatures(keys, signOn, signRequired, allowTestKeys);
+     long cacheSeconds = AttestedSettings.getLong(conf, META_CACHE_KEY, 10, ignored);
+     if (cacheSeconds < 0) {
+       throw new IOException(META_CACHE_KEY + " must not be negative, got " + cacheSeconds);
+@@ -232,6 +267,9 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+         + " hash=" + hashing + " chunk=" + chunkSize + " sidecar=" + sidecars
+         + " verify=" + verifyReads + " missing=" + missingPolicy
+         + " metamissing=" + metaMissingPolicy
++        + " sign=" + signatures.signing() + " sigrequired=" + signatures.required()
++        + " testkeys=" + signatures.allowTestKeys() + " key="
++        + (signatures.signingKeyId() == null ? "none" : signatures.signingKeyId())
+         + " from=" + where()
+         + (ignored.isEmpty() ? "" : " ignored=" + String.join(",", ignored)));
+   }
+@@ -300,8 +338,9 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+       byte[] root, List<byte[]> leaves) throws IOException {
+     Path sc = AttestedSidecar.pathFor(new Path(filePath));
+     forget(sc);
+-    byte[] bytes = AttestedSidecar.encode((int) chunk, length, root, leaves);
+-    audit("CREATE", sc, null, "sidecar");
++    byte[] bytes = signatures.encode((int) chunk, length, root, leaves);
++    audit("CREATE", sc, null,
++        signatures.signing() ? "sidecar signed=" + signatures.signingKeyId() : "sidecar");
+     try (FSDataOutputStream out = fs.create(sc, true)) {
+       out.write(bytes);
+     }
+@@ -371,6 +410,15 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+           ? "verify=missing" : "verify=skipped"));
+       return raw;
+     }
++    String sig;
++    try {
++      sig = signatures.check(rec.decoded);
++    } catch (IOException e) {
++      raw.close();
++      audit("VERIFY-FAIL", f, null, tag + e.getMessage());
++      throw new ChecksumException("Attested verification failed for " + f
++          + ": " + e.getMessage(), 0);
++    }
+     long len = fs.getFileStatus(f).getLen();
+     if (rec.length != len) {
+       raw.close();
+@@ -380,7 +428,7 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+       throw new ChecksumException("Attested verification failed for " + f
+           + ": " + why, 0);
+     }
+-    audit("OPEN", f, null, tag + "verify=ok");
++    audit("OPEN", f, null, tag + "verify=ok sig=" + sig);
+     return new FSDataInputStream(new VerifyingInputStream(raw, rec, q(f)));
+   }
+ 
+diff --git a/src/java/org/apache/nutch/attested/AttestedKeyTool.java b/src/java/org/apache/nutch/attested/AttestedKeyTool.java
+new file mode 100644
+index 000000000..c70fa89b7
+--- /dev/null
++++ b/src/java/org/apache/nutch/attested/AttestedKeyTool.java
+@@ -0,0 +1,77 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.nutch.attested;
++
++import java.io.IOException;
++import java.io.PrintStream;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.nio.file.Paths;
++
++/**
++ * A small command line tool for the TEST key of step 5.1.1.
++ *
++ * <pre>
++ * java -cp attested-hdfs.jar org.apache.nutch.attested.AttestedKeyTool generate FILE   make a new test key file (mode 600; never overwrites)
++ * java -cp attested-hdfs.jar org.apache.nutch.attested.AttestedKeyTool info FILE       print the key id and whether the file can sign
++ * java -cp attested-hdfs.jar org.apache.nutch.attested.AttestedKeyTool public FILE OUT write a public-only copy (it can verify, not sign)
++ * </pre>
++ *
++ * <p>It prints the key id, never the private key. The test key is never to be used in evidence.</p>
++ */
++public final class AttestedKeyTool {
++
++  private AttestedKeyTool() {
++  }
++
++  public static void main(String[] args) {
++    System.exit(run(args, System.out, System.err));
++  }
++
++  static int run(String[] args, PrintStream out, PrintStream err) {
++    try {
++      if (args.length == 2 && args[0].equals("generate")) {
++        TestKeys k = TestKeys.generate(Paths.get(args[1]));
++        out.println("generated " + args[1] + "   key id " + k.signingKeyId() + "   (a TEST key: never for evidence)");
++        return 0;
++      }
++      if (args.length == 2 && args[0].equals("info")) {
++        TestKeys k = TestKeys.load(Paths.get(args[1]));
++        out.println("file " + args[1] + "   key id " + k.keyId() + "   can sign: " + (k.signingKeyId() != null));
++        return 0;
++      }
++      if (args.length == 3 && args[0].equals("public")) {
++        TestKeys k = TestKeys.load(Paths.get(args[1]));
++        Path outFile = Paths.get(args[2]);
++        if (Files.exists(outFile)) {
++          err.println("ATTESTED-KEY-TOOL-STOP: " + args[2] + " exists already");
++          return 1;
++        }
++        Files.write(outFile, k.publicFileText().getBytes(StandardCharsets.US_ASCII));
++        TestKeys check = TestKeys.load(outFile);
++        out.println("wrote " + args[2] + "   key id " + check.keyId() + "   (public only: it can verify, it cannot sign)");
++        return 0;
++      }
++      err.println("usage: AttestedKeyTool generate FILE | info FILE | public FILE OUT");
++      return 2;
++    } catch (IOException e) {
++      err.println("ATTESTED-KEY-TOOL-STOP: " + e.getMessage());
++      return 1;
++    }
++  }
++}
+diff --git a/src/java/org/apache/nutch/attested/AttestedKeys.java b/src/java/org/apache/nutch/attested/AttestedKeys.java
+new file mode 100644
+index 000000000..6ca5e06d1
+--- /dev/null
++++ b/src/java/org/apache/nutch/attested/AttestedKeys.java
+@@ -0,0 +1,38 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.nutch.attested;
++
++import java.io.IOException;
++import java.security.PublicKey;
++
++/**
++ * Where the signing key and the trusted public keys come from. The wrapper knows only this
++ * interface, so that the test key of step 5.1.1 can be replaced by the real key of step 5.1.3
++ * (generated per machine at boot, held by a small signing service, bound to the quote)
++ * without changing the wrapper.
++ */
++interface AttestedKeys {
++
++  /** The id of the key this JVM signs with, or null when it cannot sign. */
++  String signingKeyId();
++
++  /** Signs the statement of a record (ECDSA, P-256, SHA-256, DER). */
++  byte[] sign(byte[] statement) throws IOException;
++
++  /** The public key behind a key id, or null when that key is not trusted here. */
++  PublicKey publicKey(String keyId);
++}
+diff --git a/src/java/org/apache/nutch/attested/AttestedRecordCodec.java b/src/java/org/apache/nutch/attested/AttestedRecordCodec.java
+new file mode 100644
+index 000000000..2ec0e9eb8
+--- /dev/null
++++ b/src/java/org/apache/nutch/attested/AttestedRecordCodec.java
+@@ -0,0 +1,230 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.nutch.attested;
++
++import java.io.ByteArrayInputStream;
++import java.io.ByteArrayOutputStream;
++import java.io.DataInputStream;
++import java.io.DataOutputStream;
++import java.io.EOFException;
++import java.io.IOException;
++import java.nio.charset.StandardCharsets;
++import java.util.ArrayList;
++import java.util.Arrays;
++import java.util.List;
++
++/**
++ * The bytes of a record, with no Hadoop in it (so that it can be tested alone).
++ *
++ * <p>Format ATTEST01 (the original, unsigned): 8 bytes "ATTEST01", int chunk size, long
++ * length, 32 bytes root, int number of chunks, then 32 bytes per chunk.</p>
++ *
++ * <p>Format ATTEST02 (step 5.1.1) is the same, followed by the signature block: one byte
++ * for the length of the key id (1 to 64), the key id (letters, digits, dot, dash,
++ * underscore), an unsigned short for the length of the signature (1 to 200) and the
++ * signature (ECDSA with P-256 and SHA-256, DER). The signature covers
++ * {@link #statement}: a fixed tag, the key id, the chunk size, the length and the root.
++ * The root commits to every chunk hash, so the chunk hashes need no second signature.</p>
++ */
++final class AttestedRecordCodec {
++
++  static final byte[] MAGIC1 = "ATTEST01".getBytes(StandardCharsets.US_ASCII);
++  static final byte[] MAGIC2 = "ATTEST02".getBytes(StandardCharsets.US_ASCII);
++  static final int HASH = 32;
++  static final int MAX_KEY_ID = 64;
++  static final int MAX_SIGNATURE = 200;
++  private static final byte[] STATEMENT_TAG =
++      "ATTEST02-SIGNED\n".getBytes(StandardCharsets.US_ASCII);
++
++  private AttestedRecordCodec() {
++  }
++
++  /** A decoded record. */
++  static final class Decoded {
++    final int version;
++    final int chunkSize;
++    final long length;
++    final byte[] root;
++    final byte[][] leaves;
++    /** Null for an unsigned (version 1) record. */
++    final String keyId;
++    final byte[] signature;
++
++    Decoded(int version, int chunkSize, long length, byte[] root, byte[][] leaves,
++        String keyId, byte[] signature) {
++      this.version = version;
++      this.chunkSize = chunkSize;
++      this.length = length;
++      this.root = root;
++      this.leaves = leaves;
++      this.keyId = keyId;
++      this.signature = signature;
++    }
++
++    boolean signed() {
++      return version == 2;
++    }
++  }
++
++  static long chunksFor(long length, long chunkSize) {
++    return length == 0 ? 0 : (length - 1) / chunkSize + 1;
++  }
++
++  static boolean validKeyId(String id) {
++    if (id == null || id.isEmpty() || id.length() > MAX_KEY_ID) {
++      return false;
++    }
++    for (int i = 0; i < id.length(); i++) {
++      char c = id.charAt(i);
++      boolean ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
++          || (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_';
++      if (!ok) {
++        return false;
++      }
++    }
++    return true;
++  }
++
++  /** The bytes that are signed. Every field has a fixed length or a length in front of it. */
++  static byte[] statement(String keyId, int chunkSize, long length, byte[] root)
++      throws IOException {
++    if (!validKeyId(keyId) || root == null || root.length != HASH) {
++      throw new IOException("cannot build the statement to sign (bad key id or root)");
++    }
++    byte[] id = keyId.getBytes(StandardCharsets.US_ASCII);
++    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
++    DataOutputStream out = new DataOutputStream(bytes);
++    out.write(STATEMENT_TAG);
++    out.writeByte(id.length);
++    out.write(id);
++    out.writeInt(chunkSize);
++    out.writeLong(length);
++    out.write(root);
++    out.flush();
++    return bytes.toByteArray();
++  }
++
++  private static void body(DataOutputStream out, byte[] magic, int chunkSize, long length,
++      byte[] root, List<byte[]> leaves) throws IOException {
++    out.write(magic);
++    out.writeInt(chunkSize);
++    out.writeLong(length);
++    out.write(root);
++    out.writeInt(leaves.size());
++    for (byte[] leaf : leaves) {
++      out.write(leaf);
++    }
++  }
++
++  /** An unsigned record (ATTEST01), byte for byte what the wrapper has always written. */
++  static byte[] encode(int chunkSize, long length, byte[] root, List<byte[]> leaves)
++      throws IOException {
++    ByteArrayOutputStream bytes = new ByteArrayOutputStream(
++        8 + 4 + 8 + HASH + 4 + HASH * leaves.size());
++    DataOutputStream out = new DataOutputStream(bytes);
++    body(out, MAGIC1, chunkSize, length, root, leaves);
++    out.flush();
++    return bytes.toByteArray();
++  }
++
++  /** A signed record (ATTEST02). */
++  static byte[] encodeSigned(int chunkSize, long length, byte[] root, List<byte[]> leaves,
++      String keyId, byte[] signature) throws IOException {
++    if (!validKeyId(keyId) || signature == null || signature.length < 1
++        || signature.length > MAX_SIGNATURE) {
++      throw new IOException("cannot write a signed record (bad key id or signature)");
++    }
++    byte[] id = keyId.getBytes(StandardCharsets.US_ASCII);
++    ByteArrayOutputStream bytes = new ByteArrayOutputStream(
++        8 + 4 + 8 + HASH + 4 + HASH * leaves.size() + 1 + id.length + 2 + signature.length);
++    DataOutputStream out = new DataOutputStream(bytes);
++    body(out, MAGIC2, chunkSize, length, root, leaves);
++    out.writeByte(id.length);
++    out.write(id);
++    out.writeShort(signature.length);
++    out.write(signature);
++    out.flush();
++    return bytes.toByteArray();
++  }
++
++  /**
++   * Decodes a whole record. Accepts both versions. Throws an IOException saying why when the
++   * record is damaged or does not agree with itself.
++   */
++  static Decoded decode(byte[] all) throws IOException {
++    DataInputStream in = new DataInputStream(new ByteArrayInputStream(all));
++    try {
++      byte[] magic = new byte[MAGIC1.length];
++      in.readFully(magic);
++      int version;
++      if (Arrays.equals(magic, MAGIC1)) {
++        version = 1;
++      } else if (Arrays.equals(magic, MAGIC2)) {
++        version = 2;
++      } else {
++        throw new IOException("record is damaged (wrong header)");
++      }
++      int chunk = in.readInt();
++      long length = in.readLong();
++      byte[] root = new byte[HASH];
++      in.readFully(root);
++      int n = in.readInt();
++      if (chunk < 1 || length < 0 || n < 0
++          || n != chunksFor(length, chunk) || (long) n * HASH > (1L << 30)) {
++        throw new IOException("record is damaged (impossible sizes)");
++      }
++      byte[][] leaves = new byte[n][HASH];
++      for (int i = 0; i < n; i++) {
++        in.readFully(leaves[i]);
++      }
++      String keyId = null;
++      byte[] signature = null;
++      if (version == 2) {
++        int idLen = in.readUnsignedByte();
++        if (idLen < 1 || idLen > MAX_KEY_ID) {
++          throw new IOException("record is damaged (impossible key id length)");
++        }
++        byte[] id = new byte[idLen];
++        in.readFully(id);
++        keyId = new String(id, StandardCharsets.US_ASCII);
++        if (!validKeyId(keyId)) {
++          throw new IOException("record is damaged (impossible key id)");
++        }
++        int sigLen = in.readUnsignedShort();
++        if (sigLen < 1 || sigLen > MAX_SIGNATURE) {
++          throw new IOException("record is damaged (impossible signature length)");
++        }
++        signature = new byte[sigLen];
++        in.readFully(signature);
++      }
++      if (in.read() != -1) {
++        throw new IOException("record is damaged (extra bytes at the end)");
++      }
++      List<byte[]> asList = new ArrayList<>(n);
++      for (byte[] l : leaves) {
++        asList.add(l);
++      }
++      if (!Arrays.equals(MerkleHasher.rootOfLeaves(asList), root)) {
++        throw new IOException(
++            "record is damaged (its root does not match its own chunk hashes)");
++      }
++      return new Decoded(version, chunk, length, root, leaves, keyId, signature);
++    } catch (EOFException e) {
++      throw new IOException("record is damaged (too short)");
++    }
++  }
++}
+diff --git a/src/java/org/apache/nutch/attested/AttestedSidecar.java b/src/java/org/apache/nutch/attested/AttestedSidecar.java
+index 48b3eca4a..865ade854 100644
+--- a/src/java/org/apache/nutch/attested/AttestedSidecar.java
++++ b/src/java/org/apache/nutch/attested/AttestedSidecar.java
+@@ -17,12 +17,8 @@
+ package org.apache.nutch.attested;
+ 
+ import java.io.DataInputStream;
+-import java.io.DataOutputStream;
+-import java.io.ByteArrayOutputStream;
+ import java.io.EOFException;
+ import java.io.IOException;
+-import java.nio.charset.StandardCharsets;
+-import java.util.ArrayList;
+ import java.util.Arrays;
+ import java.util.List;
+ 
+@@ -40,26 +36,31 @@ import org.apache.hadoop.fs.Path;
+  * folder is renamed; the wrapper moves it when the file itself is renamed and
+  * deletes it when the file is deleted, and hides it from listings.</p>
+  *
+- * <p>Format: 8 bytes "ATTEST01", int chunk size, long length, 32 bytes root,
+- * int number of chunks, then 32 bytes per chunk. Until records are signed
+- * (a later stage) a record only protects against a change of the file alone,
+- * not against someone who rewrites file and record together.</p>
++ * <p>Format ATTEST01: 8 bytes "ATTEST01", int chunk size, long length, 32 bytes root,
++ * int number of chunks, then 32 bytes per chunk. In this format a record protects
++ * against a change of the file alone, not against someone who rewrites file and record
++ * together. Format ATTEST02 (step 5.1.1) adds a signature after the chunk hashes; the bytes
++ * of both formats, and how they are read, are in {@link AttestedRecordCodec}.</p>
+  */
+ final class AttestedSidecar {
+ 
+-  static final byte[] MAGIC = "ATTEST01".getBytes(StandardCharsets.US_ASCII);
+-  private static final int HASH = 32;
++  static final byte[] MAGIC = AttestedRecordCodec.MAGIC1;
++  /** The longest record that is read (the old rule: at most 2^30 bytes of chunk hashes, plus the header and the signature). */
++  private static final long MAX_RECORD = (1L << 30) + 1024;
+ 
+   final int chunkSize;
+   final long length;
+   final byte[] root;
+   final byte[][] leaves;
++  /** The record as decoded, with its version and signature (step 5.1.1). */
++  final AttestedRecordCodec.Decoded decoded;
+ 
+-  private AttestedSidecar(int chunkSize, long length, byte[] root, byte[][] leaves) {
+-    this.chunkSize = chunkSize;
+-    this.length = length;
+-    this.root = root;
+-    this.leaves = leaves;
++  private AttestedSidecar(AttestedRecordCodec.Decoded d) {
++    this.chunkSize = d.chunkSize;
++    this.length = d.length;
++    this.root = d.root;
++    this.leaves = d.leaves;
++    this.decoded = d;
+   }
+ 
+   static boolean isSidecar(Path p) {
+@@ -75,24 +76,13 @@ final class AttestedSidecar {
+   }
+ 
+   static long chunksFor(long length, long chunkSize) {
+-    return length == 0 ? 0 : (length - 1) / chunkSize + 1;
++    return AttestedRecordCodec.chunksFor(length, chunkSize);
+   }
+ 
++  /** An unsigned record (ATTEST01), byte for byte what the wrapper has always written. */
+   static byte[] encode(int chunkSize, long length, byte[] root, List<byte[]> leaves)
+       throws IOException {
+-    ByteArrayOutputStream bytes = new ByteArrayOutputStream(
+-        8 + 4 + 8 + HASH + 4 + HASH * leaves.size());
+-    DataOutputStream out = new DataOutputStream(bytes);
+-    out.write(MAGIC);
+-    out.writeInt(chunkSize);
+-    out.writeLong(length);
+-    out.write(root);
+-    out.writeInt(leaves.size());
+-    for (byte[] leaf : leaves) {
+-      out.write(leaf);
+-    }
+-    out.flush();
+-    return bytes.toByteArray();
++    return AttestedRecordCodec.encode(chunkSize, length, root, leaves);
+   }
+ 
+   /**
+@@ -107,7 +97,8 @@ final class AttestedSidecar {
+         DataInputStream in = new DataInputStream(raw)) {
+       byte[] magic = new byte[MAGIC.length];
+       in.readFully(magic);
+-      if (!Arrays.equals(magic, MAGIC)) {
++      if (!Arrays.equals(magic, AttestedRecordCodec.MAGIC1)
++          && !Arrays.equals(magic, AttestedRecordCodec.MAGIC2)) {
+         throw new IOException("record is damaged (wrong header)");
+       }
+       int chunk = in.readInt();
+@@ -124,43 +115,20 @@ final class AttestedSidecar {
+   /**
+    * Reads a record with the given (real, not wrapped) file system. Throws
+    * FileNotFoundException when there is none, and an IOException saying why when
+-   * the record is damaged or does not agree with itself.
++   * the record is damaged or does not agree with itself. Both formats are read; the
++   * signature (if any) is checked by the caller, see {@link AttestedSignatures}.
+    */
+   static AttestedSidecar read(FileSystem fs, Path sidecar) throws IOException {
+-    try (FSDataInputStream raw = fs.open(sidecar);
+-        DataInputStream in = new DataInputStream(raw)) {
+-      byte[] magic = new byte[MAGIC.length];
+-      in.readFully(magic);
+-      if (!Arrays.equals(magic, MAGIC)) {
+-        throw new IOException("record is damaged (wrong header)");
+-      }
+-      int chunk = in.readInt();
+-      long length = in.readLong();
+-      byte[] root = new byte[HASH];
+-      in.readFully(root);
+-      int n = in.readInt();
+-      if (chunk < 1 || length < 0 || n < 0
+-          || n != chunksFor(length, chunk) || (long) n * HASH > (1L << 30)) {
+-        throw new IOException("record is damaged (impossible sizes)");
+-      }
+-      byte[][] leaves = new byte[n][HASH];
+-      for (int i = 0; i < n; i++) {
+-        in.readFully(leaves[i]);
+-      }
+-      if (in.read() != -1) {
+-        throw new IOException("record is damaged (extra bytes at the end)");
+-      }
+-      List<byte[]> asList = new ArrayList<>(n);
+-      for (byte[] l : leaves) {
+-        asList.add(l);
+-      }
+-      if (!Arrays.equals(MerkleHasher.rootOfLeaves(asList), root)) {
+-        throw new IOException(
+-            "record is damaged (its root does not match its own chunk hashes)");
+-      }
+-      return new AttestedSidecar(chunk, length, root, leaves);
++    long size = fs.getFileStatus(sidecar).getLen();
++    if (size > MAX_RECORD) {
++      throw new IOException("record is damaged (impossible sizes)");
++    }
++    byte[] all = new byte[(int) size];
++    try (FSDataInputStream raw = fs.open(sidecar)) {
++      raw.readFully(0, all);
+     } catch (EOFException e) {
+       throw new IOException("record is damaged (too short)");
+     }
++    return new AttestedSidecar(AttestedRecordCodec.decode(all));
+   }
+ }
+diff --git a/src/java/org/apache/nutch/attested/AttestedSignatures.java b/src/java/org/apache/nutch/attested/AttestedSignatures.java
+new file mode 100644
+index 000000000..7939a79c4
+--- /dev/null
++++ b/src/java/org/apache/nutch/attested/AttestedSignatures.java
+@@ -0,0 +1,119 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.nutch.attested;
++
++import java.io.IOException;
++import java.security.GeneralSecurityException;
++import java.security.PublicKey;
++import java.security.Signature;
++import java.util.List;
++
++/**
++ * Signs records when they are written and checks signatures when they are read.
++ *
++ * <p>The rules: a record with a signature that does not verify is always refused. A record
++ * signed by a key that is not trusted here is always refused. A record signed with a test key
++ * is refused when test keys are not allowed. A record with no signature (the old format) is
++ * refused only when signatures are required; otherwise it is accepted and reported as
++ * {@code none}. Whether a signature is required is a setting, off by default in step 5.1.1 so
++ * that the files of earlier runs stay readable; with signatures required, a file cannot be
++ * rewritten together with its record by someone who has no key.</p>
++ */
++final class AttestedSignatures {
++
++  private final AttestedKeys keys;
++  private final boolean sign;
++  private final boolean required;
++  private final boolean allowTestKeys;
++
++  AttestedSignatures(AttestedKeys keys, boolean sign, boolean required, boolean allowTestKeys)
++      throws IOException {
++    this.keys = keys;
++    this.sign = sign;
++    this.required = required;
++    this.allowTestKeys = allowTestKeys;
++    if (sign && (keys == null || keys.signingKeyId() == null)) {
++      throw new IOException("signing is switched on but this JVM has no private key");
++    }
++    if (sign && !allowTestKeys && TestKeys.isTestKeyId(keys.signingKeyId())) {
++      throw new IOException("signing is switched on with a test key, which is not allowed");
++    }
++  }
++
++  boolean signing() {
++    return sign;
++  }
++
++  boolean required() {
++    return required;
++  }
++
++  boolean allowTestKeys() {
++    return allowTestKeys;
++  }
++
++  String signingKeyId() {
++    return sign ? keys.signingKeyId() : null;
++  }
++
++  /** The bytes of a finished record: signed when signing is on, the old format otherwise. */
++  byte[] encode(int chunkSize, long length, byte[] root, List<byte[]> leaves)
++      throws IOException {
++    if (!sign) {
++      return AttestedRecordCodec.encode(chunkSize, length, root, leaves);
++    }
++    String id = keys.signingKeyId();
++    byte[] sig = keys.sign(AttestedRecordCodec.statement(id, chunkSize, length, root));
++    return AttestedRecordCodec.encodeSigned(chunkSize, length, root, leaves, id, sig);
++  }
++
++  /**
++   * Checks the signature of a decoded record. Returns "none" (an unsigned record that is
++   * accepted), "ok" or "ok-test" (a test key). Throws an IOException saying why when the record
++   * must be refused.
++   */
++  String check(AttestedRecordCodec.Decoded rec) throws IOException {
++    if (!rec.signed()) {
++      if (required) {
++        throw new IOException("the record is not signed and signatures are required");
++      }
++      return "none";
++    }
++    boolean test = TestKeys.isTestKeyId(rec.keyId);
++    if (test && !allowTestKeys) {
++      throw new IOException("the record is signed with a test key (" + rec.keyId
++          + "), which is not accepted");
++    }
++    PublicKey pub = keys == null ? null : keys.publicKey(rec.keyId);
++    if (pub == null) {
++      throw new IOException("the record is signed by a key that is not trusted here ("
++          + rec.keyId + ")");
++    }
++    try {
++      Signature s = Signature.getInstance("SHA256withECDSA");
++      s.initVerify(pub);
++      s.update(AttestedRecordCodec.statement(rec.keyId, rec.chunkSize, rec.length, rec.root));
++      if (!s.verify(rec.signature)) {
++        throw new IOException("the signature of the record does not verify (" + rec.keyId + ")");
++      }
++    } catch (GeneralSecurityException e) {
++      throw new IOException("the signature of the record does not verify (" + rec.keyId
++          + "): " + e.getMessage());
++    }
++    return test ? "ok-test" : "ok";
++  }
++}
+diff --git a/src/java/org/apache/nutch/attested/TestKeys.java b/src/java/org/apache/nutch/attested/TestKeys.java
+new file mode 100644
+index 000000000..0fb14f7dd
+--- /dev/null
++++ b/src/java/org/apache/nutch/attested/TestKeys.java
+@@ -0,0 +1,174 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.nutch.attested;
++
++import java.io.IOException;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.FileAlreadyExistsException;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.nio.file.StandardOpenOption;
++import java.nio.file.attribute.PosixFilePermissions;
++import java.security.GeneralSecurityException;
++import java.security.KeyFactory;
++import java.security.KeyPair;
++import java.security.KeyPairGenerator;
++import java.security.MessageDigest;
++import java.security.PrivateKey;
++import java.security.PublicKey;
++import java.security.Signature;
++import java.security.spec.ECGenParameterSpec;
++import java.security.spec.PKCS8EncodedKeySpec;
++import java.security.spec.X509EncodedKeySpec;
++import java.util.Base64;
++import java.util.List;
++
++/**
++ * The TEST key of step 5.1.1: one ECDSA P-256 key pair kept in a small text file. Its id always
++ * starts with {@code TEST-} and is derived from the public key, so a record signed with it
++ * says so in every signature, and the checks can refuse test keys once the real key exists.
++ * It is never to be used in evidence.
++ *
++ * <p>File format: line 1 {@code ATTESTED-TEST-KEY 1}, line 2 {@code id=TEST-...}, line 3
++ * {@code public=<base64 X.509>}, and optionally line 4 {@code private=<base64 PKCS#8>}. A file
++ * without the private line can verify but not sign.</p>
++ */
++final class TestKeys implements AttestedKeys {
++
++  static final String PREFIX = "TEST-";
++  private static final String HEADER = "ATTESTED-TEST-KEY 1";
++
++  private final String id;
++  private final PublicKey pub;
++  private final PrivateKey priv;
++
++  private TestKeys(String id, PublicKey pub, PrivateKey priv) {
++    this.id = id;
++    this.pub = pub;
++    this.priv = priv;
++  }
++
++  static boolean isTestKeyId(String id) {
++    return id != null && id.startsWith(PREFIX);
++  }
++
++  private static String idOf(byte[] publicEncoded) throws GeneralSecurityException {
++    byte[] h = MessageDigest.getInstance("SHA-256").digest(publicEncoded);
++    return PREFIX + MerkleHasher.hex(h).substring(0, 16);
++  }
++
++  /** Makes a new key pair and writes it, readable by its owner only; never overwrites a file. */
++  static TestKeys generate(Path file) throws IOException {
++    try {
++      KeyPairGenerator g = KeyPairGenerator.getInstance("EC");
++      g.initialize(new ECGenParameterSpec("secp256r1"));
++      KeyPair kp = g.generateKeyPair();
++      String id = idOf(kp.getPublic().getEncoded());
++      String text = HEADER + "\nid=" + id + "\npublic="
++          + Base64.getEncoder().encodeToString(kp.getPublic().getEncoded()) + "\nprivate="
++          + Base64.getEncoder().encodeToString(kp.getPrivate().getEncoded()) + "\n";
++      Path parent = file.toAbsolutePath().getParent();
++      if (parent != null) {
++        Files.createDirectories(parent);
++      }
++      try {
++        Files.createFile(file,
++            PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
++      } catch (UnsupportedOperationException e) {
++        Files.createFile(file);
++      }
++      Files.write(file, text.getBytes(StandardCharsets.US_ASCII), StandardOpenOption.WRITE);
++      return new TestKeys(id, kp.getPublic(), kp.getPrivate());
++    } catch (FileAlreadyExistsException e) {
++      throw new IOException("the test key file exists already: " + file);
++    } catch (GeneralSecurityException e) {
++      throw new IOException("cannot make a test key: " + e);
++    }
++  }
++
++  /** Reads a test key file (with or without the private part). */
++  static TestKeys load(Path file) throws IOException {
++    List<String> lines = Files.readAllLines(file, StandardCharsets.US_ASCII);
++    if (lines.size() < 3 || !HEADER.equals(lines.get(0))) {
++      throw new IOException("not a test key file: " + file);
++    }
++    String id = value(lines.get(1), "id=");
++    String pubText = value(lines.get(2), "public=");
++    String privText = lines.size() > 3 ? value(lines.get(3), "private=") : null;
++    try {
++      byte[] pubBytes = Base64.getDecoder().decode(pubText);
++      KeyFactory kf = KeyFactory.getInstance("EC");
++      PublicKey pub = kf.generatePublic(new X509EncodedKeySpec(pubBytes));
++      if (!id.equals(idOf(pubBytes)) || !isTestKeyId(id)) {
++        throw new IOException("the key id in " + file + " does not match its public key");
++      }
++      PrivateKey priv = privText == null ? null
++          : kf.generatePrivate(new PKCS8EncodedKeySpec(Base64.getDecoder().decode(privText)));
++      return new TestKeys(id, pub, priv);
++    } catch (GeneralSecurityException | IllegalArgumentException e) {
++      throw new IOException("cannot read the test key file " + file + ": " + e);
++    }
++  }
++
++  private static String value(String line, String prefix) throws IOException {
++    if (!line.startsWith(prefix) || line.length() == prefix.length()) {
++      throw new IOException("the test key file is damaged (expected " + prefix + ")");
++    }
++    return line.substring(prefix.length());
++  }
++
++  /** A copy that can only verify (what a machine without the private key would hold). */
++  TestKeys publicOnly() {
++    return new TestKeys(id, pub, null);
++  }
++
++  /** The text of a public-only key file. */
++  String publicFileText() {
++    return HEADER + "\nid=" + id + "\npublic="
++        + Base64.getEncoder().encodeToString(pub.getEncoded()) + "\n";
++  }
++
++  /** The key id, also for a public-only file (which cannot sign). */
++  String keyId() {
++    return id;
++  }
++
++  @Override
++  public String signingKeyId() {
++    return priv == null ? null : id;
++  }
++
++  @Override
++  public byte[] sign(byte[] statement) throws IOException {
++    if (priv == null) {
++      throw new IOException("this test key file has no private key, so it cannot sign");
++    }
++    try {
++      Signature s = Signature.getInstance("SHA256withECDSA");
++      s.initSign(priv);
++      s.update(statement);
++      return s.sign();
++    } catch (GeneralSecurityException e) {
++      throw new IOException("signing failed: " + e);
++    }
++  }
++
++  @Override
++  public PublicKey publicKey(String keyId) {
++    return id.equals(keyId) ? pub : null;
++  }
++}
