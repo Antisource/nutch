@@ -1,6 +1,6 @@
 # Milestone 5: signed records
 
-Status: **step 5.1.1 is done on 15 October 2026**: every record can be signed with a labelled test key, and the mentor's pass condition for the step ("a file rewritten together with its record, without the key, fails the read") is shown on the real HDFS. Steps 5.1.2, 5.1.3, 5.2 and 5.3 are open ([milestone-plan.md](milestone-plan.md)). Written when step 5.1.1 closed; it is extended as the later steps close. All times are UTC.
+Status: **steps 5.1.1 and 5.1.2 are done on 15 October 2026**: every record can be signed with a labelled test key, a file rewritten together with its record, without the key, fails the read (section 3), and every file is bound to its folder and its name, so that a signed file moved or copied elsewhere fails the read too (section 4); both are shown on the real HDFS. Steps 5.1.3, 5.2 and 5.3 are open ([milestone-plan.md](milestone-plan.md)). It is extended as the later steps close. All times are UTC.
 
 ## 1. What this milestone does, in plain words
 
@@ -11,7 +11,7 @@ Until now every file in HDFS has a tamper sticker, its record. The sticker prove
 | Step | What | State |
 |---|---|---|
 | 5.1.1 | records are signed with a test key, clearly labelled and never used in evidence | **Done on 15 October 2026** (section 3) |
-| 5.1.2 | folder identity files bind each file to its folder (ADR-035) | Open |
+| 5.1.2 | folder identity files bind each file to its folder (ADR-035) | **Done on 15 October 2026** (section 4) |
 | 5.1.3 | the real key: generated per VM at boot, held by a small signing service, bound to the quote through REPORTDATA | Open |
 | 5.2.1 | readers accept only keys of attested machines | Open |
 | 5.3 | locked image, fixed driver, TLS checking on | Open |
@@ -85,7 +85,7 @@ Putting the signed wrapper on the cluster changes what Hadoop runs, so it was do
 
 - Signing is off by default, and an unsigned record is accepted as legacy unless signatures are required: a downgrade is accepted until the setting is on (the demonstration ran with it on).
 - A status question (a file's length) reads only the record's header and does not check the signature; reading the content does.
-- The signature does not cover the file's name or folder yet: a signed file and its record copied into another folder or under another name would still verify. Step 5.1.2 closes this with a new record version.
+- The signature of format `ATTEST02` does not cover the file's name or folder: a signed file and its record copied into another folder or under another name still verify with that format. Step 5.1.2 (section 4) closes this with a new record version, `ATTEST03`.
 - The key is a test key, in a file readable by the cluster user on both nodes; it stays there until the combined run and must be deleted afterwards.
 - No crawl ran with signing on. Step 5.1.2 changes the record format again, so one combined crawl after 5.1.2 tests signing and folder identity under a real workload; the MapReduce test of the wrapper with signing on runs in a scratch build at every stage.
 - Files written by the signed wrapper have records that the measured (old) wrapper cannot read; the data of a window is test data.
@@ -106,3 +106,92 @@ Putting the signed wrapper on the cluster changes what Hadoop runs, so it was do
 - A test of something random must not depend on the random value's content, and such tests are run many times (mistake log 102).
 - A passing fault test must be checked for passing for the right reason, and every fault variable is reset between scenarios (mistake log 103).
 - When I say that I am preparing a file, I deliver it in the same reply or say that it follows (mistake log 104).
+
+
+## 4. Step 5.1.2: binding every file to its folder
+
+### 4.1 What it does
+
+A signed record proves who signed it, not where the file lives: with `ATTEST02` a file and its record could be copied into another folder, or under another name, and still verify. Step 5.1.2 closes this. Every folder gets a small signed identity file, every record names the folder and the file it belongs to, and a read checks the whole chain up to the top folder. A file in the wrong folder, under the wrong name, or in a folder that was copied, renamed or tampered with behind the wrapper's back fails the read. Everything is off by default, like step 5.1.1.
+
+### 4.2 The design
+
+| Part | What it is |
+|---|---|
+| The identity file | a signed file `_attested-folder` in every folder that the wrapper makes or adopts: a random 16-byte folder ID, the folder's own name, and either its parent's ID (a child) or its full path (a top folder, the root of a wrapper-managed tree); signed with ECDSA P-256 under the same key as the records |
+| The record `ATTEST03` | the `ATTEST02` record plus the 16-byte ID of the folder the file is in and the file's name, both covered by the signature |
+| What a read checks | the record's signature, that it names this file and the ID of this folder, and every identity up to the top: each verifies, names the folder it sits in and points at the identity of its parent, and the top identity is for the folder's own full path |
+| A file rename | signs one new record for the new folder and name from the old record, with no data read, after the old record's signature and binding were checked (a forged record is never signed again) |
+| A folder rename | signs only the folder's own identity file again (the same folder ID, the new name and parent); the files and folders inside are untouched |
+| The reserved name | `_attested-folder` cannot be created, renamed or deleted through the wrapper, and listings made through the wrapper do not show it |
+| Which folders get an identity | folders made through the wrapper, and folders that the wrapper writes into (it adopts them); a folder is a top folder only when no ancestor has an identity, otherwise the unidentified folders in between are adopted as children, so the shape never depends on timing |
+| Two writers at once | the first identity file written wins, and the other writer reads it |
+| The cache | identity files are cached per process for the metadata cache time (10 s by default) |
+
+| Setting (core-site.xml only; job settings are ignored, ADR-039) | Default | Meaning |
+|---|---|---|
+| `attested.folder.binding.enabled` | false | write records bound to folders and give folders identities; needs signing, records and hashing |
+| `attested.folder.binding.required` | false | refuse a file whose record is not bound to its folder (an older format); a bound record is always checked whatever this says |
+
+### 4.3 How it was built and tested
+
+1. **In the sandbox**, against the real Hadoop 3.4.3 jars at Java 11 level: the smoke test passes **214 of 214** (167 of step 5.1.1 plus 47 for folder binding), the signing core **73 of 73** (25 new checks), and the demonstration tools 22 of 22. The tests include every attack of the mentor's list that moves or copies signed files, played with the plain client, and thirteen deliberate faults of the binding are caught (the folder ID, the file name, the top path, the folder's own name and the parent link are never compared; a rename that signs without checking the old record; a folder rename that does not sign again; the reserved name; binding never required; an identity signature that is not checked; and three for the race and the adoption below).
+2. **Three scratch runs on the master** (the kit `m512-test`, which touches nothing on the cluster): run 1 (13:30:40) **failed** in the real-HDFS mode, which found a difference between the real HDFS and my local fake (section 4.4); run 2 (14:00:54) passed (`M512-TEST-OK`: the fake mode 214 of 214, the hash test 18 of 18, **the real-HDFS mode 212 of 212**, the signing core 73 of 73); run 3 (14:12:20) added a mode `mr-bound` that runs Hadoop's real output committer with signing and folder binding on and required, and passed **16 of 16**.
+3. **The build** (`m512-build`, 14:24:43): the job `6f98295641a4f559…` (134,868,431 bytes, built in 33 s) differs from the job of step 5.1.1 in exactly 9 changed and 6 new classes with none unexpected, and the wrapper jar `ca96be26b8748125…` has 26 classes (20 in step 5.1.1) and differs from the 5.1.1 jar only in our classes.
+4. **The window** (`m512-window`, the real cluster): sections 4.5 and 4.6.
+
+### 4.4 What the real HDFS showed
+
+The first scratch run failed in the race test (four writers making the same new folder at once), and looking into it found two things.
+
+- **The error of the loser.** A writer that loses the race to create an identity file gets, on the real HDFS, "already being created by another client" and not "file exists", so it failed. The wrapper now looks at what is there after any failure to create and uses the winner's identity. My local fake always gave "file exists", which is why the sandbox never showed it; it now behaves like the real HDFS for a loser, with all racers trying at the same moment.
+- **A design flaw, found while making that fake exact.** A late writer that found its parent folder without an identity (because another writer was still signing it) guessed that its own folder was a top folder. A top identity binds a folder to its full path, so a top folder nested in an identified tree breaks when an ancestor is renamed, which is what Hadoop's output committer does. Waiting longer would not fix a guess, so the rule is now deterministic (section 4.2).
+
+### 4.5 The demonstration on the real HDFS
+
+On 15 October at 15:46:12 the demonstration made a tree `seg1`, `seg2` with a file in each through the wrapper, and verified a local copy of the whole tree offline with the public key only (3 folders, 2 files). The honest operations worked: a file renamed into another folder got a record signed again for the new folder and name, and a folder rename signed only the folder's own identity file again (the same folder ID, the new name) with the record inside byte for byte unchanged. Then the attacker, with the plain client, behind the wrapper's back:
+
+| Attack | The wrapper's answer |
+|---|---|
+| 1. two same-named files swapped between the two folders | both reads fail: the record belongs to another folder than the one this file is in |
+| 2. a file and its record copied under another name in the same folder | the read fails: the record is for a file named 'part-r-00000', not 'copy-of-a' |
+| 3. a file and its record moved into another folder | the read fails: the record belongs to another folder |
+| 4. a whole folder copied elsewhere | the read fails: its identity names another folder name |
+| 4b. a folder copied under another parent with the same name | the read fails: its identity points to the old parent |
+| 5. another folder's identity planted in seg1 | the read fails: the identity names another folder |
+| 6. the identity file deleted | the read fails: the folder has no identity |
+| 7. seg1's identity signed with the attacker's key under the real key id | the read fails: the signature of the folder identity does not verify |
+| 8. a folder renamed behind the wrapper's back | the read fails (its identity names the old name), and the wrapper refuses to sign that folder again when asked to rename it |
+| 9. an unsigned file added to a folder | the read fails: the file has no record |
+| 10. a forged record (right folder, right name, the attacker's signature) | the wrapper refuses to rename the file (it would sign the forged record again), and the read fails: the signature of the record does not verify |
+
+That is 12 refused reads and 2 refused renames, with exactly 14 new `VERIFY-FAIL` lines in the audit log. After each attack the honest state was put back, the honest reads were logged as `verify=ok sig=ok-test bind=ok`, and the tree verified offline again at the end. The demonstration's folder was removed.
+
+### 4.6 The window
+
+The same method as in step 5.1.1 (ADR-045): the cluster reserved with `tc-busy.sh` (15:38:12), on each node the installed jar and `core-site.xml` saved, the new jar installed atomically and the measured settings plus five applied (signing on and required, test keys allowed, folder binding on and required) with `cluster-mode.sh`, the daemons restarted (master open 15:38:12, worker open 15:41:51; the test key of step 5.1.1 was already on both nodes). After the demonstration each node was restored (master close 15:52:15, worker close 15:56:23): the installed jar `027f29942fe2a69d…` and `core-site.xml` `1c335707555b2427…` are byte for byte the saved ones, the signature and binding settings are no longer in effect, and the measured-set check printed `ALL-UNCHANGED` (9 components on the master, 6 on the worker). **Nothing from the window is covered by the measurement** (ADR-029).
+
+### 4.7 Limits and what stays open
+
+- Folder binding is off by default, and a record in an older format is accepted as legacy unless `attested.folder.binding.required` is on; files of step 5.1.1 (`ATTEST02`) are unbound.
+- A change made behind the wrapper's back is seen within the identity cache time (10 s by default), not at once.
+- A top folder is bound to its full path: renaming a folder above a top folder through the wrapper does not sign it again.
+- The identity files cannot be created atomically with the folder: a writer that crashes while writing one can leave an empty file, which fails closed.
+- No crawl ran with signing and folder binding on: the combined crawl follows in a second window, and `nn_audit_compare.py` must treat `_attested-folder` like a record file before that.
+- Files written by the new wrapper have records that the measured wrapper cannot read; the data of a window is test data.
+
+### 4.8 Evidence and commits
+
+| Item | Value |
+|---|---|
+| The patch that was tested | `f1904142168e8193…` (9 files, against branch head `9f4409d44`) |
+| The code commit | `feat(attested): bind every file to its folder with signed folder identities and ATTEST03 records (step 5.1.2)` (9 files: 2 new, 7 modified), exactly the files that were built, tested and run |
+| The kits commit | `feat(ops): add the test, build and window kits of the folder binding (step 5.1.2)` (17 files: `ops/kits/m512-test`, `m512-build`, `m512-window`) |
+| Evidence bundles (outside the repository) | the three scratch runs (`88b8901b…` failed, `0f1ecf02…`, `9dbaf244…`), the build `08149b8b…`, the demonstration `5e0ff5ff…`, with the consoles of both nodes and the window folders |
+| The files that ran are the files committed | the nine source files in the tree on the master equal the source package (`SOURCE-IDENTICAL`) |
+
+### 4.9 Lessons
+
+- When code handles an error that depends on the real system, the fake must produce the real system's errors, and a planted fault must show that the test catches the missing handling (mistake log 105 and 107).
+- A structural fact (top or child) is decided by a rule that does not depend on timing; waiting longer does not fix a guess (mistake log 106).
+- A planted fault that survives means a missing test: two survived in the first set of binding tests and became two tests (mistake log 108).
