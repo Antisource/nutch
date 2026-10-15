@@ -18,7 +18,7 @@ Date: 7 October 2026. This is the plan made on 6 October 2026: a pre-flight (Mil
 | 2 | Mesh for node-to-node traffic | The machines talk to each other only over an encrypted private network | Gate A, item 1 | Done, 6 October, with limits | [milestone-2](milestone-2-wireguard-mesh.md) |
 | 3 | Pass-through wrapper (no crypto yet) | Every storage request goes through our layer, which changes nothing yet | Gate A, item 2 | Done, 6 October | [milestone-3](milestone-3-hdfs-wrapper.md) |
 | 4 | Storage integrity (the first plan called it "sign on write, verify on read") | Storage cannot be changed unnoticed: files are fingerprinted when written and checked when read; the signing comes with step 5.1 | Stage B, items 4 to 6 | **Done on 14 October 2026:** steps 4.1 to 4.6 done (baby steps 4.6.4 to 4.6.7 on 13 October), 4.7 dropped on 10 October, 4.8 done (baby steps 4.8.1 to 4.8.3) | [milestone-4](milestone-4-storage-integrity.md) |
-| 5 | Identity, ledger, lockdown | Each machine has a key that only an attested machine can use, the machine cannot be fiddled with, and (deferred on 10 October) an outside witness checks an append-only log | Stage C, items 7 to 9 | Not started | none yet |
+| 5 | Identity, ledger, lockdown | Each machine has a key that only an attested machine can use, the machine cannot be fiddled with, and (deferred on 10 October) an outside witness checks an append-only log | Stage C, items 7 to 9 | **In progress: step 5.1.1 done on 15 October 2026**; 5.1.2, 5.1.3, 5.2 and 5.3 open | [milestone-5](milestone-5-signed-records.md) |
 | 6 | Verifier and evidence | Anyone can check a crawl, our attacks on our own system are caught, and the cost is known | Stage D, items 10 to 13 | Not started | none yet |
 
 Milestone 2 is done with limits: the third-machine test used a stand-in, the firewall rules are not saved across a reboot, and the attested admission of peers is step 5.2.
@@ -42,7 +42,7 @@ Milestone 5 and Milestone 6 (the items of the first plan; their reports will lis
 
 | Step | Name | Status |
 |---|---|---|
-| 5.1 | Per-VM signing key bound to the quote (a test key behind a key-provider interface first) | Not started. Baby steps: 5.1.1 records are signed with a test key, clearly labelled and never used in evidence; 5.1.2 folder identity files bind each file to its folder (ADR-035); 5.1.3 the real key: generated per VM at boot, held by a small signing service, bound to the quote through REPORTDATA |
+| 5.1 | Per-VM signing key bound to the quote (a test key behind a key-provider interface first) | **In progress.** Baby steps: 5.1.1 records are signed with a test key, clearly labelled and never used in evidence (**done on 15 October 2026**: [milestone-5](milestone-5-signed-records.md) section 3, ADR-044); 5.1.2 folder identity files bind each file to its folder (ADR-035); 5.1.3 the real key: generated per VM at boot, held by a small signing service, bound to the quote through REPORTDATA |
 | 5.2 | Mesh admission only after verifying a peer's quote | Not started. Baby step: 5.2.1 readers accept only keys of attested machines, with the admission step as the source of the accepted keys |
 | 5.3 | Locked image (no SSH or shell), fixed driver with typed parameters, TLS checking on. Baby steps: 5.3.1 the locked image; 5.3.2 the fixed driver; 5.3.3 TLS checking on, with per-fetch TLS evidence (teammate S's patch) | Not started |
 | 5.4 | Merkle log with signed checkpoints and an off-cloud witness (a witness interface and a local stand-in first) | Deferred (10 October, ADR-034) |
@@ -152,6 +152,8 @@ The mentor's decisions of 10 October (ADR-034 to ADR-039) drop step 4.7 and chan
 The note groups C1 to C4 as evidence, which is Milestone 6; the review in C4 also informs step 5.3 (the locked image). Step 5.3 (locked image, fixed driver, TLS checking on with the teammate's patch) is otherwise unchanged. Our own fail-open findings were in the limitations (row 72, closed on 13 October 2026).
 
 **Status on 13 October 2026: A1 to A4 are done (baby steps 4.6.4 to 4.6.7 of step 4.6)** ([milestone-4](milestone-4-storage-integrity.md) section 22: run 10 and two demos with the new wrapper); the signing starts with step 5.1. **Status on 14 October 2026: step 4.8 is done and Milestone 4 is closed** ([milestone-4](milestone-4-storage-integrity.md) section 23).
+
+**Status on 15 October 2026: step 5.1.1 is done** ([milestone-5](milestone-5-signed-records.md) section 3): records are signed with a labelled test key, and a file rewritten together with its record, without the key, fails the read on the real HDFS; the next step is 5.1.2 (folder identity files).
 
 ## 9. Rules that apply to every milestone
 

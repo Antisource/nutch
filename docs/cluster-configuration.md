@@ -347,3 +347,27 @@ To count what the NodeManager read through the wrapper, on the worker: `cat /tmp
 | Current state | **wrapped on both nodes**, `core-site.xml` fingerprint `1c335707555b2427`, the same as before the pair; the plain version is `d7e7dffd27def2a0` |
 | After a reboot | the nodes return to 6.8 and the stack is not measured; a new re-measure needs another one-time boot (the kit `ops/kits/m482`) |
 | Kits and report | `ops/kits/m482`, `ops/kits/m483`; the report is [milestone-4-storage-integrity.md](milestone-4-storage-integrity.md) section 23, the decisions are ADR-040 to ADR-042 |
+
+
+## 20. The shared cluster client (15 October 2026, ADR-043)
+
+| Item | Value |
+|---|---|
+| What it is | a read-only, root-owned copy of the measured Hadoop client, its configuration and the measured job folder in `/opt/tc-shared` on the master, proved equal to the measurement of 14 October (`hadoop-code` `9f5b29d6258642f2…`, `hadoop-conf` `6593ba442a9d9a00…`, `nutch-deploy` `9976e227f2c4378b…`); 1,225 MB of Hadoop and 129 MB of job |
+| The tools in `/opt/tc-shared/bin` | `tc-env.sh` (the environment), `tc-check.sh` (a one-command test), `tc-seed.sh` (a seed file with its record), `tc-busy.sh` (the reservation marker), `tc-user-add.sh` (the admin tool for a user's HDFS folder); the rules are in `/opt/tc-shared/README.txt` |
+| Accounts with a normal user id on the master | `ubuntu`, `dev` (origin not known), the teammate's account, and the author's; the teammate's HDFS folder is `/user/<her name>` |
+| The wrapper's log folders | `/tmp/attested-audit` and `/tmp/attested-records` are mode 1777, owned by the cluster user, and recreated at every boot by `/etc/tmpfiles.d/zz-tc-shared.conf` |
+| The marker | `/opt/tc-shared/state/BUSY` (a line with the user, the time and the reason); an agreement, not a lock |
+| Undo | `sudo rm -rf /opt/tc-shared` and `sudo rm /etc/tmpfiles.d/zz-tc-shared.conf` |
+| Kit | `ops/kits/tcshared` |
+
+## 21. The signed wrapper window (15 October 2026, step 5.1.1, ADR-045)
+
+| Item | Value |
+|---|---|
+| What a window is | a reserved, temporary change of the measured stack: the new jar and three signature settings are in place on a node until `close` restores the saved jar and `core-site.xml` and the measured-set check passes |
+| State on a node | `~/m511/window` while open (saved jar and settings, the mode folder, the logs), moved to `~/m511/window-closed-<role>-<time>` by `close` |
+| The test key | `~/tc-test-key/test-key.txt` on both nodes, mode 600, key id `TEST-37c2a6aaa70d55b2`; a TEST key, never evidence; delete it after the combined run |
+| The new jar and job | the wrapper jar `f20364cf2ba34639…` (20 classes) and the job `9a6dcb5f0c6fbe27…` (134,851,125 bytes) in `~/m511b` on the master |
+| Current state | **measured stack on both nodes** (jar `027f29942fe2a69d…`, `core-site.xml` `1c335707555b2427…`); the window of 15 October (08:19 to 08:33) is closed |
+| Kits | `ops/kits/m511-test`, `ops/kits/m511-build`, `ops/kits/m511-window`; the report is [milestone-5-signed-records.md](milestone-5-signed-records.md) section 3 |
