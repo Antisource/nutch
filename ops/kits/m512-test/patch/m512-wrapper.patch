@@ -1,0 +1,1812 @@
+diff --git a/ops/attested/AttestedFsSmoke.java b/ops/attested/AttestedFsSmoke.java
+index b7893218f..81e1652b9 100644
+--- a/ops/attested/AttestedFsSmoke.java
++++ b/ops/attested/AttestedFsSmoke.java
+@@ -193,7 +193,10 @@ public class AttestedFsSmoke {
+       runFake();
+       break;
+     case "mr-fake":
+-      runMr();
++      runMr(false);
++      break;
++    case "mr-bound":
++      runMr(true);
+       break;
+     case "hash":
+       runHash();
+@@ -244,6 +247,7 @@ public class AttestedFsSmoke {
+     exercise(conf, base, plain, FakeHdfs.class.getName());
+     verifyChecks(conf, base, plain);
+     signatureChecks(conf, base, plain);
++    bindingChecks(conf, base, plain);
+     metadataChecks(conf, base, plain);
+     fileContext(conf, new Path("hdfs://fake:9000" + tmp + "/fc"));
+     refusalChecks(conf, base, plain);
+@@ -270,6 +274,8 @@ public class AttestedFsSmoke {
+       exercise(conf, base, plain, DistributedFileSystem.class.getName());
+       verifyChecks(conf, base, plain);
+       metadataChecks(conf, base, plain);
++      signatureChecks(conf, base, plain);
++      bindingChecks(conf, base, plain);
+       fileContext(conf, new Path("hdfs://" + authority + work + "-fc"));
+       refusalChecks(conf, base, plain);
+       auditLines(conf, tmp + "/audit", DistributedFileSystem.class.getName(),
+@@ -605,9 +611,22 @@ public class AttestedFsSmoke {
+     }
+   }
+ 
+-  static void runMr() throws Exception {
++  /**
++   * The word-count job through Hadoop's real output committer. With bound true (mode mr-bound) signing and folder binding are on and
++   * required, as in the combined crawl: the committer's folders, renames and merges must leave every file with a record bound to its
++   * folder and every folder with an identity, and the output must read back through the wrapper.
++   */
++  static void runMr(boolean bound) throws Exception {
+     java.nio.file.Path tmp = Files.createTempDirectory("attested-mr");
+     Configuration conf = fakeConf(tmp);
++    if (bound) {
++      TestKeys key = TestKeys.generate(tmp.resolve("test-key.txt"));
++      conf.setBoolean(AttestedHdfsFileSystem.SIGN_KEY, true);
++      conf.setBoolean(AttestedHdfsFileSystem.SIGN_REQUIRED_KEY, true);
++      conf.setBoolean(AttestedHdfsFileSystem.FOLDER_BIND_KEY, true);
++      conf.setBoolean(AttestedHdfsFileSystem.FOLDER_REQUIRED_KEY, true);
++      conf.set(AttestedHdfsFileSystem.SIGN_TESTKEY_FILE_KEY, tmp.resolve("test-key.txt").toString());
++    }
+     conf.set("mapreduce.framework.name", "local");
+     conf.set("hadoop.tmp.dir", tmp + "/hadoop-tmp");
+     conf.set("mapreduce.jobtracker.staging.root.dir", tmp + "/staging");
+@@ -653,6 +672,15 @@ public class AttestedFsSmoke {
+       }
+     }
+     eq("word counts equal the expected counts", expected, got);
++    if (bound) {
++      FakeHdfs rawFs = new FakeHdfs();
++      rawFs.initialize(URI.create("hdfs://fake:9000"), new Configuration(false));
++      int[] inCount = boundCount(rawFs, in), outCount = boundCount(rawFs, out);
++      check("every file of the job's input (" + inCount[0] + ") has a record bound to its folder (ATTEST03)", inCount[0] >= 2 && inCount[0] == inCount[1]);
++      check("every file of the job's output (" + outCount[0] + ", with _SUCCESS) has a record bound to its folder (ATTEST03), after the committer's folders, renames and merges", outCount[0] >= 2 && outCount[0] == outCount[1]);
++      check("the output folder has a signed identity as a top folder, and the input folder too", identityOf(rawFs, out).top() && identityOf(rawFs, in).top());
++      check("the committer's _temporary folder and its identity files are gone with the commit", !rawFs.exists(new Path(out, "_temporary")));
++    }
+     List<String[]> log = new ArrayList<>();
+     File[] logs = new File(tmp + "/audit").listFiles((d, n) -> n.endsWith(".tsv"));
+     for (String l : Files.readAllLines(logs[0].toPath(), StandardCharsets.UTF_8)) {
+@@ -684,6 +712,26 @@ public class AttestedFsSmoke {
+     deleteTree(tmp.toFile());
+   }
+ 
++  /** {files, files whose record is ATTEST03 and names the identity of the folder they are in}, for the files directly in the folder. */
++  static int[] boundCount(FileSystem raw, Path dir) throws Exception {
++    int files = 0, ok = 0;
++    AttestedFolderCodec.Decoded id = raw.exists(new Path(dir, AttestedFolderCodec.FILE_NAME)) ? identityOf(raw, dir) : null;
++    for (FileStatus s : raw.listStatus(dir)) {
++      String n = s.getPath().getName();
++      if (s.isDirectory() || AttestedFolderCodec.isIdentityName(n) || (n.startsWith(".") && n.endsWith(".attested"))) {
++        continue;
++      }
++      files++;
++      if (raw.exists(sc(s.getPath())) && id != null) {
++        AttestedRecordCodec.Decoded r = AttestedRecordCodec.decode(readAll(raw, sc(s.getPath())));
++        if (r.bound() && Arrays.equals(r.folderId, id.folderId) && r.fileName.equals(n)) {
++          ok++;
++        }
++      }
++    }
++    return new int[] {files, ok};
++  }
++
+   static boolean runWordCount(Configuration conf, Path in, Path out) throws Exception {
+     Job job = Job.getInstance(conf, "attested-wordcount-again");
+     job.setJarByClass(AttestedFsSmoke.class);
+@@ -1364,6 +1412,303 @@ public class AttestedFsSmoke {
+     check("deleting signed files removes their records", !plain.exists(new Path(dir, "moved")));
+   }
+ 
++
++  /**
++   * A fake HDFS in which a writer that loses the race to create a file gets what the real HDFS gives it while the winner is still writing:
++   * an IOException that says the file is already being created (the real one is AlreadyBeingCreatedException), not FileAlreadyExistsException.
++   * The barrier makes all racers try at the same moment, so the race is certain and not a matter of timing.
++   */
++  public static class RacingHdfs extends FakeHdfs {
++    static volatile java.util.concurrent.CyclicBarrier barrier;
++
++    /** The race itself, for both overloads of create that a caller can reach (the local file system routes one around the other). */
++    private void race(Path f, boolean overwrite) throws IOException {
++      if (!overwrite && AttestedFolderCodec.isIdentityName(f.getName()) && barrier != null) {
++        try {
++          barrier.await(5, java.util.concurrent.TimeUnit.SECONDS);
++        } catch (Exception e) {
++          // the others did not come: go on alone
++        }
++      }
++    }
++
++    private void loser(Path f, boolean overwrite) throws IOException {
++      if (!overwrite && exists(f)) {
++        throw new IOException("Failed to create file " + f + " for DFSClient_NONMAPREDUCE_1 because this file is already being created by DFSClient_NONMAPREDUCE_2");
++      }
++    }
++
++    @Override
++    public FSDataOutputStream create(Path f, org.apache.hadoop.fs.permission.FsPermission permission, boolean overwrite, int bufferSize,
++        short replication, long blockSize, org.apache.hadoop.util.Progressable progress) throws IOException {
++      race(f, overwrite);
++      synchronized (RacingHdfs.class) {
++        loser(f, overwrite);
++        return super.create(f, permission, overwrite, bufferSize, replication, blockSize, progress);
++      }
++    }
++
++    @Override
++    public FSDataOutputStream create(Path f, boolean overwrite, int bufferSize, short replication, long blockSize,
++        org.apache.hadoop.util.Progressable progress) throws IOException {
++      race(f, overwrite);
++      synchronized (RacingHdfs.class) {
++        loser(f, overwrite);
++        return super.create(f, overwrite, bufferSize, replication, blockSize, progress);
++      }
++    }
++  }
++
++  public static class RacingWrapper extends AttestedHdfsFileSystem {
++    @Override
++    protected FileSystem createInner() {
++      try {
++        FakeHdfs inner = new RacingHdfs();
++        inner.initialize(URI.create("hdfs://fake:9000"), new Configuration(false));
++        return inner;
++      } catch (IOException e) {
++        throw new IllegalStateException(e);
++      }
++    }
++  }
++
++  static AttestedFolderCodec.Decoded identityOf(FileSystem plain, Path dir) throws Exception {
++    return AttestedFolderCodec.decode(readAll(plain, new Path(dir, AttestedFolderCodec.FILE_NAME)));
++  }
++
++  static void copyTree(FileSystem plain, Path from, Path to, Configuration conf) throws IOException {
++    org.apache.hadoop.fs.FileUtil.copy(plain, from, plain, to, false, conf);
++  }
++
++  /**
++   * Step 5.1.2: every file is bound to its folder. Folders have signed identity files, records name the folder and the file, renames sign a
++   * new record (a folder rename only its identity file), and the attacks of the mentor's list that move or copy signed files fail the read.
++   */
++  static void bindingChecks(Configuration baseConf, Path base, FileSystem plain) throws Exception {
++    java.nio.file.Path keyDir = Files.createTempDirectory("bindkeys");
++    java.nio.file.Path keyFile = keyDir.resolve("test-key.txt");
++    TestKeys key = TestKeys.generate(keyFile);
++    TestKeys attacker = TestKeys.generate(keyDir.resolve("attacker.txt"));
++    String auditDir = baseConf.get(AttestedAudit.DIR_KEY);
++    Configuration bc = new Configuration(baseConf);
++    bc.setBoolean(AttestedHdfsFileSystem.SIGN_KEY, true);
++    bc.setBoolean(AttestedHdfsFileSystem.SIGN_REQUIRED_KEY, true);
++    bc.setBoolean(AttestedHdfsFileSystem.FOLDER_BIND_KEY, true);
++    bc.setBoolean(AttestedHdfsFileSystem.FOLDER_REQUIRED_KEY, true);
++    bc.set(AttestedHdfsFileSystem.SIGN_TESTKEY_FILE_KEY, keyFile.toString());
++    bc.setLong(AttestedHdfsFileSystem.META_CACHE_KEY, 0);
++    FileSystem fs = FileSystem.newInstance(base.toUri(), bc);
++    Path top = new Path(base, "bound");
++    byte[] d1 = data(40000, 21), d2 = data(30000, 22);
++
++    // 1. folders get identities: a top folder (bound to its path) and children (bound to the parent's ID)
++    check("making a folder through the wrapper gives it a signed identity file (a top folder, bound to its full path)",
++        fs.mkdirs(new Path(top, "seg1")) && plain.exists(new Path(top, "_attested-folder")) && identityOf(plain, top).top() && identityOf(plain, top).topPath.equals(top.toUri().getPath()));
++    AttestedFolderCodec.Decoded topId = identityOf(plain, top), seg1Id = identityOf(plain, new Path(top, "seg1"));
++    check("the child folder's identity names its parent's ID and its own name", !seg1Id.top() && Arrays.equals(seg1Id.parentId, topId.folderId) && seg1Id.name.equals("seg1"));
++    check("identity files are hidden from listings made through the wrapper, and visible to the plain client",
++        fs.listStatus(top).length == 1 && plain.listStatus(top).length == 2);
++    check("the INIT line says binding is on and required", auditHas(auditDir, "bind=true bindrequired=true"));
++    check("making a folder that exists does not change its identity", fs.mkdirs(new Path(top, "seg1")) && Arrays.equals(identityOf(plain, new Path(top, "seg1")).folderId, seg1Id.folderId));
++
++    // 2. a file in the folder: its record is bound
++    Path f = new Path(top, "seg1/part-r-00000");
++    put(fs, f, d1);
++    AttestedRecordCodec.Decoded rec = AttestedRecordCodec.decode(readAll(plain, sc(f)));
++    check("the record of a file is ATTEST03, names the folder's ID and the file's name", rec.bound() && Arrays.equals(rec.folderId, seg1Id.folderId) && rec.fileName.equals("part-r-00000"));
++    check("reading it through the wrapper works and is logged as bind=ok", Arrays.equals(d1, readAll(fs, f)) && auditHas(auditDir, "sig=ok-test bind=ok"));
++    check("the audit log of the write names the folder: sidecar signed=... bound=", auditHas(auditDir, "sidecar signed=" + key.signingKeyId() + " bound=" + MerkleHasher.hex(seg1Id.folderId).substring(0, 8)));
++
++    // 3. creating a file creates the missing folders, each with an identity
++    Path deep = new Path(top, "seg2/deep/x.bin");
++    put(fs, deep, d2);
++    check("creating a file in folders that do not exist makes each folder with an identity (parent ID chain)",
++        identityOf(plain, new Path(top, "seg2")).parentId != null && Arrays.equals(identityOf(plain, new Path(top, "seg2/deep")).parentId, identityOf(plain, new Path(top, "seg2")).folderId)
++        && Arrays.equals(identityOf(plain, new Path(top, "seg2")).parentId, topId.folderId) && Arrays.equals(d2, readAll(fs, deep)));
++
++    // 4. renames: a file gets a new record, no data is read; a folder only a new identity file
++    Path g = new Path(top, "seg2/part-r-00000");
++    byte[] before = readAll(plain, sc(f));
++    check("renaming a file into another folder works and the file reads", fs.rename(f, g) && Arrays.equals(d1, readAll(fs, g)));
++    AttestedRecordCodec.Decoded recG = AttestedRecordCodec.decode(readAll(plain, sc(g)));
++    check("the new record names the new folder's ID and the file's name, with the same content hash", Arrays.equals(recG.folderId, identityOf(plain, new Path(top, "seg2")).folderId) && Arrays.equals(recG.root, rec.root) && recG.fileName.equals("part-r-00000") && !Arrays.equals(readAll(plain, sc(g)), before));
++    check("the old record is gone", !plain.exists(sc(f)));
++    Path g2 = new Path(top, "seg2/renamed");
++    check("renaming a file inside its folder signs a new record for the new name", fs.rename(g, g2) && Arrays.equals(d1, readAll(fs, g2)) && AttestedRecordCodec.decode(readAll(plain, sc(g2))).fileName.equals("renamed"));
++    byte[] recBefore = readAll(plain, sc(deep));
++    Path seg2b = new Path(top, "seg2b");
++    AttestedFolderCodec.Decoded seg2Id = identityOf(plain, new Path(top, "seg2"));
++    check("renaming a folder works, and the files and folders inside still read", fs.rename(new Path(top, "seg2"), seg2b) && Arrays.equals(d2, readAll(fs, new Path(seg2b, "deep/x.bin"))) && Arrays.equals(d1, readAll(fs, new Path(seg2b, "renamed"))));
++    check("a folder rename signs only the folder's own identity file: same folder ID, new name, records inside byte for byte unchanged",
++        Arrays.equals(identityOf(plain, seg2b).folderId, seg2Id.folderId) && identityOf(plain, seg2b).name.equals("seg2b") && Arrays.equals(readAll(plain, sc(new Path(seg2b, "deep/x.bin"))), recBefore));
++    Path nested = new Path(top, "seg1/seg2c");
++    check("renaming a folder into another parent re-signs it with the new parent's ID", fs.rename(seg2b, nested) && Arrays.equals(identityOf(plain, nested).parentId, seg1Id.folderId) && Arrays.equals(d2, readAll(fs, new Path(nested, "deep/x.bin"))));
++    Path intoDir = new Path(top, "seg1");
++    put(fs, new Path(top, "loose.bin"), data(500, 23));
++    check("renaming a file onto a folder moves it into the folder, with a record for the new place", fs.rename(new Path(top, "loose.bin"), intoDir) && Arrays.equals(data(500, 23), readAll(fs, new Path(intoDir, "loose.bin"))));
++
++    // 5. the attacks of the mentor's list, played with the plain client
++    Path s1 = new Path(top, "att1"), s2 = new Path(top, "att2");
++    put(fs, new Path(s1, "part-r-00000"), data(20000, 31));
++    put(fs, new Path(s2, "part-r-00000"), data(20000, 32));
++    check("both honest same-named files read", Arrays.equals(data(20000, 31), readAll(fs, new Path(s1, "part-r-00000"))) && Arrays.equals(data(20000, 32), readAll(fs, new Path(s2, "part-r-00000"))));
++    byte[] f1 = readAll(plain, new Path(s1, "part-r-00000")), r1 = readAll(plain, sc(new Path(s1, "part-r-00000")));
++    byte[] f2 = readAll(plain, new Path(s2, "part-r-00000")), r2 = readAll(plain, sc(new Path(s2, "part-r-00000")));
++    put(plain, new Path(s1, "part-r-00000"), f2); put(plain, sc(new Path(s1, "part-r-00000")), r2);
++    put(plain, new Path(s2, "part-r-00000"), f1); put(plain, sc(new Path(s2, "part-r-00000")), r1);
++    check("swapping two same-named files (with their records) between folders: both reads fail",
++        tryRead(fs, new Path(s1, "part-r-00000")) == null && lastError.contains("another folder") && tryRead(fs, new Path(s2, "part-r-00000")) == null && lastError.contains("another folder"));
++    put(plain, new Path(s1, "part-r-00000"), f1); put(plain, sc(new Path(s1, "part-r-00000")), r1);
++    put(plain, new Path(s2, "part-r-00000"), f2); put(plain, sc(new Path(s2, "part-r-00000")), r2);
++    check("undone, both read again", Arrays.equals(data(20000, 31), readAll(fs, new Path(s1, "part-r-00000"))));
++    Path moved = new Path(s2, "stolen");
++    put(plain, moved, f1); put(plain, sc(moved), r1);
++    check("moving a signed file and its record into another folder (and under another name): the read fails", tryRead(fs, moved) == null && (lastError.contains("another folder") || lastError.contains("named")));
++    Path moved2 = new Path(s1, "renamed-behind");
++    put(plain, moved2, f1); put(plain, sc(moved2), r1);
++    check("renaming a signed file and its record behind the wrapper's back, in the same folder: the read fails", tryRead(fs, moved2) == null && lastError.contains("is for a file named"));
++    Path copied = new Path(top, "copy-of-att1");
++    copyTree(plain, s1, copied, bc);
++    check("copying a whole folder elsewhere: its files fail the read (the identity belongs to the other folder)", tryRead(fs, new Path(copied, "part-r-00000")) == null && (lastError.contains("named") || lastError.contains("path") || lastError.contains("another")));
++    put(plain, new Path(s1, "unsigned.bin"), data(100, 5));
++    check("adding an unsigned file with no record: the read fails", tryRead(fs, new Path(s1, "unsigned.bin")) == null && lastError.contains("no record"));
++    byte[] idS1 = readAll(plain, new Path(s1, "_attested-folder")), idS2 = readAll(plain, new Path(s2, "_attested-folder"));
++    put(plain, new Path(s1, "_attested-folder"), idS2);
++    check("putting the identity of another folder into this folder: the read fails", tryRead(fs, new Path(s1, "part-r-00000")) == null && (lastError.contains("named") || lastError.contains("another") || lastError.contains("path")));
++    put(plain, new Path(s1, "_attested-folder"), idS1);
++    check("restored, it reads again", Arrays.equals(data(20000, 31), readAll(fs, new Path(s1, "part-r-00000"))));
++    plain.delete(new Path(s1, "_attested-folder"), false);
++    check("deleting the identity file behind the wrapper's back: the read fails (the folder has no identity)", tryRead(fs, new Path(s1, "part-r-00000")) == null && lastError.contains("has no identity"));
++    put(plain, new Path(s1, "_attested-folder"), idS1);
++    AttestedFolderCodec.Decoded real1 = AttestedFolderCodec.decode(idS1);
++    byte[] evilId = AttestedFolderCodec.encode(real1.folderId, real1.name, real1.parentId, real1.topPath, real1.keyId, attacker.sign(AttestedFolderCodec.statement(real1.keyId, real1.folderId, real1.name, real1.parentId, real1.topPath)));
++    put(plain, new Path(s1, "_attested-folder"), evilId);
++    check("an identity signed with the attacker's key: the read fails", tryRead(fs, new Path(s1, "part-r-00000")) == null && lastError.contains("does not verify"));
++    put(plain, new Path(s1, "_attested-folder"), idS1);
++    check("restored again, it reads", Arrays.equals(data(20000, 31), readAll(fs, new Path(s1, "part-r-00000"))));
++    Path s1renamed = new Path(top, "att1-renamed");
++    plain.rename(s1, s1renamed);
++    check("renaming a folder behind the wrapper's back: the read fails (the identity names another folder name)", tryRead(fs, new Path(s1renamed, "part-r-00000")) == null && lastError.contains("is for a folder named"));
++    boolean refusedRename = false;
++    try { fs.rename(s1renamed, new Path(top, "att1-again")); } catch (IOException e) { refusedRename = e.getMessage().contains("rename refused"); }
++    check("the wrapper does not sign a folder that was moved behind its back: its rename is refused", refusedRename);
++    plain.rename(s1renamed, s1);
++    Path victim = new Path(s2, "part-r-00000");
++    MerkleHasher mh = new MerkleHasher(16384, true); byte[] evil = data(20000, 77); mh.update(evil, 0, evil.length); byte[] er = mh.finish();
++    AttestedFolderCodec.Decoded s2Id = identityOf(plain, s2);
++    byte[] forgedRec = AttestedRecordCodec.encodeBound(16384, evil.length, er, mh.leaves(), s2Id.folderId, "part-r-00000", key.signingKeyId(), attacker.sign(AttestedRecordCodec.statementBound(key.signingKeyId(), s2Id.folderId, "part-r-00000", 16384, evil.length, er)));
++    put(plain, victim, evil); put(plain, sc(victim), forgedRec);
++    boolean launder = false;
++    try { fs.rename(victim, new Path(s2, "laundered")); } catch (IOException e) { launder = e.getMessage().contains("rename refused"); }
++    check("a forged bound record is not signed again by a rename (the old record is checked first): the rename is refused", launder && tryRead(fs, victim) == null);
++    put(plain, victim, f2); put(plain, sc(victim), r2);
++
++    // the two copies that keep the folder's own name: only the top path and the parent link can catch them
++    Path topB = new Path(base, "boundB");
++    put(fs, new Path(topB, "t.bin"), data(900, 71));
++    Path elsewhere = new Path(base, "elsewhere");
++    plain.mkdirs(elsewhere);
++    copyTree(plain, topB, new Path(elsewhere, "boundB"), bc);
++    check("copying a top folder elsewhere under the same name: the read fails (the top identity is for another path)", tryRead(fs, new Path(elsewhere, "boundB/t.bin")) == null && lastError.contains("is for the path"));
++    Path otherParent = new Path(top, "other");
++    fs.mkdirs(otherParent);
++    Path childCopy = new Path(otherParent, "att2");
++    copyTree(plain, s2, childCopy, bc);
++    check("copying a folder under another parent with the same name: the read fails (its identity points to another parent)", tryRead(fs, new Path(childCopy, "part-r-00000")) == null && lastError.contains("points to another parent"));
++
++    // 6. the reserved name, legacy files, and the settings
++    boolean denied = false;
++    try { fs.create(new Path(s2, "_attested-folder"), true).close(); } catch (IOException e) { denied = e.getMessage().contains("reserved"); }
++    boolean deniedRename = false;
++    try { fs.rename(new Path(s2, "part-r-00000"), new Path(s2, "_attested-folder")); } catch (IOException e) { deniedRename = e.getMessage().contains("reserved"); }
++    boolean deniedDelete = false;
++    try { fs.delete(new Path(s2, "_attested-folder"), false); } catch (IOException e) { deniedDelete = e.getMessage().contains("reserved"); }
++    check("the identity file's name cannot be created, renamed to or deleted through the wrapper", denied && deniedRename && deniedDelete && plain.exists(new Path(s2, "_attested-folder")));
++    Configuration signOnly = new Configuration(bc);
++    signOnly.setBoolean(AttestedHdfsFileSystem.FOLDER_BIND_KEY, false);
++    signOnly.setBoolean(AttestedHdfsFileSystem.FOLDER_REQUIRED_KEY, false);
++    FileSystem unbound = FileSystem.newInstance(base.toUri(), signOnly);
++    Path legacy = new Path(top, "legacy.bin");
++    put(unbound, legacy, data(700, 41));
++    check("with binding off, a record is the signed unbound ATTEST02 and no identity is made for its folder", AttestedRecordCodec.decode(readAll(plain, sc(legacy))).version == 2);
++    check("an unbound record is accepted when binding is not required (logged bind=none), and refused when it is",
++        Arrays.equals(data(700, 41), readAll(unbound, legacy)) && auditHas(auditDir, "bind=none") && tryRead(fs, legacy) == null && lastError.contains("not bound to a folder"));
++    check("a reader that does not require binding still checks a bound record (a swapped pair fails)",
++        Arrays.equals(data(20000, 32), readAll(unbound, new Path(s2, "part-r-00000"))) && tryRead(unbound, moved) == null);
++    Configuration noSign = new Configuration(baseConf);
++    noSign.setBoolean(AttestedHdfsFileSystem.FOLDER_BIND_KEY, true);
++    boolean needSign = false;
++    try { FileSystem.newInstance(base.toUri(), noSign); } catch (IOException e) { needSign = e.getMessage().contains("needs signed records"); }
++    check("folder binding without signing refuses to start", needSign);
++
++    // 7. adopting a folder that the plain client made, and two tasks making the same folder at once
++    Path adopted = new Path(top, "plain-made");
++    plain.mkdirs(adopted);
++    put(fs, new Path(adopted, "a.bin"), data(300, 51));
++    check("writing into a folder that the plain client made adopts it: it gets an identity and the file reads", plain.exists(new Path(adopted, "_attested-folder")) && Arrays.equals(data(300, 51), readAll(fs, new Path(adopted, "a.bin"))));
++    Path plainA = new Path(top, "plainA"), plainB = new Path(plainA, "plainB");
++    plain.mkdirs(plainB);
++    put(fs, new Path(plainB, "x.bin"), data(200, 52));
++    check("writing two levels below an identified folder, where both folders in between were made by the plain client, adopts them as children (the chain is closed, no top folder inside the tree)",
++        Arrays.equals(identityOf(plain, plainA).parentId, topId.folderId) && !identityOf(plain, plainA).top() && Arrays.equals(identityOf(plain, plainB).parentId, identityOf(plain, plainA).folderId) && Arrays.equals(data(200, 52), readAll(fs, new Path(plainB, "x.bin"))));
++    Path nestedTopTry = new Path(base, "unrelated-plain/inner");
++    plain.mkdirs(nestedTopTry);
++    put(fs, new Path(nestedTopTry, "y.bin"), data(100, 53));
++    check("writing into a folder under old folders where no ancestor has an identity makes that one folder a top folder, bound to its full path, and nothing above it is touched",
++        identityOf(plain, nestedTopTry).top() && identityOf(plain, nestedTopTry).topPath.equals(nestedTopTry.toUri().getPath()) && !plain.exists(new Path(base, "unrelated-plain/_attested-folder")) && Arrays.equals(data(100, 53), readAll(fs, new Path(nestedTopTry, "y.bin"))));
++    final Path race = new Path(top, "race/folder");
++    final FileSystem[] fss = new FileSystem[] {FileSystem.newInstance(base.toUri(), bc), FileSystem.newInstance(base.toUri(), bc), FileSystem.newInstance(base.toUri(), bc), FileSystem.newInstance(base.toUri(), bc)};
++    final Throwable[] errs = new Throwable[fss.length];
++    Thread[] ts = new Thread[fss.length];
++    for (int i = 0; i < ts.length; i++) {
++      final int n = i;
++      ts[i] = new Thread(() -> { try { put(fss[n], new Path(race, "f" + n), data(2000, 60 + n)); } catch (Throwable e) { errs[n] = e; } });
++    }
++    for (Thread t : ts) t.start();
++    for (Thread t : ts) t.join();
++    boolean noErr = true; for (Throwable e : errs) { if (e != null) { noErr = false; e.printStackTrace(); } }
++    boolean allRead = true; for (int i = 0; i < fss.length; i++) { if (!Arrays.equals(data(2000, 60 + i), readAll(fs, new Path(race, "f" + i)))) allRead = false; }
++    check("four writers making the same new folder at once: no error, one identity wins, every file reads", noErr && allRead && plain.exists(new Path(race, "_attested-folder")) && Arrays.equals(AttestedRecordCodec.decode(readAll(plain, sc(new Path(race, "f0")))).folderId, identityOf(plain, race).folderId));
++
++    // the same race on a file system whose losers get "already being created" (as the real HDFS gives them): every racer must still succeed
++    if (!plain.getClass().getName().contains("DistributedFileSystem")) {
++      Configuration rc = new Configuration(bc);
++      rc.set("fs.hdfs.impl", RacingWrapper.class.getName());
++      final FileSystem[] racers = new FileSystem[] {FileSystem.newInstance(base.toUri(), rc), FileSystem.newInstance(base.toUri(), rc), FileSystem.newInstance(base.toUri(), rc), FileSystem.newInstance(base.toUri(), rc)};
++      final Path race2 = new Path(top, "race2/folder");
++      RacingHdfs.barrier = new java.util.concurrent.CyclicBarrier(racers.length);
++      final Throwable[] errs2 = new Throwable[racers.length];
++      Thread[] ts2 = new Thread[racers.length];
++      for (int i = 0; i < ts2.length; i++) {
++        final int n = i;
++        ts2[i] = new Thread(() -> { try { put(racers[n], new Path(race2, "f" + n), data(1800, 90 + n)); } catch (Throwable e) { errs2[n] = e; } });
++      }
++      for (Thread th : ts2) th.start();
++      for (Thread th : ts2) th.join();
++      RacingHdfs.barrier = null;
++      boolean clean = true; for (Throwable e : errs2) { if (e != null) { clean = false; e.printStackTrace(); } }
++      boolean readable = true; for (int i = 0; i < racers.length; i++) { if (!Arrays.equals(data(1800, 90 + i), readAll(fs, new Path(race2, "f" + i)))) readable = false; }
++      check("four writers racing for the same new folders, where the losers get \"already being created\" as on the real HDFS: no error, one identity per folder, every file reads",
++          clean && readable && Arrays.equals(identityOf(plain, race2).parentId, identityOf(plain, race2.getParent()).folderId));
++    }
++
++    // with the identity cache on (the production setting), ordinary work still passes: create, read, rename a file and a folder, read again
++    Configuration cached = new Configuration(bc);
++    cached.setLong(AttestedHdfsFileSystem.META_CACHE_KEY, 10);
++    FileSystem cfs = FileSystem.newInstance(base.toUri(), cached);
++    Path ctop = new Path(base, "cached-top");
++    for (int i = 0; i < 6; i++) { put(cfs, new Path(ctop, "a/f" + i), data(1500, 80 + i)); }
++    boolean cacheOk = true;
++    for (int i = 0; i < 6; i++) { if (!Arrays.equals(data(1500, 80 + i), readAll(cfs, new Path(ctop, "a/f" + i)))) cacheOk = false; }
++    cacheOk &= cfs.rename(new Path(ctop, "a/f0"), new Path(ctop, "a/g0")) && Arrays.equals(data(1500, 80), readAll(cfs, new Path(ctop, "a/g0")));
++    cacheOk &= cfs.rename(new Path(ctop, "a"), new Path(ctop, "b")) && Arrays.equals(data(1500, 85), readAll(cfs, new Path(ctop, "b/f5"))) && Arrays.equals(data(1500, 80), readAll(cfs, new Path(ctop, "b/g0")));
++    check("with the identity cache on (10 s), creating, reading, renaming a file and renaming a folder all work", cacheOk && identityOf(plain, new Path(ctop, "b")).name.equals("b"));
++
++    // 8. deleting
++    check("deleting a folder removes it with its identity and records", fs.delete(new Path(top, "seg1"), true) && !plain.exists(new Path(top, "seg1")));
++    check("deleting a file leaves its folder's identity", fs.delete(new Path(top, "att2/part-r-00000"), false) && plain.exists(new Path(top, "att2/_attested-folder")) && !plain.exists(sc(new Path(top, "att2/part-r-00000"))));
++  }
++
+   static void runHash() throws Exception {
+     java.nio.file.Path tmp = Files.createTempDirectory("attested-hash");
+     Configuration conf = fakeConf(tmp);
+diff --git a/ops/attested/SigCoreTest.java b/ops/attested/SigCoreTest.java
+index 9d91c13d4..dd4450db5 100644
+--- a/ops/attested/SigCoreTest.java
++++ b/ops/attested/SigCoreTest.java
+@@ -138,6 +138,58 @@ public final class SigCoreTest {
+       AttestedRecordCodec.Decoded r = AttestedRecordCodec.decode(on.encode(e.chunk, e.length, e.root, e.leaves));
+       chk("size " + size + ": signs, decodes and verifies (" + r.leaves.length + " chunks)", need.check(r).equals("ok-test") && r.length == size);
+     }
++    System.out.println("== 9. records bound to a folder and a name (ATTEST03, step 5.1.2)");
++    byte[] folderA = new byte[16]; Arrays.fill(folderA, (byte) 0x11); byte[] folderB = new byte[16]; Arrays.fill(folderB, (byte) 0x22);
++    byte[] b3 = on.encodeBound(a.chunk, a.length, a.root, a.leaves, folderA, "part-r-00000");
++    AttestedRecordCodec.Decoded d3 = AttestedRecordCodec.decode(b3);
++    chk("a bound record starts with ATTEST03 and carries the folder ID and the name", new String(b3, 0, 8).equals("ATTEST03") && d3.bound() && d3.signed() && Arrays.equals(d3.folderId, folderA) && d3.fileName.equals("part-r-00000"));
++    chk("its signature verifies (the folder and the name are the caller's to compare)", need.check(d3).equals("ok-test"));
++    chk("a name with a non-ASCII letter round-trips", AttestedRecordCodec.decode(on.encodeBound(a.chunk, a.length, a.root, a.leaves, folderA, "r\u00e9sum\u00e9 \u30c6\u30b9\u30c8")).fileName.equals("r\u00e9sum\u00e9 \u30c6\u30b9\u30c8"));
++    // swapping the folder or the name in the record without the key breaks the signature
++    AttestedRecordCodec.Decoded moved = new AttestedRecordCodec.Decoded(3, d3.chunkSize, d3.length, d3.root, d3.leaves, d3.keyId, d3.signature, folderB, d3.fileName);
++    chk("the same record claiming another folder ID: refused", refuses(() -> need.check(moved), "does not verify"));
++    AttestedRecordCodec.Decoded renamedRec = new AttestedRecordCodec.Decoded(3, d3.chunkSize, d3.length, d3.root, d3.leaves, d3.keyId, d3.signature, folderA, "part-r-00001");
++    chk("the same record claiming another name: refused", refuses(() -> need.check(renamedRec), "does not verify"));
++    byte[] unbound = on.encode(a.chunk, a.length, a.root, a.leaves);
++    chk("an ATTEST02 record has no folder or name (it is unbound)", !AttestedRecordCodec.decode(unbound).bound() && AttestedRecordCodec.decode(unbound).folderId == null);
++    chk("a bound record's statement differs from the unbound one (a signature of one never fits the other)", !Arrays.equals(AttestedRecordCodec.statementBound(d3.keyId, folderA, "x", 1, 2, a.root), AttestedRecordCodec.statement(d3.keyId, 1, 2, a.root)));
++    chk("the statement is unambiguous: folder ID and name never run into each other", !Arrays.equals(AttestedRecordCodec.statementBound("K", folderA, "ab", 1, 2, a.root), AttestedRecordCodec.statementBound("K", folderA, "a", 1, 2, a.root)));
++    byte[] cutName = b3.clone(); cutName[v1.length + 16] = 0; cutName[v1.length + 17] = 0;
++    chk("a name of length 0 is refused", refuses(() -> AttestedRecordCodec.decode(cutName), "impossible name length"));
++    chk("a truncated bound record is refused", refuses(() -> AttestedRecordCodec.decode(Arrays.copyOf(b3, b3.length - 3)), "too short"));
++    chk("a name with a slash cannot be signed", refuses(() -> on.encodeBound(a.chunk, a.length, a.root, a.leaves, folderA, "a/b"), "cannot build the statement to sign"));
++    chk("a bound record cannot be made with signing off", refuses(() -> sigs(key, false, false, true).encodeBound(a.chunk, a.length, a.root, a.leaves, folderA, "x"), "needs signing to be on"));
++
++    System.out.println("== 10. the folder identity file");
++    byte[] idTop = new byte[16]; Arrays.fill(idTop, (byte) 0x33);
++    byte[] top = on.encodeFolder(idTop, "crawl", null, "/user/x/crawl");
++    AttestedFolderCodec.Decoded t = AttestedFolderCodec.decode(top);
++    chk("a top folder's identity binds its full path, has no parent, and verifies", t.top() && t.parentId == null && t.topPath.equals("/user/x/crawl") && t.name.equals("crawl") && need.checkFolder(t).equals("ok-test"));
++    byte[] child = on.encodeFolder(folderA, "segments", idTop, null);
++    AttestedFolderCodec.Decoded c = AttestedFolderCodec.decode(child);
++    chk("a child's identity binds its name and its parent's ID, and verifies", !c.top() && Arrays.equals(c.parentId, idTop) && c.topPath == null && need.checkFolder(c).equals("ok-test"));
++    chk("the identity file starts with ATTESTFD and its name is hidden by an underscore", new String(top, 0, 8).equals("ATTESTFD") && AttestedFolderCodec.isIdentityName("_attested-folder") && "_attested-folder".startsWith("_"));
++    AttestedFolderCodec.Decoded otherName = new AttestedFolderCodec.Decoded(c.folderId, "other", c.parentId, null, c.keyId, c.signature);
++    chk("the same identity under another folder name: refused", refuses(() -> need.checkFolder(otherName), "does not verify"));
++    AttestedFolderCodec.Decoded otherParent = new AttestedFolderCodec.Decoded(c.folderId, c.name, folderB, null, c.keyId, c.signature);
++    chk("the same identity under another parent: refused", refuses(() -> need.checkFolder(otherParent), "does not verify"));
++    AttestedFolderCodec.Decoded otherPath = new AttestedFolderCodec.Decoded(t.folderId, t.name, null, "/user/x/other", t.keyId, t.signature);
++    chk("the same top identity at another path: refused", refuses(() -> need.checkFolder(otherPath), "does not verify"));
++    AttestedFolderCodec.Decoded asChild = new AttestedFolderCodec.Decoded(t.folderId, t.name, folderB, null, t.keyId, t.signature);
++    chk("a top identity turned into a child (to hide the path): refused", refuses(() -> need.checkFolder(asChild), "does not verify"));
++    byte[] foreign = other.sign(AttestedFolderCodec.statement(c.keyId, c.folderId, c.name, c.parentId, null));
++    AttestedFolderCodec.Decoded forgedF1 = AttestedFolderCodec.decode(AttestedFolderCodec.encode(c.folderId, c.name, c.parentId, null, c.keyId, foreign));
++    chk("an identity signed with the attacker's key under the real key id: refused", refuses(() -> need.checkFolder(forgedF1), "does not verify"));
++    AttestedFolderCodec.Decoded forgedF2 = AttestedFolderCodec.decode(AttestedFolderCodec.encode(c.folderId, c.name, c.parentId, null, other.signingKeyId(), other.sign(AttestedFolderCodec.statement(other.signingKeyId(), c.folderId, c.name, c.parentId, null))));
++    chk("an identity signed with the attacker's own key: refused as not trusted", refuses(() -> need.checkFolder(forgedF2), "not trusted here"));
++    chk("a test-signed identity is refused when test keys are not allowed", refuses(() -> noTest.checkFolder(c), "not accepted"));
++    chk("damaged identity files are refused: header, length, kind, extra bytes", refuses(() -> AttestedFolderCodec.decode(concat("ATTESTXX".getBytes(), Arrays.copyOfRange(child, 8, child.length))), "wrong header")
++        && refuses(() -> AttestedFolderCodec.decode(Arrays.copyOf(child, 20)), "too short")
++        && refuses(() -> AttestedFolderCodec.decode(concat(child, new byte[]{1})), "extra bytes")
++        && refuses(() -> { byte[] k = child.clone(); k[8 + 16 + 2 + 8] = 7; AttestedFolderCodec.decode(k); }, "impossible kind"));
++    chk("a name or a path that cannot be signed is refused", refuses(() -> on.encodeFolder(idTop, "a/b", null, "/x"), "cannot build a folder identity") && refuses(() -> on.encodeFolder(idTop, "x", null, null), "cannot build a folder identity"));
++    chk("an identity cannot be made with signing off", refuses(() -> sigs(key, false, false, true).encodeFolder(idTop, "x", null, "/x"), "needs signing to be on"));
++
+     System.out.println("== 8. the key tool");
+     java.io.ByteArrayOutputStream o1 = new java.io.ByteArrayOutputStream(), e1 = new java.io.ByteArrayOutputStream();
+     Path tk = dir.resolve("tool-key.txt");
+diff --git a/ops/attested/build-and-test.sh b/ops/attested/build-and-test.sh
+index f18547a90..d03f8b6ab 100755
+--- a/ops/attested/build-and-test.sh
++++ b/ops/attested/build-and-test.sh
+@@ -46,6 +46,7 @@ run() {  # run <label> <mode> [args]
+ 
+ run fake fake
+ run mr-fake mr-fake
++run mr-bound mr-bound
+ run hash hash
+ 
+ echo "== hash cross-check: the wrapper's roots against merkle_root.py, on the same files"
+diff --git a/src/java/org/apache/nutch/attested/AttestedFolderCodec.java b/src/java/org/apache/nutch/attested/AttestedFolderCodec.java
+new file mode 100644
+index 000000000..4e1b460f4
+--- /dev/null
++++ b/src/java/org/apache/nutch/attested/AttestedFolderCodec.java
+@@ -0,0 +1,214 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.nutch.attested;
++
++import java.io.ByteArrayInputStream;
++import java.io.ByteArrayOutputStream;
++import java.io.DataInputStream;
++import java.io.DataOutputStream;
++import java.io.EOFException;
++import java.io.IOException;
++import java.nio.ByteBuffer;
++import java.nio.charset.CharacterCodingException;
++import java.nio.charset.StandardCharsets;
++import java.util.Arrays;
++
++/**
++ * The folder identity file of step 5.1.2 ("_attested-folder" inside every folder the wrapper made or adopted), with no Hadoop in it.
++ *
++ * <p>Bytes: "ATTESTFD", the 16-byte folder ID, an unsigned short for the length of the folder's own name and the name in UTF-8, a kind
++ * byte, then for kind 0 (a child) the 16-byte ID of the parent folder, and for kind 1 (a top folder) an unsigned short for the length of
++ * the folder's full path and the path in UTF-8, then the signature block (key id length, key id, signature length, signature).
++ * The signature covers {@link #statement}: the same fields behind a fixed tag. A folder is therefore tied to its own name and to its
++ * parent (or, at the top, to its full path), and renaming a folder means signing its identity file again, nothing else.</p>
++ */
++final class AttestedFolderCodec {
++
++  static final byte[] MAGIC = "ATTESTFD".getBytes(StandardCharsets.US_ASCII);
++  static final String FILE_NAME = "_attested-folder";
++  static final int KIND_CHILD = 0;
++  static final int KIND_TOP = 1;
++  private static final byte[] STATEMENT_TAG = "ATTESTFD-SIGNED\n".getBytes(StandardCharsets.US_ASCII);
++  private static final int MAX_PATH = 4096;
++
++  private AttestedFolderCodec() {
++  }
++
++  static boolean isIdentityName(String name) {
++    return FILE_NAME.equals(name);
++  }
++
++  /** A decoded identity file. */
++  static final class Decoded {
++    final byte[] folderId;
++    final String name;
++    /** The parent's ID for a child, null for a top folder. */
++    final byte[] parentId;
++    /** The full path for a top folder, null for a child. */
++    final String topPath;
++    final String keyId;
++    final byte[] signature;
++
++    Decoded(byte[] folderId, String name, byte[] parentId, String topPath, String keyId, byte[] signature) {
++      this.folderId = folderId;
++      this.name = name;
++      this.parentId = parentId;
++      this.topPath = topPath;
++      this.keyId = keyId;
++      this.signature = signature;
++    }
++
++    boolean top() {
++      return topPath != null;
++    }
++  }
++
++  private static void fields(DataOutputStream out, byte[] folderId, String name, byte[] parentId, String topPath)
++      throws IOException {
++    byte[] n = name.getBytes(StandardCharsets.UTF_8);
++    out.write(folderId);
++    out.writeShort(n.length);
++    out.write(n);
++    if (topPath == null) {
++      out.writeByte(KIND_CHILD);
++      out.write(parentId);
++    } else {
++      byte[] p = topPath.getBytes(StandardCharsets.UTF_8);
++      out.writeByte(KIND_TOP);
++      out.writeShort(p.length);
++      out.write(p);
++    }
++  }
++
++  private static void check(byte[] folderId, String name, byte[] parentId, String topPath) throws IOException {
++    boolean ok = folderId != null && folderId.length == AttestedRecordCodec.FOLDER_ID && AttestedRecordCodec.validName(name)
++        && ((topPath == null && parentId != null && parentId.length == AttestedRecordCodec.FOLDER_ID)
++            || (topPath != null && parentId == null && !topPath.isEmpty() && topPath.getBytes(StandardCharsets.UTF_8).length <= MAX_PATH));
++    if (!ok) {
++      throw new IOException("cannot build a folder identity (bad folder ID, name, parent or path)");
++    }
++  }
++
++  /** The bytes that are signed. */
++  static byte[] statement(String keyId, byte[] folderId, String name, byte[] parentId, String topPath)
++      throws IOException {
++    check(folderId, name, parentId, topPath);
++    if (!AttestedRecordCodec.validKeyId(keyId)) {
++      throw new IOException("cannot build the statement to sign (bad key id)");
++    }
++    byte[] id = keyId.getBytes(StandardCharsets.US_ASCII);
++    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
++    DataOutputStream out = new DataOutputStream(bytes);
++    out.write(STATEMENT_TAG);
++    out.writeByte(id.length);
++    out.write(id);
++    fields(out, folderId, name, parentId, topPath);
++    out.flush();
++    return bytes.toByteArray();
++  }
++
++  static byte[] encode(byte[] folderId, String name, byte[] parentId, String topPath, String keyId, byte[] signature)
++      throws IOException {
++    check(folderId, name, parentId, topPath);
++    if (!AttestedRecordCodec.validKeyId(keyId) || signature == null || signature.length < 1
++        || signature.length > AttestedRecordCodec.MAX_SIGNATURE) {
++      throw new IOException("cannot write a folder identity (bad key id or signature)");
++    }
++    byte[] id = keyId.getBytes(StandardCharsets.US_ASCII);
++    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
++    DataOutputStream out = new DataOutputStream(bytes);
++    out.write(MAGIC);
++    fields(out, folderId, name, parentId, topPath);
++    out.writeByte(id.length);
++    out.write(id);
++    out.writeShort(signature.length);
++    out.write(signature);
++    out.flush();
++    return bytes.toByteArray();
++  }
++
++  static Decoded decode(byte[] all) throws IOException {
++    if (all.length > 16384) {
++      throw new IOException("folder identity is damaged (too long)");
++    }
++    DataInputStream in = new DataInputStream(new ByteArrayInputStream(all));
++    try {
++      byte[] magic = new byte[MAGIC.length];
++      in.readFully(magic);
++      if (!Arrays.equals(magic, MAGIC)) {
++        throw new IOException("folder identity is damaged (wrong header)");
++      }
++      byte[] folderId = new byte[AttestedRecordCodec.FOLDER_ID];
++      in.readFully(folderId);
++      int nameLen = in.readUnsignedShort();
++      if (nameLen < 1 || nameLen > AttestedRecordCodec.MAX_NAME) {
++        throw new IOException("folder identity is damaged (impossible name length)");
++      }
++      String name = utf8(in, nameLen, "name");
++      if (!AttestedRecordCodec.validName(name)) {
++        throw new IOException("folder identity is damaged (impossible name)");
++      }
++      int kind = in.readUnsignedByte();
++      byte[] parentId = null;
++      String topPath = null;
++      if (kind == KIND_CHILD) {
++        parentId = new byte[AttestedRecordCodec.FOLDER_ID];
++        in.readFully(parentId);
++      } else if (kind == KIND_TOP) {
++        int pathLen = in.readUnsignedShort();
++        if (pathLen < 1 || pathLen > MAX_PATH) {
++          throw new IOException("folder identity is damaged (impossible path length)");
++        }
++        topPath = utf8(in, pathLen, "path");
++      } else {
++        throw new IOException("folder identity is damaged (impossible kind)");
++      }
++      int idLen = in.readUnsignedByte();
++      if (idLen < 1 || idLen > AttestedRecordCodec.MAX_KEY_ID) {
++        throw new IOException("folder identity is damaged (impossible key id length)");
++      }
++      byte[] idBytes = new byte[idLen];
++      in.readFully(idBytes);
++      String keyId = new String(idBytes, StandardCharsets.US_ASCII);
++      if (!AttestedRecordCodec.validKeyId(keyId)) {
++        throw new IOException("folder identity is damaged (impossible key id)");
++      }
++      int sigLen = in.readUnsignedShort();
++      if (sigLen < 1 || sigLen > AttestedRecordCodec.MAX_SIGNATURE) {
++        throw new IOException("folder identity is damaged (impossible signature length)");
++      }
++      byte[] sig = new byte[sigLen];
++      in.readFully(sig);
++      if (in.read() != -1) {
++        throw new IOException("folder identity is damaged (extra bytes at the end)");
++      }
++      return new Decoded(folderId, name, parentId, topPath, keyId, sig);
++    } catch (EOFException e) {
++      throw new IOException("folder identity is damaged (too short)");
++    }
++  }
++
++  private static String utf8(DataInputStream in, int len, String what) throws IOException {
++    byte[] b = new byte[len];
++    in.readFully(b);
++    try {
++      return StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(b)).toString();
++    } catch (CharacterCodingException e) {
++      throw new IOException("folder identity is damaged (the " + what + " is not UTF-8)");
++    }
++  }
++}
+diff --git a/src/java/org/apache/nutch/attested/AttestedFolders.java b/src/java/org/apache/nutch/attested/AttestedFolders.java
+new file mode 100644
+index 000000000..892bdeb3d
+--- /dev/null
++++ b/src/java/org/apache/nutch/attested/AttestedFolders.java
+@@ -0,0 +1,364 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.nutch.attested;
++
++import java.io.FileNotFoundException;
++import java.io.IOException;
++import java.security.SecureRandom;
++import java.util.ArrayList;
++import java.util.Arrays;
++import java.util.LinkedHashMap;
++import java.util.List;
++import java.util.Map;
++import org.apache.hadoop.fs.FSDataInputStream;
++import org.apache.hadoop.fs.FSDataOutputStream;
++import org.apache.hadoop.fs.FileSystem;
++import org.apache.hadoop.fs.Path;
++
++/**
++ * The folder identity files of step 5.1.2. Every folder that the wrapper makes (or adopts, when it first writes into it) gets a small
++ * signed file "_attested-folder" with the folder's random ID, its own name and its parent's ID (a top folder: its full path). A record
++ * bound to a folder (ATTEST03) names that ID, so a signed file copied into another folder, or under another name, no longer verifies.
++ *
++ * <p>All reads and writes here use the real (inner) file system, never the wrapper. Identity files are small and are cached per process
++ * for a short time; a rename of a folder signs a new identity file for that one folder.</p>
++ */
++final class AttestedFolders {
++
++  /** Where the wrapper's audit lines go. */
++  interface Audit {
++    void log(String op, Path p1, Path p2, String extra) throws IOException;
++  }
++
++  private static final int MAX_DEPTH = 256;
++  private static final int MAX_IDENTITY_BYTES = 16384;
++  private static final int PARTIAL_RETRIES = 40;
++  private static final int CACHE_MAX = 4096;
++
++  private static final class Entry {
++    final AttestedFolderCodec.Decoded decoded;
++    final long at;
++    byte[] chainId;
++    long chainAt;
++
++    Entry(AttestedFolderCodec.Decoded decoded, long at) {
++      this.decoded = decoded;
++      this.at = at;
++    }
++  }
++
++  private final FileSystem fs;
++  private final AttestedSignatures sigs;
++  private final long ttlNanos;
++  private final Audit audit;
++  private final SecureRandom random = new SecureRandom();
++  private final Map<String, Entry> cache = new LinkedHashMap<String, Entry>(256, 0.75f, true) {
++    private static final long serialVersionUID = 1L;
++
++    @Override
++    protected boolean removeEldestEntry(Map.Entry<String, Entry> eldest) {
++      return size() > CACHE_MAX;
++    }
++  };
++
++  AttestedFolders(FileSystem fs, AttestedSignatures sigs, long ttlNanos, Audit audit) {
++    this.fs = fs;
++    this.sigs = sigs;
++    this.ttlNanos = ttlNanos;
++    this.audit = audit;
++  }
++
++  static boolean isRoot(Path p) {
++    return p == null || p.getName().isEmpty();
++  }
++
++  private static String key(Path dir) {
++    return dir.toUri().getPath();
++  }
++
++  Path identityPath(Path dir) {
++    return new Path(dir, AttestedFolderCodec.FILE_NAME);
++  }
++
++  /** Forget everything cached for this folder and the folders below it (after a rename or a delete). */
++  void forgetTree(Path dir) {
++    String prefix = key(dir);
++    synchronized (cache) {
++      cache.keySet().removeIf(k -> k.equals(prefix) || k.startsWith(prefix + "/"));
++    }
++  }
++
++  private void forget(Path dir) {
++    synchronized (cache) {
++      cache.remove(key(dir));
++    }
++  }
++
++  private byte[] readBytes(Path idPath) throws IOException {
++    for (int i = 0; ; i++) {
++      long size;
++      try {
++        size = fs.getFileStatus(idPath).getLen();
++      } catch (FileNotFoundException e) {
++        return null;
++      }
++      if (size > MAX_IDENTITY_BYTES) {
++        throw new IOException("folder identity is damaged (too long): " + idPath);
++      }
++      if (size > 0) {
++        byte[] all = new byte[(int) size];
++        try (FSDataInputStream in = fs.open(idPath)) {
++          in.readFully(0, all);
++        } catch (FileNotFoundException e) {
++          return null;
++        } catch (java.io.EOFException e) {
++          all = null;
++        }
++        if (all != null) {
++          return all;
++        }
++      }
++      // a file that is empty or short may be one that another task is still writing: wait a little
++      if (i >= PARTIAL_RETRIES) {
++        throw new IOException("folder identity is damaged (empty or too short): " + idPath);
++      }
++      try {
++        Thread.sleep(50);
++      } catch (InterruptedException e) {
++        Thread.currentThread().interrupt();
++        throw new IOException("interrupted while waiting for the identity of " + idPath);
++      }
++    }
++  }
++
++  /**
++   * The verified identity of a folder, or null when it has none. Throws an IOException when the identity file is damaged or its signature
++   * does not verify (the folder is then not trusted, and nothing is written into or read from it as if it were).
++   */
++  AttestedFolderCodec.Decoded read(Path dir) throws IOException {
++    if (isRoot(dir)) {
++      return null;
++    }
++    long now = System.nanoTime();
++    synchronized (cache) {
++      Entry e = cache.get(key(dir));
++      if (e != null && ttlNanos > 0 && now - e.at < ttlNanos) {
++        return e.decoded;
++      }
++    }
++    byte[] bytes = readBytes(identityPath(dir));
++    if (bytes == null) {
++      return null;
++    }
++    AttestedFolderCodec.Decoded d = AttestedFolderCodec.decode(bytes);
++    sigs.checkFolder(d);
++    synchronized (cache) {
++      cache.put(key(dir), new Entry(d, now));
++    }
++    return d;
++  }
++
++  /**
++   * The identity of a folder that exists, made when it has none (the wrapper adopts the folder). The rule that decides what the identity is:
++   * if some ancestor of the folder has an identity, every folder between that ancestor and this one that has none is adopted as a child of
++   * the one above it, so the chain is closed; only when no ancestor has an identity is the folder a top folder, bound to its full path.
++   * The rule never depends on timing: two writers that adopt the same folders at once write the same shapes, and the first identity file
++   * written wins. (A top folder inside an identified tree would break when an ancestor is renamed.) Returns null for the root.
++   */
++  AttestedFolderCodec.Decoded ensure(Path dir) throws IOException {
++    if (isRoot(dir)) {
++      return null;
++    }
++    AttestedFolderCodec.Decoded d = read(dir);
++    if (d != null) {
++      return d;
++    }
++    List<Path> unidentified = new ArrayList<>();
++    unidentified.add(dir);
++    AttestedFolderCodec.Decoded above = null;
++    for (Path cur = dir.getParent(); !isRoot(cur); cur = cur.getParent()) {
++      if (unidentified.size() > MAX_DEPTH) {
++        throw new IOException("the folder chain of " + dir + " is too deep");
++      }
++      above = read(cur);
++      if (above != null) {
++        break;
++      }
++      unidentified.add(cur);
++    }
++    if (above == null) {
++      return create(dir, null);          // no ancestor has an identity: this folder alone becomes a top folder
++    }
++    AttestedFolderCodec.Decoded parent = above;
++    for (int i = unidentified.size() - 1; i >= 0; i--) {   // from the folder just below the identified ancestor, down to dir
++      parent = create(unidentified.get(i), parent);
++    }
++    return parent;
++  }
++
++  /** Writes the identity of one folder (a child of the given parent identity, or a top folder when it is null); the first writer wins. */
++  private AttestedFolderCodec.Decoded create(Path dir, AttestedFolderCodec.Decoded parent) throws IOException {
++    AttestedFolderCodec.Decoded existing = read(dir);
++    if (existing != null) {
++      return existing;
++    }
++    byte[] id = new byte[AttestedRecordCodec.FOLDER_ID];
++    random.nextBytes(id);
++    byte[] bytes = parent != null ? sigs.encodeFolder(id, dir.getName(), parent.folderId, null)
++        : sigs.encodeFolder(id, dir.getName(), null, dir.toUri().getPath());
++    Path idPath = identityPath(dir);
++    try {
++      audit.log("CREATE", idPath, null, "folder-identity " + (parent != null ? "child" : "top"));
++      try (FSDataOutputStream out = fs.create(idPath, false)) {
++        out.write(bytes);
++      }
++    } catch (IOException e) {
++      // Another writer was first. The real HDFS tells the loser either "file exists" or, while the winner is still writing, "already being
++      // created by another client" (a different exception), so any failure to create is followed by a look at what is there now: the
++      // winner's identity is read and used (read waits a little for a file that is still being written). If there is none, the failure is real.
++      forget(dir);
++      AttestedFolderCodec.Decoded winner = read(dir);
++      if (winner == null) {
++        throw e;
++      }
++      return winner;
++    }
++    AttestedFolderCodec.Decoded made = AttestedFolderCodec.decode(bytes);
++    synchronized (cache) {
++      cache.put(key(dir), new Entry(made, System.nanoTime()));
++    }
++    return made;
++  }
++
++  /** The folders of this path that do not exist yet, from the topmost down to the folder itself. */
++  List<Path> missingAncestors(Path dir) throws IOException {
++    List<Path> missing = new ArrayList<>();
++    Path cur = dir;
++    while (!isRoot(cur) && !fs.exists(cur)) {
++      missing.add(0, cur);
++      cur = cur.getParent();
++    }
++    return missing;
++  }
++
++  /** Gives each of these (just made) folders its identity, topmost first. */
++  void adopt(List<Path> folders) throws IOException {
++    for (Path p : folders) {
++      ensure(p);
++    }
++  }
++
++  /** A recently verified identity from the cache, or null: no call to the NameNode is made. */
++  private AttestedFolderCodec.Decoded cached(Path dir) {
++    long now = System.nanoTime();
++    synchronized (cache) {
++      Entry e = cache.get(key(dir));
++      return e != null && ttlNanos > 0 && now - e.at < ttlNanos ? e.decoded : null;
++    }
++  }
++
++  /** Makes the folder and any missing parents, each with an identity; an existing folder is adopted. */
++  void ensureTree(Path dir) throws IOException {
++    if (isRoot(dir) || cached(dir) != null) {
++      return;
++    }
++    List<Path> missing = missingAncestors(dir);
++    if (!missing.isEmpty()) {
++      fs.mkdirs(dir);
++    }
++    if (missing.isEmpty()) {
++      ensure(dir);
++    } else {
++      adopt(missing);
++    }
++  }
++
++  /**
++   * Checks the whole chain of a folder up to the top and returns the folder's ID. Each identity must verify, name the folder it sits in,
++   * and point at the identity of its parent; the top identity must be for the folder's own full path. A folder without an identity, a
++   * folder that was moved or copied behind the wrapper's back, or an identity of another folder all throw an IOException.
++   */
++  byte[] verifyChain(Path dir) throws IOException {
++    long now = System.nanoTime();
++    synchronized (cache) {
++      Entry e = cache.get(key(dir));
++      if (e != null && e.chainId != null && ttlNanos > 0 && now - e.chainAt < ttlNanos) {
++        return e.chainId;
++      }
++    }
++    AttestedFolderCodec.Decoded first = read(dir);
++    if (first == null) {
++      throw new IOException("the folder " + dir + " has no identity");
++    }
++    Path cur = dir;
++    AttestedFolderCodec.Decoded d = first;
++    for (int depth = 0; ; depth++) {
++      if (depth > MAX_DEPTH) {
++        throw new IOException("the folder chain of " + dir + " is too deep or loops");
++      }
++      if (!d.name.equals(cur.getName())) {
++        throw new IOException("the identity in " + cur + " is for a folder named '" + d.name + "', not '" + cur.getName() + "'");
++      }
++      if (d.top()) {
++        if (!d.topPath.equals(key(cur))) {
++          throw new IOException("the top folder identity in " + cur + " is for the path " + d.topPath + ", not " + key(cur));
++        }
++        break;
++      }
++      Path parent = cur.getParent();
++      if (isRoot(parent)) {
++        throw new IOException("the folder " + cur + " claims a parent folder but is at the top");
++      }
++      AttestedFolderCodec.Decoded pd = read(parent);
++      if (pd == null) {
++        throw new IOException("the parent folder " + parent + " has no identity");
++      }
++      if (!Arrays.equals(d.parentId, pd.folderId)) {
++        throw new IOException("the identity in " + cur + " points to another parent folder than " + parent);
++      }
++      cur = parent;
++      d = pd;
++    }
++    synchronized (cache) {
++      Entry e = cache.get(key(dir));
++      if (e != null) {
++        e.chainId = first.folderId;
++        e.chainAt = now;
++      }
++    }
++    return first.folderId;
++  }
++
++  /**
++   * After a folder was renamed (its identity file moved with it): signs its identity again with the new name and the new parent (or
++   * path). The folder keeps its ID, so the records of the files inside stay valid and nothing below is touched.
++   */
++  void resign(Path newDir, AttestedFolderCodec.Decoded old) throws IOException {
++    Path idPath = identityPath(newDir);
++    Path parent = newDir.getParent();
++    AttestedFolderCodec.Decoded pd = isRoot(parent) ? null : ensure(parent);
++    byte[] bytes = pd != null ? sigs.encodeFolder(old.folderId, newDir.getName(), pd.folderId, null)
++        : sigs.encodeFolder(old.folderId, newDir.getName(), null, newDir.toUri().getPath());
++    forgetTree(newDir);
++    audit.log("DELETE", idPath, null, "recursive=false folder-identity");
++    fs.delete(idPath, false);
++    audit.log("CREATE", idPath, null, "folder-identity resigned");
++    try (FSDataOutputStream out = fs.create(idPath, false)) {
++      out.write(bytes);
++    }
++  }
++}
+diff --git a/src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java b/src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java
+index 961cca190..b8038f2cc 100644
+--- a/src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java
++++ b/src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java
+@@ -21,6 +21,7 @@ import java.io.IOException;
+ import java.io.UncheckedIOException;
+ import java.net.URI;
+ import java.util.ArrayList;
++import java.util.Arrays;
+ import java.util.EnumSet;
+ import java.util.HashMap;
+ import java.util.HashSet;
+@@ -133,6 +134,13 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+   public static final String SIGN_ALLOW_TEST_KEY = "attested.signature.allow.test.keys";
+   /** The file with the test key; the default is ~/tc-test-key/test-key.txt of the user the JVM runs as. */
+   public static final String SIGN_TESTKEY_FILE_KEY = "attested.signature.test.key.file";
++  /**
++   * Step 5.1.2: bind every file to its folder. Records are then written in format ATTEST03 (they name the folder's ID and the file's name)
++   * and every folder the wrapper makes or adopts gets a signed identity file. Needs signing. Off by default.
++   */
++  public static final String FOLDER_BIND_KEY = "attested.folder.binding.enabled";
++  /** Refuse a file whose record is not bound to its folder (an older format). A record that is bound is always checked, whatever this says. */
++  public static final String FOLDER_REQUIRED_KEY = "attested.folder.binding.required";
+   private static final int META_CACHE_MAX = 4096;
+   private static final int META_REPORTED_MAX = 20000;
+ 
+@@ -172,6 +180,9 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+   private String missingPolicy = "fail";
+   private String metaMissingPolicy = "warn";
+   private AttestedSignatures signatures;
++  private AttestedFolders folders;
++  private boolean bindOn = false;
++  private boolean bindRequired = false;
+   private long chunkSize = DEFAULT_CHUNK_SIZE;
+   private String jobId = "";
+   private String attemptId = "";
+@@ -240,6 +251,11 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+           + keyFile);
+     }
+     this.signatures = new AttestedSignatures(keys, signOn, signRequired, allowTestKeys);
++    this.bindOn = AttestedSettings.getBoolean(conf, FOLDER_BIND_KEY, false, ignored);
++    this.bindRequired = AttestedSettings.getBoolean(conf, FOLDER_REQUIRED_KEY, false, ignored);
++    if (bindOn && !(signOn && sidecars)) {
++      throw new IOException(FOLDER_BIND_KEY + " needs signed records: " + SIGN_KEY + ", " + SIDECAR_KEY + " and " + HASH_ENABLED_KEY + " must be true");
++    }
+     long cacheSeconds = AttestedSettings.getLong(conf, META_CACHE_KEY, 10, ignored);
+     if (cacheSeconds < 0) {
+       throw new IOException(META_CACHE_KEY + " must not be negative, got " + cacheSeconds);
+@@ -261,6 +277,7 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+           + "this wrapper again and loop.");
+     }
+     this.fs = inner;
++    this.folders = new AttestedFolders(inner, signatures, cacheNanos, this::audit);
+     super.initialize(name, conf);
+     AttestedAudit.log("INIT", null, null, "uri=" + name + " inner="
+         + inner.getClass().getName() + " wrapper=" + getClass().getName()
+@@ -270,6 +287,7 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+         + " sign=" + signatures.signing() + " sigrequired=" + signatures.required()
+         + " testkeys=" + signatures.allowTestKeys() + " key="
+         + (signatures.signingKeyId() == null ? "none" : signatures.signingKeyId())
++        + " bind=" + bindOn + " bindrequired=" + bindRequired
+         + " from=" + where()
+         + (ignored.isEmpty() ? "" : " ignored=" + String.join(",", ignored)));
+   }
+@@ -338,9 +356,21 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+       byte[] root, List<byte[]> leaves) throws IOException {
+     Path sc = AttestedSidecar.pathFor(new Path(filePath));
+     forget(sc);
+-    byte[] bytes = signatures.encode((int) chunk, length, root, leaves);
++    byte[] bytes = null;
++    String bound = "";
++    if (bindOn) {
++      Path file = new Path(filePath);
++      AttestedFolderCodec.Decoded fd = folders.ensure(file.getParent());
++      if (fd != null) {
++        bytes = signatures.encodeBound((int) chunk, length, root, leaves, fd.folderId, file.getName());
++        bound = " bound=" + MerkleHasher.hex(fd.folderId).substring(0, 8);
++      }
++    }
++    if (bytes == null) {
++      bytes = signatures.encode((int) chunk, length, root, leaves);
++    }
+     audit("CREATE", sc, null,
+-        signatures.signing() ? "sidecar signed=" + signatures.signingKeyId() : "sidecar");
++        signatures.signing() ? "sidecar signed=" + signatures.signingKeyId() + bound : "sidecar");
+     try (FSDataOutputStream out = fs.create(sc, true)) {
+       out.write(bytes);
+     }
+@@ -384,7 +414,7 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+   private FSDataInputStream verified(Path f, FSDataInputStream raw, String how)
+       throws IOException {
+     String tag = how == null ? "" : how + " ";
+-    if (!verifyReads || AttestedSidecar.isSidecar(f)) {
++    if (!verifyReads || AttestedSidecar.isCompanion(f)) {
+       audit("OPEN", f, null, tag + "verify=off");
+       return raw;
+     }
+@@ -419,6 +449,19 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+       throw new ChecksumException("Attested verification failed for " + f
+           + ": " + e.getMessage(), 0);
+     }
++    String bind = "none";
++    try {
++      if (rec.decoded.bound()) {
++        checkBinding(f, rec.decoded);
++        bind = "ok";
++      } else if (bindRequired) {
++        throw new IOException("the record is not bound to a folder and folder binding is required");
++      }
++    } catch (IOException e) {
++      raw.close();
++      audit("VERIFY-FAIL", f, null, tag + e.getMessage());
++      throw new ChecksumException("Attested verification failed for " + f + ": " + e.getMessage(), 0);
++    }
+     long len = fs.getFileStatus(f).getLen();
+     if (rec.length != len) {
+       raw.close();
+@@ -428,10 +471,137 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+       throw new ChecksumException("Attested verification failed for " + f
+           + ": " + why, 0);
+     }
+-    audit("OPEN", f, null, tag + "verify=ok sig=" + sig);
++    audit("OPEN", f, null, tag + "verify=ok sig=" + sig + " bind=" + bind);
+     return new FSDataInputStream(new VerifyingInputStream(raw, rec, q(f)));
+   }
+ 
++  // ------------------------------------------------------------- folder binding (step 5.1.2)
++
++  /** The folder identity file's name is the wrapper's own: nobody creates, renames or deletes it through the wrapper. */
++  private void denyReserved(Path p) throws IOException {
++    if (p != null && AttestedFolderCodec.isIdentityName(p.getName())) {
++      audit("REFUSED", p, null, "op=RESERVED-NAME");
++      throw new IOException("attested: the name " + AttestedFolderCodec.FILE_NAME
++          + " is reserved for the folder identity and cannot be created, renamed or deleted: " + p);
++    }
++  }
++
++  /** Before a file is created: its folder (and any missing parent) has an identity. */
++  private void prepareParent(Path f, boolean makeParents) throws IOException {
++    if (!bindOn) {
++      return;
++    }
++    Path parent = q(f).getParent();
++    if (AttestedFolders.isRoot(parent)) {
++      return;
++    }
++    if (makeParents) {
++      folders.ensureTree(parent);
++    } else if (fs.exists(parent)) {
++      folders.ensure(parent);
++    }
++  }
++
++  /** The record is bound to a folder and a name: both must be the ones this file has now, all the way up to the top folder. */
++  private void checkBinding(Path f, AttestedRecordCodec.Decoded d) throws IOException {
++    Path parent = f.getParent();
++    if (AttestedFolders.isRoot(parent)) {
++      throw new IOException("the record is bound to a folder but the file is at the top");
++    }
++    byte[] id = folders.verifyChain(parent);
++    if (!Arrays.equals(id, d.folderId)) {
++      throw new IOException("the record belongs to another folder than the one this file is in");
++    }
++    if (!f.getName().equals(d.fileName)) {
++      throw new IOException("the record is for a file named '" + d.fileName + "', not '" + f.getName() + "'");
++    }
++  }
++
++  /**
++   * Before a file with a bound record is renamed: the old record, its signature and its binding are checked (a forged record must never be
++   * signed again), and the new folder gets its identity. Returns the old record, or null when the file has none or an unbound one, which is
++   * then moved as it is.
++   */
++  private AttestedSidecar beforeFileMove(Path src, Path target) throws IOException {
++    if (!bindOn) {
++      return null;
++    }
++    AttestedSidecar rec;
++    try {
++      rec = AttestedSidecar.read(fs, AttestedSidecar.pathFor(src));
++    } catch (FileNotFoundException e) {
++      return null;
++    }
++    if (!rec.decoded.bound()) {
++      return null;
++    }
++    try {
++      signatures.check(rec.decoded);
++      checkBinding(src, rec.decoded);
++      Path np = target.getParent();
++      if (!AttestedFolders.isRoot(np) && fs.exists(np)) {
++        folders.ensure(np);
++      }
++    } catch (IOException e) {
++      audit("VERIFY-FAIL", src, target, "rename " + e.getMessage());
++      throw new IOException("Attested rename refused for " + src + ": " + e.getMessage());
++    }
++    return rec;
++  }
++
++  /** After a file was renamed: a new record for the new folder and name, from the old one, with no data read; or the old record moved. */
++  private void afterFileMove(Path src, Path target, AttestedSidecar moved) throws IOException {
++    if (moved == null) {
++      moveSidecar(src, target);
++      return;
++    }
++    Path from = AttestedSidecar.pathFor(src);
++    Path to = AttestedSidecar.pathFor(target);
++    forget(from);
++    forget(to);
++    AttestedFolderCodec.Decoded fd = folders.ensure(q(target).getParent());
++    List<byte[]> leaves = Arrays.asList(moved.leaves);
++    byte[] bytes = fd != null
++        ? signatures.encodeBound(moved.chunkSize, moved.length, moved.root, leaves, fd.folderId, target.getName())
++        : signatures.encode(moved.chunkSize, moved.length, moved.root, leaves);
++    audit("CREATE", to, null, "sidecar signed=" + signatures.signingKeyId() + " rebound");
++    try (FSDataOutputStream out = fs.create(to, true)) {
++      out.write(bytes);
++    }
++    if (fs.exists(from)) {
++      audit("DELETE", from, null, "recursive=false sidecar");
++      fs.delete(from, false);
++    }
++  }
++
++  /** Before a folder with an identity is renamed: its chain is checked, and the new parent has its identity. Null when it has none. */
++  private AttestedFolderCodec.Decoded beforeDirMove(Path src, Path target) throws IOException {
++    try {
++      AttestedFolderCodec.Decoded old = folders.read(src);
++      if (old == null) {
++        return null;
++      }
++      folders.verifyChain(src);
++      Path np = target.getParent();
++      if (!AttestedFolders.isRoot(np) && fs.exists(np)) {
++        folders.ensure(np);
++      }
++      return old;
++    } catch (IOException e) {
++      audit("VERIFY-FAIL", src, target, "rename folder " + e.getMessage());
++      throw new IOException("Attested rename refused for the folder " + src + ": " + e.getMessage());
++    }
++  }
++
++  /** After a folder was renamed: only its own identity file is signed again; the files and folders inside are untouched. */
++  private void afterDirMove(Path src, Path target, AttestedFolderCodec.Decoded old) throws IOException {
++    folders.forgetTree(src);
++    folders.forgetTree(target);
++    if (old != null) {
++      folders.resign(q(target), old);
++    }
++  }
++
+   // ------------------------------------------------------------- metadata (step 4.5)
+ 
+   private void forget(Path sidecar) {
+@@ -579,7 +749,7 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+     if (all.length == 1 && !all[0].isDirectory()
+         && all[0].getPath().toUri().getPath().equals(f.toUri().getPath())) {
+       // the listing of a single file shows the file only, not its record
+-      if (!AttestedSidecar.isSidecar(all[0].getPath())) {
++      if (!AttestedSidecar.isCompanion(all[0].getPath())) {
+         checkFile(all[0].getPath(), all[0].getLen(), null);
+       }
+       return;
+@@ -591,6 +761,9 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+     for (FileStatus s : all) {
+       Path p = s.getPath();
+       String name = p.getName();
++      if (AttestedFolderCodec.isIdentityName(name)) {
++        continue;
++      }
+       if (AttestedSidecar.isSidecar(p)) {
+         String dataName = name.substring(1, name.length() - ".attested".length());
+         if (!byName.containsKey(dataName)) {
+@@ -617,7 +790,7 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+     checkListing(dir, all.toArray(new FileStatus[0]));
+     final List<T> kept = new ArrayList<>();
+     for (T s : all) {
+-      if (!AttestedSidecar.isSidecar(s.getPath())
++      if (!AttestedSidecar.isCompanion(s.getPath())
+           && (filter == null || filter.accept(s.getPath()))) {
+         kept.add(s);
+       }
+@@ -645,13 +818,13 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+     try {
+       st = super.getFileStatus(f);
+     } catch (FileNotFoundException e) {
+-      if (metadataCheck && !AttestedSidecar.isSidecar(f) && f.getParent() != null
++      if (metadataCheck && !AttestedSidecar.isCompanion(f) && f.getParent() != null
+           && fs.exists(AttestedSidecar.pathFor(f))) {
+         orphan(f);
+       }
+       throw e;
+     }
+-    if (metadataCheck && st.isFile() && !AttestedSidecar.isSidecar(f)) {
++    if (metadataCheck && st.isFile() && !AttestedSidecar.isCompanion(f)) {
+       checkFile(f, st.getLen(), null);
+     }
+     return st;
+@@ -660,7 +833,7 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+   private static FileStatus[] withoutSidecars(FileStatus[] all) {
+     int keep = 0;
+     for (FileStatus s : all) {
+-      if (!AttestedSidecar.isSidecar(s.getPath())) {
++      if (!AttestedSidecar.isCompanion(s.getPath())) {
+         keep++;
+       }
+     }
+@@ -670,7 +843,7 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+     FileStatus[] out = new FileStatus[keep];
+     int i = 0;
+     for (FileStatus s : all) {
+-      if (!AttestedSidecar.isSidecar(s.getPath())) {
++      if (!AttestedSidecar.isCompanion(s.getPath())) {
+         out[i++] = s;
+       }
+     }
+@@ -768,6 +941,8 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+       boolean overwrite, int bufferSize, short replication, long blockSize,
+       Progressable progress) throws IOException {
+     audit("CREATE", f, null, "overwrite=" + overwrite);
++    denyReserved(f);
++    prepareParent(f, true);
+     return hashed(f, super.create(f, permission, overwrite, bufferSize,
+         replication, blockSize, progress));
+   }
+@@ -778,6 +953,8 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+       long blockSize, Progressable progress, ChecksumOpt checksumOpt)
+       throws IOException {
+     audit("CREATE", f, null, "flags=" + flags);
++    denyReserved(f);
++    prepareParent(f, true);
+     return hashed(f, super.create(f, permission, flags, bufferSize,
+         replication, blockSize, progress, checksumOpt));
+   }
+@@ -788,6 +965,8 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+       EnumSet<CreateFlag> flags, int bufferSize, short replication,
+       long blockSize, Progressable progress) throws IOException {
+     audit("CREATE", f, null, "createNonRecursive flags=" + flags);
++    denyReserved(f);
++    prepareParent(f, false);
+     return hashed(f, super.createNonRecursive(f, permission, flags, bufferSize,
+         replication, blockSize, progress));
+   }
+@@ -798,6 +977,8 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+       int bufferSize, short replication, long blockSize, Progressable progress,
+       ChecksumOpt checksumOpt) throws IOException {
+     audit("CREATE", f, null, "primitiveCreate flags=" + flag);
++    denyReserved(f);
++    prepareParent(f, true);
+     return hashed(f, super.primitiveCreate(f, absolutePermission, flag,
+         bufferSize, replication, blockSize, progress, checksumOpt));
+   }
+@@ -944,14 +1125,22 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+   @Override
+   public boolean rename(Path src, Path dst) throws IOException {
+     audit("RENAME", src, dst, null);
++    denyReserved(src);
++    denyReserved(dst);
+     boolean file = track() && isPlainFile(src);
++    boolean dir = bindOn && !file && isDir(src);
+     Path target = dst;
+-    if (file && isDir(dst)) {
++    if ((file || dir) && isDir(dst)) {
+       target = new Path(dst, src.getName());
+     }
++    AttestedSidecar moved = file ? beforeFileMove(src, target) : null;
++    AttestedFolderCodec.Decoded oldDir = dir ? beforeDirMove(src, target) : null;
+     boolean ok = super.rename(src, dst);
+     if (ok && file) {
+-      moveSidecar(src, target);
++      afterFileMove(src, target, moved);
++    }
++    if (ok && dir) {
++      afterDirMove(src, target, oldDir);
+     }
+     return ok;
+   }
+@@ -960,41 +1149,68 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+   protected void rename(Path src, Path dst, Rename... options)
+       throws IOException {
+     audit("RENAME", src, dst, "options");
++    denyReserved(src);
++    denyReserved(dst);
+     boolean file = track() && isPlainFile(src);
++    boolean dir = bindOn && !file && isDir(src);
++    AttestedSidecar moved = file ? beforeFileMove(src, dst) : null;
++    AttestedFolderCodec.Decoded oldDir = dir ? beforeDirMove(src, dst) : null;
+     super.rename(src, dst, options);
+     if (file) {
+-      moveSidecar(src, dst);
++      afterFileMove(src, dst, moved);
++    }
++    if (dir) {
++      afterDirMove(src, dst, oldDir);
+     }
+   }
+ 
+   @Override
+   public boolean delete(Path f, boolean recursive) throws IOException {
+     audit("DELETE", f, null, "recursive=" + recursive);
++    denyReserved(f);
+     boolean file = track() && isPlainFile(f);
+     boolean ok = super.delete(f, recursive);
+     if (ok && file) {
+       dropSidecar(f);
+     }
++    if (ok) {
++      folders.forgetTree(f);
++    }
+     return ok;
+   }
+ 
+   @Override
+   public boolean mkdirs(Path f, FsPermission permission) throws IOException {
+     audit("MKDIRS", f, null, null);
+-    return super.mkdirs(f, permission);
++    List<Path> fresh = bindOn ? folders.missingAncestors(q(f)) : null;
++    boolean ok = super.mkdirs(f, permission);
++    if (ok && fresh != null) {
++      folders.adopt(fresh);
++    }
++    return ok;
+   }
+ 
+   @Override
+   public boolean mkdirs(Path f) throws IOException {
+     audit("MKDIRS", f, null, null);
+-    return super.mkdirs(f);
++    List<Path> fresh = bindOn ? folders.missingAncestors(q(f)) : null;
++    boolean ok = super.mkdirs(f);
++    if (ok && fresh != null) {
++      folders.adopt(fresh);
++    }
++    return ok;
+   }
+ 
+   @Override
+   protected boolean primitiveMkdir(Path f, FsPermission abdolutePermission)
+       throws IOException {
+     audit("MKDIRS", f, null, "primitiveMkdir");
+-    return super.primitiveMkdir(f, abdolutePermission);
++    List<Path> fresh = bindOn ? folders.missingAncestors(q(f)) : null;
++    boolean ok = super.primitiveMkdir(f, abdolutePermission);
++    if (ok && fresh != null) {
++      folders.adopt(fresh);
++    }
++    return ok;
+   }
+ 
+   @Override
+diff --git a/src/java/org/apache/nutch/attested/AttestedRecordCodec.java b/src/java/org/apache/nutch/attested/AttestedRecordCodec.java
+index 2ec0e9eb8..6beb850eb 100644
+--- a/src/java/org/apache/nutch/attested/AttestedRecordCodec.java
++++ b/src/java/org/apache/nutch/attested/AttestedRecordCodec.java
+@@ -39,16 +39,26 @@ import java.util.List;
+  * signature (ECDSA with P-256 and SHA-256, DER). The signature covers
+  * {@link #statement}: a fixed tag, the key id, the chunk size, the length and the root.
+  * The root commits to every chunk hash, so the chunk hashes need no second signature.</p>
++ *
++ * <p>Format ATTEST03 (step 5.1.2) is ATTEST02 with the folder binding: between the chunk hashes and the signature block come the
++ * 16-byte ID of the folder the file lives in, an unsigned short for the length of the file's name (1 to 1024) and the name
++ * in UTF-8. The signature covers {@link #statementBound}: the same fields plus the folder ID and the name, so a signed file copied
++ * into another folder, or under another name, no longer verifies.</p>
+  */
+ final class AttestedRecordCodec {
+ 
+   static final byte[] MAGIC1 = "ATTEST01".getBytes(StandardCharsets.US_ASCII);
+   static final byte[] MAGIC2 = "ATTEST02".getBytes(StandardCharsets.US_ASCII);
++  static final byte[] MAGIC3 = "ATTEST03".getBytes(StandardCharsets.US_ASCII);
++  static final int FOLDER_ID = 16;
++  static final int MAX_NAME = 1024;
+   static final int HASH = 32;
+   static final int MAX_KEY_ID = 64;
+   static final int MAX_SIGNATURE = 200;
+   private static final byte[] STATEMENT_TAG =
+       "ATTEST02-SIGNED\n".getBytes(StandardCharsets.US_ASCII);
++  private static final byte[] STATEMENT_TAG_BOUND =
++      "ATTEST03-SIGNED\n".getBytes(StandardCharsets.US_ASCII);
+ 
+   private AttestedRecordCodec() {
+   }
+@@ -63,9 +73,17 @@ final class AttestedRecordCodec {
+     /** Null for an unsigned (version 1) record. */
+     final String keyId;
+     final byte[] signature;
++    /** The ID of the folder the file lives in, and the file's name: null unless the record is bound (version 3). */
++    final byte[] folderId;
++    final String fileName;
+ 
+     Decoded(int version, int chunkSize, long length, byte[] root, byte[][] leaves,
+         String keyId, byte[] signature) {
++      this(version, chunkSize, length, root, leaves, keyId, signature, null, null);
++    }
++
++    Decoded(int version, int chunkSize, long length, byte[] root, byte[][] leaves,
++        String keyId, byte[] signature, byte[] folderId, String fileName) {
+       this.version = version;
+       this.chunkSize = chunkSize;
+       this.length = length;
+@@ -73,10 +91,17 @@ final class AttestedRecordCodec {
+       this.leaves = leaves;
+       this.keyId = keyId;
+       this.signature = signature;
++      this.folderId = folderId;
++      this.fileName = fileName;
+     }
+ 
+     boolean signed() {
+-      return version == 2;
++      return version >= 2;
++    }
++
++    /** True for a record bound to a folder and a name (ATTEST03). */
++    boolean bound() {
++      return version == 3;
+     }
+   }
+ 
+@@ -118,6 +143,63 @@ final class AttestedRecordCodec {
+     return bytes.toByteArray();
+   }
+ 
++  static boolean validName(String name) {
++    if (name == null || name.isEmpty() || name.indexOf('/') >= 0 || name.indexOf('\0') >= 0) {
++      return false;
++    }
++    return name.getBytes(StandardCharsets.UTF_8).length <= MAX_NAME;
++  }
++
++  /** The bytes that are signed for a record bound to a folder and a name (ATTEST03). */
++  static byte[] statementBound(String keyId, byte[] folderId, String fileName, int chunkSize,
++      long length, byte[] root) throws IOException {
++    if (!validKeyId(keyId) || root == null || root.length != HASH || folderId == null
++        || folderId.length != FOLDER_ID || !validName(fileName)) {
++      throw new IOException("cannot build the statement to sign (bad key id, folder ID, name or root)");
++    }
++    byte[] id = keyId.getBytes(StandardCharsets.US_ASCII);
++    byte[] name = fileName.getBytes(StandardCharsets.UTF_8);
++    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
++    DataOutputStream out = new DataOutputStream(bytes);
++    out.write(STATEMENT_TAG_BOUND);
++    out.writeByte(id.length);
++    out.write(id);
++    out.write(folderId);
++    out.writeShort(name.length);
++    out.write(name);
++    out.writeInt(chunkSize);
++    out.writeLong(length);
++    out.write(root);
++    out.flush();
++    return bytes.toByteArray();
++  }
++
++  /** A signed record bound to a folder and a name (ATTEST03). */
++  static byte[] encodeBound(int chunkSize, long length, byte[] root, List<byte[]> leaves,
++      byte[] folderId, String fileName, String keyId, byte[] signature) throws IOException {
++    if (!validKeyId(keyId) || signature == null || signature.length < 1
++        || signature.length > MAX_SIGNATURE || folderId == null || folderId.length != FOLDER_ID
++        || !validName(fileName)) {
++      throw new IOException("cannot write a bound record (bad key id, signature, folder ID or name)");
++    }
++    byte[] id = keyId.getBytes(StandardCharsets.US_ASCII);
++    byte[] name = fileName.getBytes(StandardCharsets.UTF_8);
++    ByteArrayOutputStream bytes = new ByteArrayOutputStream(
++        8 + 4 + 8 + HASH + 4 + HASH * leaves.size() + FOLDER_ID + 2 + name.length + 1 + id.length + 2
++            + signature.length);
++    DataOutputStream out = new DataOutputStream(bytes);
++    body(out, MAGIC3, chunkSize, length, root, leaves);
++    out.write(folderId);
++    out.writeShort(name.length);
++    out.write(name);
++    out.writeByte(id.length);
++    out.write(id);
++    out.writeShort(signature.length);
++    out.write(signature);
++    out.flush();
++    return bytes.toByteArray();
++  }
++
+   private static void body(DataOutputStream out, byte[] magic, int chunkSize, long length,
+       byte[] root, List<byte[]> leaves) throws IOException {
+     out.write(magic);
+@@ -175,6 +257,8 @@ final class AttestedRecordCodec {
+         version = 1;
+       } else if (Arrays.equals(magic, MAGIC2)) {
+         version = 2;
++      } else if (Arrays.equals(magic, MAGIC3)) {
++        version = 3;
+       } else {
+         throw new IOException("record is damaged (wrong header)");
+       }
+@@ -191,9 +275,29 @@ final class AttestedRecordCodec {
+       for (int i = 0; i < n; i++) {
+         in.readFully(leaves[i]);
+       }
++      byte[] folderId = null;
++      String fileName = null;
++      if (version == 3) {
++        folderId = new byte[FOLDER_ID];
++        in.readFully(folderId);
++        int nameLen = in.readUnsignedShort();
++        if (nameLen < 1 || nameLen > MAX_NAME) {
++          throw new IOException("record is damaged (impossible name length)");
++        }
++        byte[] nameBytes = new byte[nameLen];
++        in.readFully(nameBytes);
++        try {
++          fileName = StandardCharsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(nameBytes)).toString();
++        } catch (java.nio.charset.CharacterCodingException e) {
++          throw new IOException("record is damaged (the name is not UTF-8)");
++        }
++        if (!validName(fileName)) {
++          throw new IOException("record is damaged (impossible name)");
++        }
++      }
+       String keyId = null;
+       byte[] signature = null;
+-      if (version == 2) {
++      if (version >= 2) {
+         int idLen = in.readUnsignedByte();
+         if (idLen < 1 || idLen > MAX_KEY_ID) {
+           throw new IOException("record is damaged (impossible key id length)");
+@@ -222,7 +326,7 @@ final class AttestedRecordCodec {
+         throw new IOException(
+             "record is damaged (its root does not match its own chunk hashes)");
+       }
+-      return new Decoded(version, chunk, length, root, leaves, keyId, signature);
++      return new Decoded(version, chunk, length, root, leaves, keyId, signature, folderId, fileName);
+     } catch (EOFException e) {
+       throw new IOException("record is damaged (too short)");
+     }
+diff --git a/src/java/org/apache/nutch/attested/AttestedSidecar.java b/src/java/org/apache/nutch/attested/AttestedSidecar.java
+index 865ade854..c6e14271a 100644
+--- a/src/java/org/apache/nutch/attested/AttestedSidecar.java
++++ b/src/java/org/apache/nutch/attested/AttestedSidecar.java
+@@ -63,6 +63,11 @@ final class AttestedSidecar {
+     this.decoded = d;
+   }
+ 
++  /** A file the wrapper keeps next to the data and hides from listings: a record, or a folder identity file (step 5.1.2). */
++  static boolean isCompanion(Path p) {
++    return isSidecar(p) || AttestedFolderCodec.isIdentityName(p.getName());
++  }
++
+   static boolean isSidecar(Path p) {
+     String n = p.getName();
+     return n.length() > ".attested".length() + 1 && n.startsWith(".")
+@@ -98,7 +103,8 @@ final class AttestedSidecar {
+       byte[] magic = new byte[MAGIC.length];
+       in.readFully(magic);
+       if (!Arrays.equals(magic, AttestedRecordCodec.MAGIC1)
+-          && !Arrays.equals(magic, AttestedRecordCodec.MAGIC2)) {
++          && !Arrays.equals(magic, AttestedRecordCodec.MAGIC2)
++          && !Arrays.equals(magic, AttestedRecordCodec.MAGIC3)) {
+         throw new IOException("record is damaged (wrong header)");
+       }
+       int chunk = in.readInt();
+diff --git a/src/java/org/apache/nutch/attested/AttestedSignatures.java b/src/java/org/apache/nutch/attested/AttestedSignatures.java
+index 7939a79c4..1395277ed 100644
+--- a/src/java/org/apache/nutch/attested/AttestedSignatures.java
++++ b/src/java/org/apache/nutch/attested/AttestedSignatures.java
+@@ -84,7 +84,8 @@ final class AttestedSignatures {
+   /**
+    * Checks the signature of a decoded record. Returns "none" (an unsigned record that is
+    * accepted), "ok" or "ok-test" (a test key). Throws an IOException saying why when the record
+-   * must be refused.
++   * must be refused. For a record bound to a folder (ATTEST03) this checks the signature only; that the
++   * folder ID and the name are the right ones is the caller's job (see AttestedFolders).
+    */
+   String check(AttestedRecordCodec.Decoded rec) throws IOException {
+     if (!rec.signed()) {
+@@ -93,27 +94,58 @@ final class AttestedSignatures {
+       }
+       return "none";
+     }
+-    boolean test = TestKeys.isTestKeyId(rec.keyId);
++    byte[] statement = rec.bound()
++        ? AttestedRecordCodec.statementBound(rec.keyId, rec.folderId, rec.fileName, rec.chunkSize, rec.length, rec.root)
++        : AttestedRecordCodec.statement(rec.keyId, rec.chunkSize, rec.length, rec.root);
++    return verify("record", rec.keyId, statement, rec.signature);
++  }
++
++  /** The signature of a folder identity file: always signed, so there is no legacy form. */
++  String checkFolder(AttestedFolderCodec.Decoded d) throws IOException {
++    return verify("folder identity", d.keyId,
++        AttestedFolderCodec.statement(d.keyId, d.folderId, d.name, d.parentId, d.topPath), d.signature);
++  }
++
++  private String verify(String what, String keyId, byte[] statement, byte[] signature) throws IOException {
++    boolean test = TestKeys.isTestKeyId(keyId);
+     if (test && !allowTestKeys) {
+-      throw new IOException("the record is signed with a test key (" + rec.keyId
+-          + "), which is not accepted");
++      throw new IOException("the " + what + " is signed with a test key (" + keyId + "), which is not accepted");
+     }
+-    PublicKey pub = keys == null ? null : keys.publicKey(rec.keyId);
++    PublicKey pub = keys == null ? null : keys.publicKey(keyId);
+     if (pub == null) {
+-      throw new IOException("the record is signed by a key that is not trusted here ("
+-          + rec.keyId + ")");
++      throw new IOException("the " + what + " is signed by a key that is not trusted here (" + keyId + ")");
+     }
+     try {
+       Signature s = Signature.getInstance("SHA256withECDSA");
+       s.initVerify(pub);
+-      s.update(AttestedRecordCodec.statement(rec.keyId, rec.chunkSize, rec.length, rec.root));
+-      if (!s.verify(rec.signature)) {
+-        throw new IOException("the signature of the record does not verify (" + rec.keyId + ")");
++      s.update(statement);
++      if (!s.verify(signature)) {
++        throw new IOException("the signature of the " + what + " does not verify (" + keyId + ")");
+       }
+     } catch (GeneralSecurityException e) {
+-      throw new IOException("the signature of the record does not verify (" + rec.keyId
+-          + "): " + e.getMessage());
++      throw new IOException("the signature of the " + what + " does not verify (" + keyId + "): " + e.getMessage());
+     }
+     return test ? "ok-test" : "ok";
+   }
++
++  /** The bytes of a finished record bound to a folder and a name (ATTEST03); signing must be on. */
++  byte[] encodeBound(int chunkSize, long length, byte[] root, List<byte[]> leaves, byte[] folderId,
++      String fileName) throws IOException {
++    if (!sign) {
++      throw new IOException("a record bound to a folder needs signing to be on");
++    }
++    String id = keys.signingKeyId();
++    byte[] sig = keys.sign(AttestedRecordCodec.statementBound(id, folderId, fileName, chunkSize, length, root));
++    return AttestedRecordCodec.encodeBound(chunkSize, length, root, leaves, folderId, fileName, id, sig);
++  }
++
++  /** The bytes of a signed folder identity file; signing must be on. */
++  byte[] encodeFolder(byte[] folderId, String name, byte[] parentId, String topPath) throws IOException {
++    if (!sign) {
++      throw new IOException("a folder identity needs signing to be on");
++    }
++    String id = keys.signingKeyId();
++    byte[] sig = keys.sign(AttestedFolderCodec.statement(id, folderId, name, parentId, topPath));
++    return AttestedFolderCodec.encode(folderId, name, parentId, topPath, id, sig);
++  }
+ }
