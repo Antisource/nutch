@@ -1,6 +1,6 @@
 # Milestone 5: signed records
 
-Status: **steps 5.1.1 and 5.1.2 are done on 15 October 2026**: every record can be signed with a labelled test key, a file rewritten together with its record, without the key, fails the read (section 3), and every file is bound to its folder and its name, so that a signed file moved or copied elsewhere fails the read too (section 4); both are shown on the real HDFS. Steps 5.1.3, 5.2 and 5.3 are open ([milestone-plan.md](milestone-plan.md)). It is extended as the later steps close. All times are UTC.
+Status: **steps 5.1.1 and 5.1.2 are done on 15 October 2026**: every record can be signed with a labelled test key, a file rewritten together with its record, without the key, fails the read (section 3), and every file is bound to its folder and its name, so that a signed file moved or copied elsewhere fails the read too (section 4); both are shown on the real HDFS. The combined crawl, with signing and folder binding on and required, ran on the real cluster the same day and its whole output verifies offline with the public key only (section 5). Steps 5.1.3, 5.2 and 5.3 are open ([milestone-plan.md](milestone-plan.md)). It is extended as the later steps close. All times are UTC.
 
 ## 1. What this milestone does, in plain words
 
@@ -12,6 +12,7 @@ Until now every file in HDFS has a tamper sticker, its record. The sticker prove
 |---|---|---|
 | 5.1.1 | records are signed with a test key, clearly labelled and never used in evidence | **Done on 15 October 2026** (section 3) |
 | 5.1.2 | folder identity files bind each file to its folder (ADR-035) | **Done on 15 October 2026** (section 4) |
+| 5.1.2b | the combined crawl with signing and folder binding on and required (`run14`) | **Done on 15 October 2026** (section 5) |
 | 5.1.3 | the real key: generated per VM at boot, held by a small signing service, bound to the quote through REPORTDATA | Open |
 | 5.2.1 | readers accept only keys of attested machines | Open |
 | 5.3 | locked image, fixed driver, TLS checking on | Open |
@@ -195,3 +196,60 @@ The same method as in step 5.1.1 (ADR-045): the cluster reserved with `tc-busy.s
 - When code handles an error that depends on the real system, the fake must produce the real system's errors, and a planted fault must show that the test catches the missing handling (mistake log 105 and 107).
 - A structural fact (top or child) is decided by a rule that does not depend on timing; waiting longer does not fix a guess (mistake log 106).
 - A planted fault that survives means a missing test: two survived in the first set of binding tests and became two tests (mistake log 108).
+
+
+## 5. The combined crawl (`run14`, 15 October 2026)
+
+### 5.1 What it is
+
+One real crawl with the job of step 5.1.2, with signing and folder binding **on and required** on both nodes, in a reserved window, to see what happens when a real Nutch job writes through the wrapper in this mode: every file it writes, including everything that Hadoop's output committer moves between folders, must end with a signed record bound to its folder. It is the crawl command of the earlier runs with receipts on (run 12's settings), started by `m512c-run.sh` after it had checked that the window was open, the cluster reserved, the test key present, the job exactly `6f98295641a4f559…` and the policy file the verified one. Right after the crawl the script made a copy of the whole output with the plain client and verified it **offline with the public key only**.
+
+### 5.2 What ran
+
+| Item | Value |
+|---|---|
+| The window | the cluster reserved at 18:29:57, the master opened at 18:30:22, the worker at 18:33:07, the master closed at 18:58:04, the worker at 19:01:55 (about 32 minutes, `ALL-UNCHANGED` 9 and 6 after the closes) |
+| The crawl | started 18:37:50, finished with exit code 0 after 770 s |
+| The listings | 3,409 paths before the crawl and 3,802 after (393 added); the NameNode's audit window has 10,011 events |
+| The offline verification | the seeds folder: 1 folder, 1 file, clean; the crawl output: **55 folders and 60 files, all clean**; the plain copy held 175 files (60 data files, 60 record files and 55 identity files, 1,260 KB) |
+
+### 5.3 What the analysis found
+
+The analysis (`m512c-analyze.sh`, in Cloud Shell, read-only) ran the standard checks with the committed tools of commit `5bedce243` and two of them replaced by the updated versions of this step (section 5.4):
+
+| Check | Result |
+|---|---|
+| The audit comparison | `AUDIT-CLEAN`: 393 added, all explained by the wrapper's log |
+| The expected records | `RECORDS-COMPLETE`: 61 files judged, 61 with a matching record |
+| The verification summary | `VERIFY-CLEAN`: 265 opens |
+| The NameNode comparison | `NN-AUDIT-COMPARE-CLEAN`, with 27 folders made with their identity file explained; the negative control (the biggest wrapper log removed) reports 108 findings, so the comparison can fail |
+| Every verified read | **265 reads with `sig=ok-test` and `bind=ok`**, none with `sig=none` or `bind=none`, and no `VERIFY-FAIL` line in any audit log |
+| The identity files | 57 identity files in the after listing (55 in the crawl output, the rest in other folders that the wrapper made during the run) |
+
+**One finding:** "no task logs from the worker". It is a gap in my kit, not in the wrapper. The earlier runs' worker packs held the YARN task logs (`userlogs`) next to the wrapper logs, and version 1 of the worker script packed only the wrapper logs. They could not be added afterwards: the NodeManager deletes the old container logs when it restarts, which the window's close does; version 2 of the script, with a `repack` that adds the task logs of the applications started during the window, found none. The task logs are not part of any check of this step, so run 14 was not repeated for them; its analysis ends with this one finding, explained (limitations row 106). Version 2's `pack` takes the task logs during the window and refuses to pack without them.
+
+### 5.4 The tools
+
+Folder binding changes what the NameNode shows, so two analysis tools were updated and tested before the run: `nn_audit_compare.py` skips the NameNode's opens of `_attested-folder` files (like those of record files) and explains a NameNode `mkdirs` only when the wrapper's log shows the creation of the identity file in that very folder (the wrapper makes the missing folders of a file's path itself and does not log that `mkdirs`); `records_expected.py` treats an identity file as a companion of the data, not as data. Their tests pass 46 of 46 and 7 of 7, with negative controls, and planted faults are caught. The run showed the first rule at work: 27 folders explained, nothing else excused. Limitations row 99 is resolved.
+
+### 5.5 What it does not show
+
+- One run: no timing claim is made. Run 14 (770 s) is not a controlled pair with run 12 (709 s, a wrapped crawl) or run 13 (672 s, a plain control): different jobs and settings, and timing pairs follow the method of ADR-041 in Milestone 6.
+- The signing key is a test key, and nothing from the window is covered by the measurement (ADR-029).
+- The data of the run (`/user/rishabsdp17/crawl-run14` and `seeds-run14`, about 1.3 MB) stays in HDFS with `ATTEST03` records that the measured wrapper cannot read; it is readable only in a window (limitations row 107).
+- The teammate's verifier has still not been run on an export of this run.
+
+### 5.6 Evidence and commits
+
+| Item | Value |
+|---|---|
+| The tools commit | `fix(ops): treat the folder identity files like record files in the analysis tools (step 5.1.2)` (4 files under `ops/attested/`, with their tests) |
+| The kit commit | `feat(ops): add the combined crawl kit (run, worker and analysis scripts with their rehearsals)` (`ops/kits/m512c`, both versions of the worker script) |
+| Evidence (outside the repository) | the run's folder with its fingerprints and verification results, the consoles of both nodes and of the windows, the worker pack (`0e8ed9ee…`), the repack attempt and both analyses; the two consoles of the self-test of the kit on the master |
+| The files that ran | on the cluster: `m512c-run.sh` (master), `m512c-worker-v1.sh` and `audit.sh` (worker), `m512c-analyze.sh`, `nn_audit_compare.py` and `records_expected.py` (Cloud Shell, which printed the fingerprints of the two tools), `M512Tools.java` (compiled and used by the run), and the `repack` of `m512c-worker.sh` (its `pack` has not run on the cluster); they are byte for byte the files of the kits that were delivered (`ad55e910…` and `c33c9bd0…`). The three rehearsal scripts, `M512ToolsTest.java`, `M512TreeGen.java` and the two test files were run on the master afterwards, in a self-test of the final kit (`b5dc7eb3…`) on 15 October at 19:59: all six results pass (22 of 22, 46 of 46, 7 of 7 and the three rehearsals). The first self-test, at 19:47, had failed in the rehearsal of the run script, which read the master's real configuration through `HADOOP_HOME`; the rehearsal was made hermetic (mistake log 111) |
+
+### 5.7 Lessons
+
+- A claim about what a restart keeps must be checked before it is relied on for evidence (mistake log 109).
+- A rehearsal fixture is made from what the script produces, not from the shape of an older run (mistake log 110).
+- A rehearsal must be hermetic against the environment of the machine it runs on, and its first run on the real machine is a test of the test (mistake log 111).
