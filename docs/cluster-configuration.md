@@ -385,3 +385,16 @@ To count what the NodeManager read through the wrapper, on the worker: `cat /tmp
 | The test key | unchanged from section 21: `~/tc-test-key/test-key.txt` on both nodes, mode 600, key id `TEST-37c2a6aaa70d55b2`; a TEST key, never evidence; delete it after the combined run |
 | Current state | **measured stack on both nodes** (jar `027f29942fe2a69d…`, `core-site.xml` `1c335707555b2427…`); the window is closed |
 | Kits | `ops/kits/m512-test`, `ops/kits/m512-build`, `ops/kits/m512-window`; the report is [milestone-5-signed-records.md](milestone-5-signed-records.md) section 4 |
+
+
+## 23. The combined crawl window (15 October 2026, `run14`)
+
+| Item | Value |
+|---|---|
+| What it is | the third window of the method of section 21, with the 5.1.2 wrapper and the same five settings as section 22, for the combined crawl `run14` |
+| Times | the cluster reserved at 18:29:57, the master opened at 18:30:22, the worker at 18:33:07, the crawl from 18:37:50 for 770 s, the master closed at 18:58:04, the worker at 19:01:55 |
+| The crawl's data | `/user/rishabsdp17/seeds-run14` and `/user/rishabsdp17/crawl-run14` in HDFS (about 1.3 MB, 55 folders and 60 files, with `ATTEST03` records and identity files); readable only in a window |
+| Files on the master | `~/run14` (the run's folder with its fingerprints and its offline verification results), `~/run14-console.txt`, the kit in `~/m512ckit` |
+| Files on the worker | `~/run14-worker.tar.gz` (the wrapper logs of the window, without task logs), the kits in `~/m512ckit` and `~/m512cfixkit` |
+| Current state | **measured stack on both nodes**; the window is closed; the test key `TEST-37c2a6aaa70d55b2` is still on both nodes (delete it at the end of Milestone 5) |
+| Kit | `ops/kits/m512c`; the report is [milestone-5-signed-records.md](milestone-5-signed-records.md) section 5 |

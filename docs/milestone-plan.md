@@ -157,6 +157,8 @@ The note groups C1 to C4 as evidence, which is Milestone 6; the review in C4 als
 
 **Status later on 15 October 2026: step 5.1.2 is done** ([milestone-5](milestone-5-signed-records.md) section 4): every file is bound to its folder by signed identity files and `ATTEST03` records, and ten attacks that move, copy or relabel signed files fail the read on the real HDFS; the next steps are 5.1.3 (the real key) and the combined crawl with signing and folder binding on.
 
+**Status at the end of 15 October 2026: the combined crawl is done** ([milestone-5](milestone-5-signed-records.md) section 5): a real crawl with signing and folder binding on and required wrote 60 files in 55 folders, all of which verify offline with the public key only, and all 265 verified reads in the audit logs had a signature and a folder binding; the next step is 5.1.3 (the real key).
+
 ## 9. Rules that apply to every milestone
 
 - A commit contains only files identical to the ones that ran on the cluster; documents and programs are committed separately (ADR-024, ADR-025).
