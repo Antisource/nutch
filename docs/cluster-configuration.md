@@ -371,3 +371,17 @@ To count what the NodeManager read through the wrapper, on the worker: `cat /tmp
 | The new jar and job | the wrapper jar `f20364cf2ba34639…` (20 classes) and the job `9a6dcb5f0c6fbe27…` (134,851,125 bytes) in `~/m511b` on the master |
 | Current state | **measured stack on both nodes** (jar `027f29942fe2a69d…`, `core-site.xml` `1c335707555b2427…`); the window of 15 October (08:19 to 08:33) is closed |
 | Kits | `ops/kits/m511-test`, `ops/kits/m511-build`, `ops/kits/m511-window`; the report is [milestone-5-signed-records.md](milestone-5-signed-records.md) section 3 |
+
+
+## 22. The folder binding window (15 October 2026, step 5.1.2, ADR-046)
+
+| Item | Value |
+|---|---|
+| What it is | the second window of the method of section 21: the 5.1.2 wrapper on both nodes with signing and folder binding on and required, for the demonstration of the folder binding |
+| Times | the cluster reserved and the master opened at 15:38:12, the worker opened at 15:41:51, the demonstration at 15:46:12, the master closed at 15:52:15, the worker closed at 15:56:23 |
+| The settings applied | the measured `core-site.xml` plus five final settings: `attested.signature.enabled`, `attested.signature.required`, `attested.signature.allow.test.keys`, `attested.folder.binding.enabled`, `attested.folder.binding.required` (the signed file's fingerprint starts `671287c4f1b619bb`) |
+| The new jar and job | the wrapper jar `ca96be26b8748125…` (26 classes) on both nodes (the worker's copy is `~/m512-new-jar.jar`) and the job `6f98295641a4f559…` (134,868,431 bytes) in `~/m512b` on the master |
+| State on a node | `~/m512w/window` while open, moved to `~/m512w/window-closed-<role>-<time>` by `close`; the demonstration's folders in `~/m512w/demo` |
+| The test key | unchanged from section 21: `~/tc-test-key/test-key.txt` on both nodes, mode 600, key id `TEST-37c2a6aaa70d55b2`; a TEST key, never evidence; delete it after the combined run |
+| Current state | **measured stack on both nodes** (jar `027f29942fe2a69d…`, `core-site.xml` `1c335707555b2427…`); the window is closed |
+| Kits | `ops/kits/m512-test`, `ops/kits/m512-build`, `ops/kits/m512-window`; the report is [milestone-5-signed-records.md](milestone-5-signed-records.md) section 4 |
