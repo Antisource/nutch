@@ -73,6 +73,11 @@ def is_record(path):
     return len(n) > len(".attested") + 1 and n.startswith(".") and n.endswith(".attested")
 
 
+def is_identity(path):
+    """The folder identity file of step 5.1.2: a companion file that the wrapper keeps in every folder, like a record file."""
+    return path.rsplit("/", 1)[-1] == "_attested-folder"
+
+
 def to_ms(stamp, ms):
     return calendar.timegm(time.strptime(stamp, "%Y-%m-%d %H:%M:%S")) * 1000 + int(ms)
 
@@ -237,7 +242,7 @@ def main(argv):
     def in_submission_window(e):
         return any(ip == e["ip"] and a <= e["t"] <= b for ip, a, b in windows)
 
-    seen = Counter(); watched = explained = 0
+    seen = Counter(); watched = explained = with_identity = 0
     unexplained, known_hits, denied = [], defaultdict(list), []
     for e in events:
         cat = category(e["cmd"])
@@ -246,8 +251,8 @@ def main(argv):
             denied.append(e)
         if cat is None:
             continue
-        if cat == "open" and is_record(e["src"]):
-            continue                      # the wrapper reads its own records; it does not log those opens
+        if cat == "open" and (is_record(e["src"]) or is_identity(e["src"])):
+            continue                      # the wrapper reads its own records and folder identities; it does not log those opens
         watched += 1
         cands = [w for w in by_key.get(key_of_nn(e, cat), []) if not w["used"] and abs(w["t"] - e["t"]) <= window]
         if cands:
@@ -255,6 +260,14 @@ def main(argv):
             best["used"] = True
             explained += 1
             continue
+        if cat == "mkdirs":
+            # Step 5.1.2: the wrapper makes the missing folders of a file's path itself and gives each its identity. The NameNode sees a
+            # mkdirs that the wrapper does not log as such; the wrapper's log does show the creation of the identity file in that very folder.
+            idkey = ("create", e["src"].rstrip("/") + "/_attested-folder", "")
+            if any(abs(w["t"] - e["t"]) <= window for w in by_key.get(idkey, [])):
+                explained += 1
+                with_identity += 1
+                continue
         label = None
         for lab, rx in known:
             if rx.search(e["src"]) or (e["dst"] != "null" and rx.search(e["dst"])):
@@ -295,6 +308,8 @@ def main(argv):
         print("  %s: %d" % (k, v))
     print("NameNode events compared (open of data files and changes): %d" % watched)
     print("  explained by the wrapper's log: %d" % explained)
+    if with_identity:
+        print("    of them, folders made with their identity file (a mkdirs next to the creation of the folder's identity): %d" % with_identity)
     if companions:
         print("  companion lines (a COPYFROMLOCAL line next to the CREATE line of the same upload): %d" % companions)
     print("  known, not counted: %d" % sum(len(v) for v in known_hits.values()))

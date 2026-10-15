@@ -88,7 +88,8 @@ def main(argv):
             for k in [k for k in appended if k == p or k.startswith(p + "/")]:
                 appended.discard(k)
 
-    sidecar_rx = re.compile(r"(^|/)\..+\.attested$")
+    # a record file (.NAME.attested) and a folder identity file (_attested-folder, step 5.1.2) are companions of the data, not data
+    sidecar_rx = re.compile(r"(^|/)(\..+\.attested|_attested-folder)$")
     judged = sorted(p for p in listing if cover_rx.search(p) and not sidecar_rx.search(p))
     missing, mismatch, appended_live, good = [], [], [], []
     for p in judged:

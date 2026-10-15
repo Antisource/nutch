@@ -222,6 +222,64 @@ with tempfile.TemporaryDirectory() as root:
     rc, _, err = run("--nn", nn, "--wrapper", wd, "--from", "yesterday")
     check("a bad time is refused with exit code 2", rc == 2 and "bad time" in err)
 
+# --- step 5.1.2: the folder identity files ("_attested-folder") are companions of the data, like the record files
+ID = "/_attested-folder"
+with tempfile.TemporaryDirectory() as root:
+    F = D + "/new-folder"
+    def folder_made(d, with_identity=True, identity_gap=60, mkdirs_logged=False):
+        t = d.tick()
+        d.nn_line(t, "mkdirs", F, perm="u:supergroup:rwxr-xr-x")
+        if mkdirs_logged:
+            d.wr_line(t + 5, "MKDIRS", F)
+        if with_identity:
+            d.nn_line(t + identity_gap, "create", F + ID, perm="u:supergroup:rw-r--r--")
+            d.wr_line(t + identity_gap + 3, "CREATE", F + ID, extra="folder-identity child")
+    d = Data(); folder_made(d)
+    nn, wd = d.write(root, "i1")
+    rc, out, _ = run("--nn", nn, "--wrapper", wd)
+    check("identity: a folder made with its identity file (a mkdirs that the wrapper does not log, and the creation of the identity that it does) is explained and the verdict is CLEAN",
+          rc == 0 and "NN-AUDIT-COMPARE-CLEAN" in out and "folders made with their identity file" in out)
+    d = Data(); folder_made(d, with_identity=False)
+    nn, wd = d.write(root, "i2")
+    rc, out, _ = run("--nn", nn, "--wrapper", wd)
+    check("identity negative control: the same mkdirs with no identity creation in the wrapper's log is a finding", rc == 1 and "NN-AUDIT-COMPARE-FINDINGS (1)" in out)
+    d = Data(); folder_made(d, identity_gap=9000)
+    nn, wd = d.write(root, "i3")
+    rc, out, _ = run("--nn", nn, "--wrapper", wd)
+    check("identity: an identity creation 9 s after the mkdirs does not explain it (outside the window), and then the identity creation itself is explained but the mkdirs is a finding",
+          rc == 1 and "NN-AUDIT-COMPARE-FINDINGS (1)" in out)
+    d = Data(); folder_made(d); d.nn_line(d.t + 500, "open", F + ID); d.nn_line(d.t + 700, "open", F + "/.x.attested")
+    nn, wd = d.write(root, "i4")
+    rc, out, _ = run("--nn", nn, "--wrapper", wd)
+    check("identity: the wrapper's opens of identity files and of record files are not findings", rc == 0 and "NN-AUDIT-COMPARE-CLEAN" in out)
+    d = Data(); t = d.tick(); d.nn_line(t, "create", F + ID, perm="u:supergroup:rw-r--r--")
+    nn, wd = d.write(root, "i5")
+    rc, out, _ = run("--nn", nn, "--wrapper", wd)
+    check("identity negative control: an identity file created at the NameNode with no wrapper line is a finding (someone else made it)", rc == 1 and "NN-AUDIT-COMPARE-FINDINGS (1)" in out)
+    d = Data(); t = d.tick(); d.nn_line(t, "delete", F + ID); d.wr_line(t + 4, "DELETE", F + ID, extra="recursive=false folder-identity")
+    nn, wd = d.write(root, "i6")
+    rc, out, _ = run("--nn", nn, "--wrapper", wd)
+    check("identity: the wrapper's delete of an identity file (a folder rename signs it again) is explained", rc == 0)
+    d = Data(); t = d.tick(); d.nn_line(t, "delete", F + ID)
+    nn, wd = d.write(root, "i7")
+    rc, out, _ = run("--nn", nn, "--wrapper", wd)
+    check("identity negative control: a delete of an identity file with no wrapper line is a finding", rc == 1 and "NN-AUDIT-COMPARE-FINDINGS (1)" in out)
+    d = Data(); folder_made(d)
+    nn, wd = d.write(root, "i8")
+    rc, out, _ = run("--nn", nn, "--wrapper", wd, "--strict")
+    check("identity: --strict does not change the rule (it is not a label)", rc == 0 and "NN-AUDIT-COMPARE-CLEAN" in out)
+    d = Data(); folder_made(d, mkdirs_logged=True)
+    nn, wd = d.write(root, "i9")
+    rc, out, _ = run("--nn", nn, "--wrapper", wd)
+    check("identity: a mkdirs that the wrapper logs as MKDIRS is matched the usual way (nothing is left over)", rc == 0 and "wrapper lines the NameNode log does not show" not in out)
+    d = Data(); folder_made(d)
+    nn, wd = d.write(root, "i10")
+    for fn in os.listdir(wd):
+        os.remove(os.path.join(wd, fn))
+    open(os.path.join(wd, "w.tsv"), "w").write("")
+    rc, out, err = run("--nn", nn, "--wrapper", wd)
+    check("identity control: with the wrapper's lines taken away, the same events are all findings (the check can fail)", rc == 1 and "FINDINGS" in out)
+
 ok = sum(results)
 print("%s (%d of %d checks passed)" % ("ALL-PASS" if ok == len(results) else "SOME-FAILED", ok, len(results)))
 sys.exit(0 if ok == len(results) else 1)
