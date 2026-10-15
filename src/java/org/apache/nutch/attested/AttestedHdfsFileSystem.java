@@ -117,6 +117,22 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
   public static final String META_MISMATCH_KEY = "attested.metadata.mismatch";
   /** How many seconds a record's length is remembered when no listing can vouch for it. */
   public static final String META_CACHE_KEY = "attested.metadata.cache.seconds";
+
+  /**
+   * Step 5.1.1: sign every record that is written. Off by default, so that nothing changes until it
+   * is switched on in the site configuration. A signed record is ATTEST02 (see AttestedRecordCodec).
+   */
+  public static final String SIGN_KEY = "attested.signature.enabled";
+  /**
+   * Refuse to read a file whose record is not signed (the old format). Off by default, so that the
+   * files of earlier runs stay readable as legacy; a record whose signature does not verify is
+   * refused whatever this says.
+   */
+  public static final String SIGN_REQUIRED_KEY = "attested.signature.required";
+  /** Accept records signed with a TEST key. True in step 5.1.1 (only test keys exist); the real key turns it off. */
+  public static final String SIGN_ALLOW_TEST_KEY = "attested.signature.allow.test.keys";
+  /** The file with the test key; the default is ~/tc-test-key/test-key.txt of the user the JVM runs as. */
+  public static final String SIGN_TESTKEY_FILE_KEY = "attested.signature.test.key.file";
   private static final int META_CACHE_MAX = 4096;
   private static final int META_REPORTED_MAX = 20000;
 
@@ -155,6 +171,7 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
   private boolean verifyReads = true;
   private String missingPolicy = "fail";
   private String metaMissingPolicy = "warn";
+  private AttestedSignatures signatures;
   private long chunkSize = DEFAULT_CHUNK_SIZE;
   private String jobId = "";
   private String attemptId = "";
@@ -205,6 +222,24 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
       throw new IOException(META_MISMATCH_KEY + " must be allow, warn or fail, got "
           + mismatchPolicy);
     }
+    boolean signOn = AttestedSettings.getBoolean(conf, SIGN_KEY, false, ignored);
+    boolean signRequired = AttestedSettings.getBoolean(conf, SIGN_REQUIRED_KEY, false, ignored);
+    boolean allowTestKeys = AttestedSettings.getBoolean(conf, SIGN_ALLOW_TEST_KEY, true, ignored);
+    String keyFile = AttestedSettings.get(conf, SIGN_TESTKEY_FILE_KEY,
+        System.getProperty("user.home") + "/tc-test-key/test-key.txt", ignored).trim();
+    if ((signOn || signRequired) && !sidecars) {
+      throw new IOException(SIGN_KEY + " and " + SIGN_REQUIRED_KEY + " need records: "
+          + SIDECAR_KEY + " and " + HASH_ENABLED_KEY + " must be true");
+    }
+    AttestedKeys keys = null;
+    java.nio.file.Path keyPath = java.nio.file.Paths.get(keyFile);
+    if (java.nio.file.Files.isReadable(keyPath)) {
+      keys = TestKeys.load(keyPath);
+    } else if (signOn) {
+      throw new IOException(SIGN_KEY + " is true but the test key file is missing or unreadable: "
+          + keyFile);
+    }
+    this.signatures = new AttestedSignatures(keys, signOn, signRequired, allowTestKeys);
     long cacheSeconds = AttestedSettings.getLong(conf, META_CACHE_KEY, 10, ignored);
     if (cacheSeconds < 0) {
       throw new IOException(META_CACHE_KEY + " must not be negative, got " + cacheSeconds);
@@ -232,6 +267,9 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
         + " hash=" + hashing + " chunk=" + chunkSize + " sidecar=" + sidecars
         + " verify=" + verifyReads + " missing=" + missingPolicy
         + " metamissing=" + metaMissingPolicy
+        + " sign=" + signatures.signing() + " sigrequired=" + signatures.required()
+        + " testkeys=" + signatures.allowTestKeys() + " key="
+        + (signatures.signingKeyId() == null ? "none" : signatures.signingKeyId())
         + " from=" + where()
         + (ignored.isEmpty() ? "" : " ignored=" + String.join(",", ignored)));
   }
@@ -300,8 +338,9 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
       byte[] root, List<byte[]> leaves) throws IOException {
     Path sc = AttestedSidecar.pathFor(new Path(filePath));
     forget(sc);
-    byte[] bytes = AttestedSidecar.encode((int) chunk, length, root, leaves);
-    audit("CREATE", sc, null, "sidecar");
+    byte[] bytes = signatures.encode((int) chunk, length, root, leaves);
+    audit("CREATE", sc, null,
+        signatures.signing() ? "sidecar signed=" + signatures.signingKeyId() : "sidecar");
     try (FSDataOutputStream out = fs.create(sc, true)) {
       out.write(bytes);
     }
@@ -371,6 +410,15 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
           ? "verify=missing" : "verify=skipped"));
       return raw;
     }
+    String sig;
+    try {
+      sig = signatures.check(rec.decoded);
+    } catch (IOException e) {
+      raw.close();
+      audit("VERIFY-FAIL", f, null, tag + e.getMessage());
+      throw new ChecksumException("Attested verification failed for " + f
+          + ": " + e.getMessage(), 0);
+    }
     long len = fs.getFileStatus(f).getLen();
     if (rec.length != len) {
       raw.close();
@@ -380,7 +428,7 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
       throw new ChecksumException("Attested verification failed for " + f
           + ": " + why, 0);
     }
-    audit("OPEN", f, null, tag + "verify=ok");
+    audit("OPEN", f, null, tag + "verify=ok sig=" + sig);
     return new FSDataInputStream(new VerifyingInputStream(raw, rec, q(f)));
   }
 

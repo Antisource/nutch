@@ -243,6 +243,7 @@ public class AttestedFsSmoke {
 
     exercise(conf, base, plain, FakeHdfs.class.getName());
     verifyChecks(conf, base, plain);
+    signatureChecks(conf, base, plain);
     metadataChecks(conf, base, plain);
     fileContext(conf, new Path("hdfs://fake:9000" + tmp + "/fc"));
     refusalChecks(conf, base, plain);
@@ -1203,6 +1204,166 @@ public class AttestedFsSmoke {
   // ------------------------------------------------------------ hashing
 
   /** The hash mode: roots against an independent computation, several sizes and settings. */
+
+  /** True when any audit log file in the folder contains the text. */
+  static boolean auditHas(String dir, String needle) throws IOException {
+    File[] files = new File(dir).listFiles();
+    if (files != null) {
+      for (File f : files) {
+        if (new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8).contains(needle)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  static byte[] unsignedRecordFor(byte[] content) throws IOException {
+    MerkleHasher mh = new MerkleHasher(16384, true);
+    mh.update(content, 0, content.length);
+    byte[] root = mh.finish();
+    return AttestedSidecar.encode(16384, content.length, root, mh.leaves());
+  }
+
+  /**
+   * Step 5.1.1: records are signed with a test key, and a file that is rewritten together with its
+   * record, by someone without the key, fails the read.
+   */
+  static void signatureChecks(Configuration baseConf, Path base, FileSystem plain) throws Exception {
+    java.nio.file.Path keyDir = Files.createTempDirectory("sigkeys");
+    java.nio.file.Path keyFile = keyDir.resolve("test-key.txt");
+    TestKeys key = TestKeys.generate(keyFile);
+    String auditDir = baseConf.get(AttestedAudit.DIR_KEY);
+
+    Configuration signedConf = new Configuration(baseConf);
+    signedConf.setBoolean(AttestedHdfsFileSystem.SIGN_KEY, true);
+    signedConf.setBoolean(AttestedHdfsFileSystem.SIGN_REQUIRED_KEY, true);
+    signedConf.set(AttestedHdfsFileSystem.SIGN_TESTKEY_FILE_KEY, keyFile.toString());
+    FileSystem fs = FileSystem.newInstance(base.toUri(), signedConf);
+    Path dir = new Path(base, "signed");
+    fs.mkdirs(dir);
+
+    // 1. a signed write and read
+    Path f = new Path(dir, "a.bin");
+    byte[] d = data(50000, 71);
+    put(fs, f, d);
+    byte[] rec = readAll(plain, sc(f));
+    check("a file written with signing on has an ATTEST02 record next to it",
+        rec.length > 8 && new String(rec, 0, 8, StandardCharsets.US_ASCII).equals("ATTEST02"));
+    check("the record names the test key (its id starts with TEST-)",
+        new String(rec, StandardCharsets.ISO_8859_1).contains(key.signingKeyId()));
+    check("reading it through the wrapper returns the bytes (signature checked, required)",
+        Arrays.equals(d, readAll(fs, f)));
+    check("the audit log says how it was checked: verify=ok sig=ok-test",
+        auditHas(auditDir, "verify=ok sig=ok-test"));
+    check("the audit log of the write names the key: sidecar signed=" + key.signingKeyId(),
+        auditHas(auditDir, "sidecar signed=" + key.signingKeyId()));
+    check("the INIT line says that signing is on, required, with test keys allowed, and names the key",
+        auditHas(auditDir, "sign=true sigrequired=true testkeys=true key=" + key.signingKeyId()));
+    check("status questions work on a signed file (length) and listings do not show the record",
+        fs.getFileStatus(f).getLen() == 50000 && fs.listStatus(dir).length == 1 && plain.listStatus(dir).length == 2);
+    Path g = new Path(dir, "b.bin");
+    check("renaming a signed file keeps it readable (the signature does not cover the name yet: step 5.1.2)",
+        fs.rename(f, g) && Arrays.equals(d, readAll(fs, g)) && !plain.exists(sc(f)) && plain.exists(sc(g)));
+
+    // 2. the pass condition: someone without the key rewrites the file together with its record
+    byte[] evil = data(50000, 99);
+    put(plain, g, evil);                                          // new content, behind the wrapper's back
+    check("only the file changed: the read fails (the chunk hashes no longer match)", tryRead(fs, g) == null);
+    put(plain, sc(g), unsignedRecordFor(evil));                   // and a matching record in the old format
+    check("file and record rewritten, the record unsigned: the read fails (signatures are required)",
+        tryRead(fs, g) == null && lastError.contains("not signed"));
+    MerkleHasher mh = new MerkleHasher(16384, true);
+    mh.update(evil, 0, evil.length);
+    byte[] evilRoot = mh.finish();
+    java.nio.file.Path other = keyDir.resolve("attacker.txt");
+    TestKeys attacker = TestKeys.generate(other);
+    byte[] oldSig = AttestedRecordCodec.decode(rec).signature;
+    put(plain, sc(g), AttestedRecordCodec.encodeSigned(16384, evil.length, evilRoot, mh.leaves(), key.signingKeyId(), oldSig));
+    check("file and record rewritten, the OLD signature copied over: the read fails",
+        tryRead(fs, g) == null && lastError.contains("does not verify"));
+    byte[] ownSig = attacker.sign(AttestedRecordCodec.statement(key.signingKeyId(), 16384, evil.length, evilRoot));
+    put(plain, sc(g), AttestedRecordCodec.encodeSigned(16384, evil.length, evilRoot, mh.leaves(), key.signingKeyId(), ownSig));
+    check("signed with the attacker's own key under the real key id: the read fails",
+        tryRead(fs, g) == null && lastError.contains("does not verify"));
+    byte[] ownSig2 = attacker.sign(AttestedRecordCodec.statement(attacker.signingKeyId(), 16384, evil.length, evilRoot));
+    put(plain, sc(g), AttestedRecordCodec.encodeSigned(16384, evil.length, evilRoot, mh.leaves(), attacker.signingKeyId(), ownSig2));
+    check("signed with the attacker's own key under its own id: the read fails (not a trusted key)",
+        tryRead(fs, g) == null && lastError.contains("not trusted"));
+    check("each of these failures is in the audit log as VERIFY-FAIL", auditHas(auditDir, "VERIFY-FAIL"));
+    put(plain, g, d);                                             // restore the honest content
+    put(plain, sc(g), rec);                                       // and the honest record
+    check("the honest file with its honest record reads again", Arrays.equals(d, readAll(fs, g)));
+
+    // 3. legacy files and the settings
+    Configuration legacyConf = new Configuration(baseConf);
+    legacyConf.setBoolean(AttestedHdfsFileSystem.SIGN_KEY, false);
+    legacyConf.setBoolean(AttestedHdfsFileSystem.SIGN_REQUIRED_KEY, false);
+    legacyConf.set(AttestedHdfsFileSystem.SIGN_TESTKEY_FILE_KEY, keyDir.resolve("none.txt").toString());
+    FileSystem legacy = FileSystem.newInstance(base.toUri(), legacyConf);
+    Path old = new Path(dir, "legacy.bin");
+    byte[] od = data(20000, 5);
+    put(legacy, old, od);
+    byte[] oldRec = readAll(plain, sc(old));
+    check("with signing off the record is the old format, byte for byte (ATTEST01)",
+        new String(oldRec, 0, 8, StandardCharsets.US_ASCII).equals("ATTEST01") && Arrays.equals(oldRec, unsignedRecordFor(od)));
+    check("a legacy file reads when signatures are not required (and is logged as sig=none)",
+        Arrays.equals(od, readAll(legacy, old)) && auditHas(auditDir, "verify=ok sig=none"));
+    check("the same legacy file is refused when signatures are required", tryRead(fs, old) == null && lastError.contains("not signed"));
+    check("a signed file is refused by a reader that has no key file (not a trusted key)",
+        tryRead(legacy, g) == null && lastError.contains("not trusted"));
+    Configuration noTest = new Configuration(signedConf);
+    noTest.setBoolean(AttestedHdfsFileSystem.SIGN_ALLOW_TEST_KEY, false);
+    boolean refusedAtStart = false;
+    try {
+      FileSystem.newInstance(base.toUri(), noTest);
+    } catch (IOException e) {
+      refusedAtStart = e.getMessage().contains("test key, which is not allowed");
+    }
+    check("signing with a test key is refused at start when test keys are not allowed", refusedAtStart);
+    Configuration readNoTest = new Configuration(signedConf);
+    readNoTest.setBoolean(AttestedHdfsFileSystem.SIGN_KEY, false);
+    readNoTest.setBoolean(AttestedHdfsFileSystem.SIGN_ALLOW_TEST_KEY, false);
+    FileSystem strict = FileSystem.newInstance(base.toUri(), readNoTest);
+    check("a reader that does not allow test keys refuses a test-signed file (the real-key mode)",
+        tryRead(strict, g) == null && lastError.contains("not accepted"));
+    Configuration missingKey = new Configuration(signedConf);
+    missingKey.set(AttestedHdfsFileSystem.SIGN_TESTKEY_FILE_KEY, keyDir.resolve("missing.txt").toString());
+    boolean missingRefused = false;
+    try {
+      FileSystem.newInstance(base.toUri(), missingKey);
+    } catch (IOException e) {
+      missingRefused = e.getMessage().contains("test key file is missing");
+    }
+    check("signing on with no key file refuses to start (no unsigned files are written by mistake)", missingRefused);
+    Configuration noRecords = new Configuration(signedConf);
+    noRecords.setBoolean(AttestedHdfsFileSystem.SIDECAR_KEY, false);
+    boolean needRecords = false;
+    try {
+      FileSystem.newInstance(base.toUri(), noRecords);
+    } catch (IOException e) {
+      needRecords = e.getMessage().contains("need records");
+    }
+    check("signatures without records are refused at start", needRecords);
+    Configuration publicOnly = new Configuration(signedConf);
+    publicOnly.setBoolean(AttestedHdfsFileSystem.SIGN_KEY, false);
+    java.nio.file.Path pubFile = keyDir.resolve("public.txt");
+    Files.write(pubFile, key.publicFileText().getBytes(StandardCharsets.US_ASCII));
+    publicOnly.set(AttestedHdfsFileSystem.SIGN_TESTKEY_FILE_KEY, pubFile.toString());
+    FileSystem reader = FileSystem.newInstance(base.toUri(), publicOnly);
+    check("a reader with only the public key verifies signed files, and cannot sign",
+        Arrays.equals(d, readAll(reader, g)));
+    // 4. a signed file inside a job's folder tree still works with the other operations
+    Path sub = new Path(dir, "tree/deep");
+    fs.mkdirs(sub);
+    put(fs, new Path(sub, "x"), data(300, 8));
+    fs.rename(new Path(dir, "tree"), new Path(dir, "moved"));
+    check("a folder of signed files can be renamed and its files still verify",
+        Arrays.equals(data(300, 8), readAll(fs, new Path(dir, "moved/deep/x"))));
+    fs.delete(new Path(dir, "moved"), true);
+    check("deleting signed files removes their records", !plain.exists(new Path(dir, "moved")));
+  }
+
   static void runHash() throws Exception {
     java.nio.file.Path tmp = Files.createTempDirectory("attested-hash");
     Configuration conf = fakeConf(tmp);

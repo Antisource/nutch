@@ -17,12 +17,8 @@
 package org.apache.nutch.attested;
 
 import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -40,26 +36,31 @@ import org.apache.hadoop.fs.Path;
  * folder is renamed; the wrapper moves it when the file itself is renamed and
  * deletes it when the file is deleted, and hides it from listings.</p>
  *
- * <p>Format: 8 bytes "ATTEST01", int chunk size, long length, 32 bytes root,
- * int number of chunks, then 32 bytes per chunk. Until records are signed
- * (a later stage) a record only protects against a change of the file alone,
- * not against someone who rewrites file and record together.</p>
+ * <p>Format ATTEST01: 8 bytes "ATTEST01", int chunk size, long length, 32 bytes root,
+ * int number of chunks, then 32 bytes per chunk. In this format a record protects
+ * against a change of the file alone, not against someone who rewrites file and record
+ * together. Format ATTEST02 (step 5.1.1) adds a signature after the chunk hashes; the bytes
+ * of both formats, and how they are read, are in {@link AttestedRecordCodec}.</p>
  */
 final class AttestedSidecar {
 
-  static final byte[] MAGIC = "ATTEST01".getBytes(StandardCharsets.US_ASCII);
-  private static final int HASH = 32;
+  static final byte[] MAGIC = AttestedRecordCodec.MAGIC1;
+  /** The longest record that is read (the old rule: at most 2^30 bytes of chunk hashes, plus the header and the signature). */
+  private static final long MAX_RECORD = (1L << 30) + 1024;
 
   final int chunkSize;
   final long length;
   final byte[] root;
   final byte[][] leaves;
+  /** The record as decoded, with its version and signature (step 5.1.1). */
+  final AttestedRecordCodec.Decoded decoded;
 
-  private AttestedSidecar(int chunkSize, long length, byte[] root, byte[][] leaves) {
-    this.chunkSize = chunkSize;
-    this.length = length;
-    this.root = root;
-    this.leaves = leaves;
+  private AttestedSidecar(AttestedRecordCodec.Decoded d) {
+    this.chunkSize = d.chunkSize;
+    this.length = d.length;
+    this.root = d.root;
+    this.leaves = d.leaves;
+    this.decoded = d;
   }
 
   static boolean isSidecar(Path p) {
@@ -75,24 +76,13 @@ final class AttestedSidecar {
   }
 
   static long chunksFor(long length, long chunkSize) {
-    return length == 0 ? 0 : (length - 1) / chunkSize + 1;
+    return AttestedRecordCodec.chunksFor(length, chunkSize);
   }
 
+  /** An unsigned record (ATTEST01), byte for byte what the wrapper has always written. */
   static byte[] encode(int chunkSize, long length, byte[] root, List<byte[]> leaves)
       throws IOException {
-    ByteArrayOutputStream bytes = new ByteArrayOutputStream(
-        8 + 4 + 8 + HASH + 4 + HASH * leaves.size());
-    DataOutputStream out = new DataOutputStream(bytes);
-    out.write(MAGIC);
-    out.writeInt(chunkSize);
-    out.writeLong(length);
-    out.write(root);
-    out.writeInt(leaves.size());
-    for (byte[] leaf : leaves) {
-      out.write(leaf);
-    }
-    out.flush();
-    return bytes.toByteArray();
+    return AttestedRecordCodec.encode(chunkSize, length, root, leaves);
   }
 
   /**
@@ -107,7 +97,8 @@ final class AttestedSidecar {
         DataInputStream in = new DataInputStream(raw)) {
       byte[] magic = new byte[MAGIC.length];
       in.readFully(magic);
-      if (!Arrays.equals(magic, MAGIC)) {
+      if (!Arrays.equals(magic, AttestedRecordCodec.MAGIC1)
+          && !Arrays.equals(magic, AttestedRecordCodec.MAGIC2)) {
         throw new IOException("record is damaged (wrong header)");
       }
       int chunk = in.readInt();
@@ -124,43 +115,20 @@ final class AttestedSidecar {
   /**
    * Reads a record with the given (real, not wrapped) file system. Throws
    * FileNotFoundException when there is none, and an IOException saying why when
-   * the record is damaged or does not agree with itself.
+   * the record is damaged or does not agree with itself. Both formats are read; the
+   * signature (if any) is checked by the caller, see {@link AttestedSignatures}.
    */
   static AttestedSidecar read(FileSystem fs, Path sidecar) throws IOException {
-    try (FSDataInputStream raw = fs.open(sidecar);
-        DataInputStream in = new DataInputStream(raw)) {
-      byte[] magic = new byte[MAGIC.length];
-      in.readFully(magic);
-      if (!Arrays.equals(magic, MAGIC)) {
-        throw new IOException("record is damaged (wrong header)");
-      }
-      int chunk = in.readInt();
-      long length = in.readLong();
-      byte[] root = new byte[HASH];
-      in.readFully(root);
-      int n = in.readInt();
-      if (chunk < 1 || length < 0 || n < 0
-          || n != chunksFor(length, chunk) || (long) n * HASH > (1L << 30)) {
-        throw new IOException("record is damaged (impossible sizes)");
-      }
-      byte[][] leaves = new byte[n][HASH];
-      for (int i = 0; i < n; i++) {
-        in.readFully(leaves[i]);
-      }
-      if (in.read() != -1) {
-        throw new IOException("record is damaged (extra bytes at the end)");
-      }
-      List<byte[]> asList = new ArrayList<>(n);
-      for (byte[] l : leaves) {
-        asList.add(l);
-      }
-      if (!Arrays.equals(MerkleHasher.rootOfLeaves(asList), root)) {
-        throw new IOException(
-            "record is damaged (its root does not match its own chunk hashes)");
-      }
-      return new AttestedSidecar(chunk, length, root, leaves);
+    long size = fs.getFileStatus(sidecar).getLen();
+    if (size > MAX_RECORD) {
+      throw new IOException("record is damaged (impossible sizes)");
+    }
+    byte[] all = new byte[(int) size];
+    try (FSDataInputStream raw = fs.open(sidecar)) {
+      raw.readFully(0, all);
     } catch (EOFException e) {
       throw new IOException("record is damaged (too short)");
     }
+    return new AttestedSidecar(AttestedRecordCodec.decode(all));
   }
 }
