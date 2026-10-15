@@ -1,0 +1,61 @@
+# Facts of the combined crawl run14 (15 October 2026), tied to the evidence folder in the Cloud Shell home (evidence-run14), to the repository after the commits of the combined crawl, and to the documents as committed with this list
+docs/milestone-5-signed-records.md	fix(ops): treat the folder identity files like record files in the analysis tools (step 5.1.2)	@git-log	fix(ops): treat the folder identity files like record files in the analysis tools (step 5.1.2)
+docs/milestone-5-signed-records.md	feat(ops): add the combined crawl kit (run, worker and analysis scripts with their rehearsals)	@git-log	feat(ops): add the combined crawl kit (run, worker and analysis scripts with their rehearsals)
+docs/milestone-5-signed-records.md	`nn_audit_compare.py` skips the NameNode's opens of `_attested-folder` files	@repo:ops/attested/nn_audit_compare.py	def is_identity(path):
+docs/milestone-5-signed-records.md	`records_expected.py` treats an identity file as a companion of the data	@repo:ops/attested/records_expected.py	_attested-folder
+docs/milestone-5-signed-records.md	Their tests pass 46 of 46 and 7 of 7	@repo:ops/attested/test_records_expected.py	_attested-folder
+docs/milestone-5-signed-records.md	(`ops/kits/m512c`, both versions of the worker script)	@repo:ops/kits/m512c/ops/attested/m512c-run.sh	M512C-RUN-DONE
+docs/milestone-5-signed-records.md	(`ops/kits/m512c`, both versions of the worker script)	@repo:ops/kits/m512c/ops/attested/m512c-worker-v1.sh	M512C-WORKER-PACK-OK
+docs/milestone-5-signed-records.md	Version 2's `pack` takes the task logs during the window and refuses to pack without them.	@repo:ops/kits/m512c/ops/attested/m512c-worker.sh	no YARN task logs in
+docs/milestone-5-signed-records.md	the master opened at 18:30:22, the worker at 18:33:07, the master closed at 18:58:04, the worker at 19:01:55	evidence-run14/m512w-open-master-console2.txt	m512-window open: 2026-10-15T18:30:22Z on tdx-lab
+docs/milestone-5-signed-records.md	the master opened at 18:30:22, the worker at 18:33:07, the master closed at 18:58:04, the worker at 19:01:55	evidence-run14/m512w-open-worker-console2.txt	m512-window open: 2026-10-15T18:33:07Z on tdx-lab-worker
+docs/milestone-5-signed-records.md	the master opened at 18:30:22, the worker at 18:33:07, the master closed at 18:58:04, the worker at 19:01:55	evidence-run14/m512w-close-master-console2.txt	m512-window close: 2026-10-15T18:58:04Z on tdx-lab
+docs/milestone-5-signed-records.md	the master opened at 18:30:22, the worker at 18:33:07, the master closed at 18:58:04, the worker at 19:01:55	evidence-run14/m512w-close-worker-console2.txt	m512-window close: 2026-10-15T19:01:55Z on tdx-lab-worker
+docs/milestone-5-signed-records.md	`ALL-UNCHANGED` 9 and 6 after the closes	evidence-run14/m512w-close-master-console2.txt	ALL-UNCHANGED (9 components checked)
+docs/milestone-5-signed-records.md	`ALL-UNCHANGED` 9 and 6 after the closes	evidence-run14/m512w-close-worker-console2.txt	ALL-UNCHANGED (6 components checked)
+docs/milestone-5-signed-records.md	started 18:37:50, finished with exit code 0 after 770 s	evidence-run14/run14-console.txt	m512c-run: 2026-10-15T18:37:50Z on tdx-lab   run=run14 mode=on   job=6f98295641a4f559
+docs/milestone-5-signed-records.md	started 18:37:50, finished with exit code 0 after 770 s	evidence-run14/run14-console.txt	the crawl finished, exit code 0, 770 s
+docs/milestone-5-signed-records.md	3,409 paths before the crawl and 3,802 after (393 added); the NameNode's audit window has 10,011 events	evidence-run14/run14-console.txt	before listing: 3409 paths
+docs/milestone-5-signed-records.md	3,409 paths before the crawl and 3,802 after (393 added); the NameNode's audit window has 10,011 events	evidence-run14/run14-console.txt	after listing: 3802 paths
+docs/milestone-5-signed-records.md	3,409 paths before the crawl and 3,802 after (393 added); the NameNode's audit window has 10,011 events	evidence-run14/run14-console.txt	NameNode window: lines 54740 to 64750 (10011 events)
+docs/milestone-5-signed-records.md	the seeds folder: 1 folder, 1 file, clean	evidence-run14/run14-console.txt	offline: every folder and every file of /user/rishabsdp17/seeds-run14 verifies (folders=1 files=1)
+docs/milestone-5-signed-records.md	the crawl output: **55 folders and 60 files, all clean**	evidence-run14/run14-console.txt	offline: every folder and every file of /user/rishabsdp17/crawl-run14 verifies (folders=55 files=60)
+docs/milestone-5-signed-records.md	175 files (60 data files, 60 record files and 55 identity files, 1,260 KB)	evidence-run14/run14-console.txt	a local copy of /user/rishabsdp17/crawl-run14 was made (175 files, 1260 KB)
+docs/milestone-5-signed-records.md	`AUDIT-CLEAN`: 393 added, all explained by the wrapper's log	evidence-run14/run14-analysis-console-b.txt	audit_compare: AUDIT-CLEAN (explained by the log: added 393, removed 0, changed 0)
+docs/milestone-5-signed-records.md	`RECORDS-COMPLETE`: 61 files judged, 61 with a matching record	evidence-run14/run14-analysis-console-b.txt	records_expected: RECORDS-COMPLETE (files judged: 61   with a matching record: 61)
+docs/milestone-5-signed-records.md	`VERIFY-CLEAN`: 265 opens	evidence-run14/run14-analysis-console-b.txt	verify_summary: VERIFY-CLEAN (opens in total: 265)
+docs/milestone-5-signed-records.md	with 27 folders made with their identity file explained	evidence-run14/run14-analysis-console-b.txt	re:nn_audit_compare: NN-AUDIT-COMPARE-CLEAN \(folders made with their identity file .*: 27\)
+docs/milestone-5-signed-records.md	reports 108 findings	evidence-run14/run14-analysis-console-b.txt	re:with the biggest wrapper log removed .* the comparison reports NN-AUDIT-COMPARE-FINDINGS \(108\)
+docs/milestone-5-signed-records.md	**265 reads with `sig=ok-test` and `bind=ok`**	evidence-run14/run14-analysis-console-b.txt	every verified read was bound to its folder: 265 reads with bind=ok, none with bind=none
+docs/milestone-5-signed-records.md	**265 reads with `sig=ok-test` and `bind=ok`**	evidence-run14/run14-analysis-console-b.txt	every verified read had a signature: 265 reads with sig=ok-test, none with sig=none
+docs/milestone-5-signed-records.md	no `VERIFY-FAIL` line in any audit log	evidence-run14/run14-analysis-console-b.txt	no VERIFY-FAIL line in any audit log
+docs/milestone-5-signed-records.md	57 identity files in the after listing	evidence-run14/run14-analysis-console-b.txt	info: identity files in the after listing: 57; record files: 916
+docs/milestone-5-signed-records.md	**One finding:** "no task logs from the worker".	evidence-run14/run14-analysis-console-b.txt	FAIL: no task logs from the worker
+docs/milestone-5-signed-records.md	its analysis ends with this one finding	evidence-run14/run14-analysis-console-b.txt	M512C-ANALYSIS-FINDINGS (1): run14
+docs/milestone-5-signed-records.md	`m512c-analyze.sh`, `nn_audit_compare.py` and `records_expected.py` (Cloud Shell, which printed the fingerprints of the two tools)	evidence-run14/run14-analysis-console-b.txt	re:nn_audit_compare\.py \(588b9960132c\.\.\.\) and records_expected\.py \(8d51c91ac486\.\.\.\) are the updated ones of this kit
+docs/milestone-5-signed-records.md	`M512Tools.java` (compiled and used by the run)	evidence-run14/run14-console.txt	the verification tool compiles against the installed jar
+docs/milestone-5-signed-records.md	its analysis ends with this one finding	evidence-run14/run14-analysis-console.txt	M512C-ANALYSIS-FINDINGS (1): run14
+docs/milestone-5-signed-records.md	the worker pack (`0e8ed9ee…`)	evidence-run14/run14-analysis-console-b.txt	worker pack sha256: 0e8ed9ee7ccb9a417a0c362bba924c119044ac1c2a0d000c228a50630865f9f4
+docs/milestone-5-signed-records.md	found none	evidence-run14/run14-repack-console.txt	M512C-WORKER-STOP: no application's task logs were written between 2026-10-15 18:33:07 and 2026-10-15 19:02:00
+docs/limitations-and-trust.md	the repack that found nothing	evidence-run14/run14-repack-console.txt	no application's task logs were written between
+docs/cluster-configuration.md	`~/run14-worker.tar.gz` (the wrapper logs of the window, without task logs)	evidence-run14/SHA256SUMS	re:0e8ed9ee7ccb9a417a0c362bba924c119044ac1c2a0d000c228a50630865f9f4\s+\./run14-worker\.tar\.gz
+docs/milestone-5-signed-records.md	(limitations row 106)	@docs:docs/limitations-and-trust.md	| 106 | The worker's YARN task logs
+docs/milestone-5-signed-records.md	(limitations row 107)	@docs:docs/limitations-and-trust.md	| 107 | The data of run 14
+docs/milestone-5-signed-records.md	(mistake log 109)	@docs:docs/guide-pitfalls-and-lessons.md	| 109 | Process | I told you that the worker's task logs
+docs/milestone-5-signed-records.md	(mistake log 110)	@docs:docs/guide-pitfalls-and-lessons.md	| 110 | Tests | The rehearsal of the analysis passed
+docs/milestone-5-signed-records.md	Limitations row 99 is resolved.	@docs:docs/limitations-and-trust.md	| 99 | `nn_audit_compare.py` and `records_expected.py` did not treat
+docs/milestone-plan.md	[milestone-5](milestone-5-signed-records.md) section 5	@docs:docs/milestone-5-signed-records.md	## 5. The combined crawl (`run14`, 15 October 2026)
+docs/session-start.md	[milestone-5-signed-records.md](milestone-5-signed-records.md) section 5	@docs:docs/milestone-5-signed-records.md	## 5. The combined crawl (`run14`, 15 October 2026)
+docs/cluster-configuration.md	the report is [milestone-5-signed-records.md](milestone-5-signed-records.md) section 5	@docs:docs/milestone-5-signed-records.md	## 5. The combined crawl (`run14`, 15 October 2026)
+docs/milestone-5-signed-records.md	on 15 October at 19:59: all six results pass	evidence-kit-selftest/kit-selftest-console2.txt	2026-10-15T19:59:17Z
+docs/milestone-5-signed-records.md	(22 of 22, 46 of 46, 7 of 7 and the three rehearsals)	evidence-kit-selftest/kit-selftest-console2.txt	pass: 22   fail: 0
+docs/milestone-5-signed-records.md	(22 of 22, 46 of 46, 7 of 7 and the three rehearsals)	evidence-kit-selftest/kit-selftest-console2.txt	ALL-PASS (46 of 46 checks passed)
+docs/milestone-5-signed-records.md	(22 of 22, 46 of 46, 7 of 7 and the three rehearsals)	evidence-kit-selftest/kit-selftest-console2.txt	ALL-PASS (7 of 7 checks passed)
+docs/milestone-5-signed-records.md	all six results pass	evidence-kit-selftest/kit-selftest-console2.txt	REHEARSAL-PASS: prep, pack and repack pass, and all 12 faults are caught
+docs/milestone-5-signed-records.md	all six results pass	evidence-kit-selftest/kit-selftest-console2.txt	REHEARSAL-PASS: the happy path passes, the two updated tools replace the committed ones, and all 17 faults are caught
+docs/milestone-5-signed-records.md	all six results pass	evidence-kit-selftest/kit-selftest-console2.txt	REHEARSAL-PASS: on and off pass, the offline verification of the whole output passes, and all 21 faults are caught
+docs/milestone-5-signed-records.md	The first self-test, at 19:47, had failed in the rehearsal of the run script	evidence-kit-selftest/kit-selftest-console1-run-rehearsal-failed.txt	2026-10-15T19:47:33Z
+docs/milestone-5-signed-records.md	The first self-test, at 19:47, had failed in the rehearsal of the run script	evidence-kit-selftest/kit-selftest-console1-run-rehearsal-failed.txt	REHEARSAL-FAIL
+docs/milestone-5-signed-records.md	a self-test of the final kit (`b5dc7eb3…`)	evidence-kit-selftest/SHA256SUMS	re:b5dc7eb3c6a5107d4e59704b400de1985cb2f12f1ea54200be95fc897d1e52e2\s+\./m512ckit-files\.zip
+docs/milestone-5-signed-records.md	the rehearsal was made hermetic (mistake log 111)	@repo:ops/kits/m512c/ops/attested/m512c-run-rehearse.sh	unset HADOOP_HOME
+docs/milestone-5-signed-records.md	(mistake log 111)	@docs:docs/guide-pitfalls-and-lessons.md	| 111 | Tests | The rehearsal of the run script passed in the sandbox and failed on the master
