@@ -248,6 +248,7 @@ public class AttestedFsSmoke {
     verifyChecks(conf, base, plain);
     signatureChecks(conf, base, plain);
     bindingChecks(conf, base, plain);
+    keyServiceChecks(conf, base, plain);
     metadataChecks(conf, base, plain);
     fileContext(conf, new Path("hdfs://fake:9000" + tmp + "/fc"));
     refusalChecks(conf, base, plain);
@@ -276,6 +277,7 @@ public class AttestedFsSmoke {
       metadataChecks(conf, base, plain);
       signatureChecks(conf, base, plain);
       bindingChecks(conf, base, plain);
+      keyServiceChecks(conf, base, plain);
       fileContext(conf, new Path("hdfs://" + authority + work + "-fc"));
       refusalChecks(conf, base, plain);
       auditLines(conf, tmp + "/audit", DistributedFileSystem.class.getName(),
@@ -1484,6 +1486,159 @@ public class AttestedFsSmoke {
    * Step 5.1.2: every file is bound to its folder. Folders have signed identity files, records name the folder and the file, renames sign a
    * new record (a folder rename only its identity file), and the attacks of the mentor's list that move or copy signed files fail the read.
    */
+  /** A stand-in for attest/quote.sh: a 632-byte "quote" whose REPORTDATA (offset 568) is the SHA-512 of the statement file. */
+  static java.nio.file.Path fakeQuoteScript(java.nio.file.Path dir) throws IOException {
+    java.nio.file.Path f = dir.resolve("fake-quote.sh");
+    String body = "#!/usr/bin/env bash\n"
+        + "python3 - \"$1\" \"$2\" <<'PY'\n"
+        + "import hashlib, sys\n"
+        + "st = open(sys.argv[1], 'rb').read()\n"
+        + "q = bytearray(b'\\x04\\x00' + b'\\x00' * 630)\n"
+        + "q[568:632] = hashlib.sha512(st).digest()\n"
+        + "open(sys.argv[2], 'wb').write(bytes(q))\n"
+        + "PY\n";
+    Files.write(f, body.getBytes(StandardCharsets.US_ASCII));
+    Files.setPosixFilePermissions(f, java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x"));
+    return f;
+  }
+
+  static String tokenOf(java.nio.file.Path dir) throws IOException {
+    return new String(Files.readAllBytes(dir.resolve("token")), StandardCharsets.US_ASCII).trim();
+  }
+
+  static Configuration serviceConf(Configuration baseConf, KeyService svc, java.nio.file.Path svcDir, java.nio.file.Path listDir,
+      boolean allowUnquoted) throws Exception {
+    Configuration c = new Configuration(baseConf);
+    c.set(AttestedKeyFactory.PROVIDER_KEY, "service");
+    c.set(AttestedKeyFactory.SERVICE_ADDRESS_KEY, "127.0.0.1:" + svc.port());
+    c.set(AttestedKeyFactory.SERVICE_TOKEN_FILE_KEY, svcDir.resolve("token").toString());
+    c.set(AttestedKeyFactory.LIST_DIR_KEY, listDir.toString());
+    c.setLong(AttestedKeyFactory.LIST_CACHE_KEY, 0);
+    c.setBoolean(AttestedKeyFactory.LIST_ALLOW_UNQUOTED_KEY, allowUnquoted);
+    c.setBoolean(AttestedHdfsFileSystem.SIGN_KEY, true);
+    c.setBoolean(AttestedHdfsFileSystem.SIGN_REQUIRED_KEY, true);
+    c.setBoolean(AttestedHdfsFileSystem.SIGN_ALLOW_TEST_KEY, false);
+    c.setBoolean(AttestedHdfsFileSystem.FOLDER_BIND_KEY, true);
+    c.setBoolean(AttestedHdfsFileSystem.FOLDER_REQUIRED_KEY, true);
+    c.setLong(AttestedHdfsFileSystem.META_CACHE_KEY, 0);
+    return c;
+  }
+
+  /**
+   * Step 5.1.3: the real key. The wrapper signs through the signing service (the private key never enters its JVM) and trusts only the
+   * public keys of the key list, whose bundles hold a quote that vouches for the key. Test keys are not accepted any more.
+   */
+  static void keyServiceChecks(Configuration baseConf, Path base, FileSystem plain) throws Exception {
+    java.nio.file.Path work = Files.createTempDirectory("keysvc");
+    java.nio.file.Path listDir = work.resolve("list");
+    java.nio.file.Path quote = fakeQuoteScript(work);
+    String auditDir = baseConf.get(AttestedAudit.DIR_KEY);
+    KeyService svc = KeyService.start(work.resolve("svc1"), 0, listDir, quote.toString(), "smoke-node");
+    FileSystem fs = FileSystem.newInstance(base.toUri(), serviceConf(baseConf, svc, work.resolve("svc1"), listDir, false));
+    Path top = new Path(base, "realkey");
+    byte[] d = data(45000, 31);
+    Path f = new Path(top, "seg1/a.bin");
+    put(fs, f, d);
+    byte[] rec = readAll(plain, sc(f));
+    AttestedRecordCodec.Decoded genuine = AttestedRecordCodec.decode(rec);
+
+    // 1. a write and a read with the real key
+    check("a file written with the service provider has an ATTEST03 record that names the TDX- key of the service",
+        new String(rec, 0, 8, StandardCharsets.US_ASCII).equals("ATTEST03") && genuine.keyId.equals(svc.keyId()) && svc.keyId().startsWith("TDX-"));
+    check("reading it through the wrapper returns the bytes, and the audit log says sig=ok (a real key, not a test key)",
+        Arrays.equals(d, readAll(fs, f)) && auditHas(auditDir, "verify=ok sig=ok bind=ok"));
+    check("the INIT line says that the keys come from the service, that test keys are not allowed, and names the key",
+        auditHas(auditDir, "testkeys=false key=" + svc.keyId()) && auditHas(auditDir, "keyprovider=service"));
+    check("the folder identities are signed with the same key", identityOf(plain, top).keyId.equals(svc.keyId()) && identityOf(plain, new Path(top, "seg1")).keyId.equals(svc.keyId()));
+    long before = svc.signedCount();
+    Path g = new Path(top, "seg1/b.bin");
+    check("renaming a file signs one new record through the service, and the file reads", fs.rename(f, g) && Arrays.equals(d, readAll(fs, g)) && svc.signedCount() == before + 1);
+    byte[] genuineBytes = readAll(plain, sc(g));
+    AttestedRecordCodec.Decoded gd = AttestedRecordCodec.decode(genuineBytes);
+
+    // 2. the attacks that the real key must stop
+    TestKeys attacker = TestKeys.generate(work.resolve("attacker.txt"));
+    MerkleHasher mh = new MerkleHasher(gd.chunkSize, true);
+    mh.update(d, 0, d.length);
+    mh.finish();
+    byte[] sigA = attacker.sign(AttestedRecordCodec.statementBound(attacker.signingKeyId(), gd.folderId, gd.fileName, gd.chunkSize, gd.length, gd.root));
+    put(plain, sc(g), AttestedRecordCodec.encodeBound(gd.chunkSize, gd.length, gd.root, mh.leaves(), gd.folderId, gd.fileName, attacker.signingKeyId(), sigA));
+    check("attack: the record re-signed with a test key (right folder, name and content): the read FAILS, test keys are not accepted",
+        tryRead(fs, g) == null && lastError.contains("test key"));
+    put(plain, sc(g), genuineBytes);
+    check("undone: the file reads again", Arrays.equals(d, readAll(fs, g)));
+    KeyService rogue = KeyService.start(work.resolve("svc-rogue"), 0, work.resolve("rogue-list"), quote.toString(), "rogue-node");
+    ServiceKeys rogueClient = new ServiceKeys("127.0.0.1", rogue.port(), tokenOf(work.resolve("svc-rogue")), null, 3000);
+    byte[] sigR = rogueClient.sign(AttestedRecordCodec.statementBound(rogue.keyId(), gd.folderId, gd.fileName, gd.chunkSize, gd.length, gd.root));
+    put(plain, sc(g), AttestedRecordCodec.encodeBound(gd.chunkSize, gd.length, gd.root, mh.leaves(), gd.folderId, gd.fileName, rogue.keyId(), sigR));
+    check("attack: the record signed by another machine's real key that is not in this key list: the read FAILS, not trusted here",
+        tryRead(fs, g) == null && lastError.contains("not trusted here"));
+    put(plain, sc(g), genuineBytes);
+    byte[] moved = genuineBytes.clone();
+    moved[moved.length - 4] ^= 1;
+    put(plain, sc(g), moved);
+    check("attack: one bit of the signature changed: the read FAILS", tryRead(fs, g) == null && lastError.contains("does not verify"));
+    put(plain, sc(g), genuineBytes);
+    check("undone: the file reads again", Arrays.equals(d, readAll(fs, g)));
+
+    // 3. the service stops: reading goes on, writing fails closed
+    svc.close();
+    Thread.sleep(100);
+    Path h = new Path(top, "seg1/c.bin");
+    String why = null;
+    try {
+      put(fs, h, d);
+    } catch (IOException e) {
+      why = String.valueOf(e.getMessage());
+    }
+    check("with the service stopped, a write fails and the message names the signing service", why != null && why.contains("signing service"));
+    check("the file that could not be signed has no record, so it cannot be read (fail closed)", plain.exists(h) && tryRead(fs, h) == null);
+    check("existing files still read (verification needs only the key list)", Arrays.equals(d, readAll(fs, g)));
+    String startFail = null;
+    try {
+      FileSystem.newInstance(base.toUri(), serviceConf(baseConf, svc, work.resolve("svc1"), listDir, false));
+    } catch (IOException e) {
+      startFail = String.valueOf(e.getMessage());
+    }
+    check("a wrapper that is told to sign cannot start while the service is down, and says so", startFail != null && startFail.contains("signing service"));
+
+    // 4. a new service is a new key; the old key stays in the list
+    KeyService svc2 = KeyService.start(work.resolve("svc2"), 0, listDir, quote.toString(), "smoke-node");
+    FileSystem fs2 = FileSystem.newInstance(base.toUri(), serviceConf(baseConf, svc2, work.resolve("svc2"), listDir, false));
+    Path k = new Path(top, "seg1/d.bin");
+    put(fs2, k, d);
+    check("after a restart the service has another key, and new files are signed with it", !svc2.keyId().equals(svc.keyId())
+        && AttestedRecordCodec.decode(readAll(plain, sc(k))).keyId.equals(svc2.keyId()));
+    check("the files of the old key and of the new key both read (both bundles are in the list)", Arrays.equals(d, readAll(fs2, g)) && Arrays.equals(d, readAll(fs2, k)));
+    java.nio.file.Path oldBundle = listDir.resolve(svc.keyId() + KeyBundle.FILE_SUFFIX);
+    byte[] oldBundleBytes = Files.readAllBytes(oldBundle);
+    Files.delete(oldBundle);
+    check("when the old key's bundle is removed from the list, its files fail: not trusted here (the list is the policy)", tryRead(fs2, g) == null && lastError.contains("not trusted here"));
+    Files.write(oldBundle, oldBundleBytes);
+    check("put back, they read again", Arrays.equals(d, readAll(fs2, g)));
+
+    // 5. a machine without hardware proof: its records are not accepted unless the list says so
+    java.nio.file.Path listSvc = work.resolve("list-svc");
+    KeyService soft = KeyService.start(work.resolve("svc3"), 0, listSvc, null, "no-tdx");
+    FileSystem fs3 = FileSystem.newInstance(base.toUri(), serviceConf(baseConf, soft, work.resolve("svc3"), listSvc, false));
+    Path m = new Path(new Path(base, "softkey"), "seg1/e.bin");   // its own tree: the folders of the other tree are signed by another key
+    String softWhy = null;
+    try {
+      put(fs3, m, d);
+    } catch (IOException e) {
+      softWhy = String.valueOf(e.getMessage());
+    }
+    check("a service key without a quote (SVC-) can sign, but a list that wants quotes does not trust it: even its own writer refuses (not trusted here)",
+        soft.keyId().startsWith("SVC-") && softWhy != null && softWhy.contains("not trusted here"));
+    FileSystem fs4 = FileSystem.newInstance(base.toUri(), serviceConf(baseConf, soft, work.resolve("svc3"), listSvc, true));
+    put(fs4, m, d);
+    check("with allow.unquoted on, the same machine writes and reads (a service key is accepted only when the list says so)", Arrays.equals(d, readAll(fs4, m)));
+    check("... and a reader whose list wants quotes refuses that file", tryRead(fs3, m) == null && lastError.contains("not trusted here"));
+    soft.close();
+    rogue.close();
+    svc2.close();
+  }
+
   static void bindingChecks(Configuration baseConf, Path base, FileSystem plain) throws Exception {
     java.nio.file.Path keyDir = Files.createTempDirectory("bindkeys");
     java.nio.file.Path keyFile = keyDir.resolve("test-key.txt");

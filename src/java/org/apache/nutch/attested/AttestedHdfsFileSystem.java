@@ -180,6 +180,7 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
   private String missingPolicy = "fail";
   private String metaMissingPolicy = "warn";
   private AttestedSignatures signatures;
+  private String keyProvider = "test";
   private AttestedFolders folders;
   private boolean bindOn = false;
   private boolean bindRequired = false;
@@ -243,12 +244,17 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
           + SIDECAR_KEY + " and " + HASH_ENABLED_KEY + " must be true");
     }
     AttestedKeys keys = null;
-    java.nio.file.Path keyPath = java.nio.file.Paths.get(keyFile);
-    if (java.nio.file.Files.isReadable(keyPath)) {
-      keys = TestKeys.load(keyPath);
-    } else if (signOn) {
-      throw new IOException(SIGN_KEY + " is true but the test key file is missing or unreadable: "
-          + keyFile);
+    this.keyProvider = AttestedKeyFactory.provider(conf, ignored);
+    if (keyProvider.equals("service")) {
+      keys = AttestedKeyFactory.service(conf, signOn, ignored);
+    } else {
+      java.nio.file.Path keyPath = java.nio.file.Paths.get(keyFile);
+      if (java.nio.file.Files.isReadable(keyPath)) {
+        keys = TestKeys.load(keyPath);
+      } else if (signOn) {
+        throw new IOException(SIGN_KEY + " is true but the test key file is missing or unreadable: "
+            + keyFile);
+      }
     }
     this.signatures = new AttestedSignatures(keys, signOn, signRequired, allowTestKeys);
     this.bindOn = AttestedSettings.getBoolean(conf, FOLDER_BIND_KEY, false, ignored);
@@ -287,7 +293,7 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
         + " sign=" + signatures.signing() + " sigrequired=" + signatures.required()
         + " testkeys=" + signatures.allowTestKeys() + " key="
         + (signatures.signingKeyId() == null ? "none" : signatures.signingKeyId())
-        + " bind=" + bindOn + " bindrequired=" + bindRequired
+        + " bind=" + bindOn + " bindrequired=" + bindRequired + " keyprovider=" + keyProvider
         + " from=" + where()
         + (ignored.isEmpty() ? "" : " ignored=" + String.join(",", ignored)));
   }

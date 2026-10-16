@@ -30,6 +30,10 @@ import java.nio.file.Paths;
  * java -cp attested-hdfs.jar org.apache.nutch.attested.AttestedKeyTool generate FILE   make a new test key file (mode 600; never overwrites)
  * java -cp attested-hdfs.jar org.apache.nutch.attested.AttestedKeyTool info FILE       print the key id and whether the file can sign
  * java -cp attested-hdfs.jar org.apache.nutch.attested.AttestedKeyTool public FILE OUT write a public-only copy (it can verify, not sign)
+ * java -cp attested-hdfs.jar org.apache.nutch.attested.AttestedKeyTool bundle-info FILE   print what a key bundle says (key id, host, time, quote)
+ * java -cp attested-hdfs.jar org.apache.nutch.attested.AttestedKeyTool bundle-verify FILE [--allow-unquoted]
+ *                                                                             check a key bundle: the key id is the hash of the public key and the quote's REPORTDATA
+ *                                                                             is the SHA-512 of the statement (not the quote's signature chain: step 5.2.1)
  * </pre>
  *
  * <p>It prints the key id, never the private key. The test key is never to be used in evidence.</p>
@@ -54,6 +58,24 @@ public final class AttestedKeyTool {
         TestKeys k = TestKeys.load(Paths.get(args[1]));
         out.println("file " + args[1] + "   key id " + k.keyId() + "   can sign: " + (k.signingKeyId() != null));
         return 0;
+      }
+      if (args.length >= 2 && args[0].startsWith("bundle-")) {
+        KeyBundle b = KeyBundle.decode(Files.readAllBytes(Paths.get(args[1])));
+        if (args[0].equals("bundle-info") && args.length == 2) {
+          out.println("key id " + b.keyId + "   host " + b.host + "   created " + b.created + "   quote "
+              + (b.hasQuote() ? b.quote.length + " bytes" : "none"));
+          return 0;
+        }
+        if (args[0].equals("bundle-verify") && (args.length == 2 || (args.length == 3 && args[2].equals("--allow-unquoted")))) {
+          b.checkBinding();
+          if (!b.hasQuote() && args.length == 2) {
+            throw new IOException("the bundle has no quote (" + b.keyId + "): it is accepted only with --allow-unquoted");
+          }
+          out.println("BUNDLE-OK   key id " + b.keyId + "   host " + b.host + "   "
+              + (b.hasQuote() ? "the quote's REPORTDATA is the SHA-512 of the statement (the quote's own signature is not checked here)"
+                  : "no quote (a service key)"));
+          return 0;
+        }
       }
       if (args.length == 3 && args[0].equals("public")) {
         TestKeys k = TestKeys.load(Paths.get(args[1]));
