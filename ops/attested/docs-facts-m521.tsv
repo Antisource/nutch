@@ -1,0 +1,59 @@
+# Facts of step 5.2.1 (16 October 2026), tied to the evidence folder in the Cloud Shell home (evidence-m521), to the repository after the commits of step 5.2.1, and to the documents as committed with this list
+docs/milestone-5-signed-records.md	feat(attested): admit keys by their quote: an offline TDX quote verifier, a reference file and an admission check for the key list (step 5.2.1)	@git-log	feat(attested): admit keys by their quote: an offline TDX quote verifier, a reference file and an admission check for the key list (step 5.2.1)
+docs/milestone-5-signed-records.md	feat(ops): add the test, build and real-data kits of the quote admission (step 5.2.1)	@git-log	feat(ops): add the test, build and real-data kits of the quote admission (step 5.2.1)
+docs/milestone-5-signed-records.md	SHA-256 fingerprint is pinned in the code as the default	@repo:src/java/org/apache/nutch/attested/QuoteAdmission.java	INTEL_SGX_ROOT_SHA256 = "44a0196b2b99f889b8e149e95b807a350e7424964399e885a7cbb8ccfab674d3"
+docs/milestone-5-signed-records.md	QuoteVerifier	@repo:src/java/org/apache/nutch/attested/QuoteVerifier.java	static void verify(Quote q, Set<String> pinnedRoots, boolean checkDates, Instant now)
+docs/milestone-5-signed-records.md	AdmissionReference	@repo:src/java/org/apache/nutch/attested/AdmissionReference.java	REGISTER VALUE [HOST]
+docs/milestone-5-signed-records.md	(`attested.keys.admission.enabled` false)	@repo:src/java/org/apache/nutch/attested/AttestedKeyFactory.java	attested.keys.admission.enabled
+docs/milestone-5-signed-records.md	attested.keys.admission.reference.sha256	@repo:src/java/org/apache/nutch/attested/AttestedKeyFactory.java	attested.keys.admission.reference.sha256
+docs/milestone-5-signed-records.md	attested.keys.admission.check.dates	@repo:src/java/org/apache/nutch/attested/AttestedKeyFactory.java	attested.keys.admission.check.dates
+docs/milestone-5-signed-records.md	(the kit `m521-test`, 13:57:41)	@repo:ops/kits/m521-test/ops/attested/m521-test.sh	M521-TEST-OK
+docs/milestone-5-signed-records.md	(`m521-build`, 13:59:10)	@repo:ops/kits/m521-build/ops/attested/m521-build.sh	M521B-BUILD-OK
+docs/milestone-5-signed-records.md	(`m521-realdata`, 13:59:59	@repo:ops/kits/m521-test/ops/attested/m521-realdata.sh	M521R-OK
+docs/milestone-5-signed-records.md	73 admission checks with **two real quotes of run 15 as test vectors**	@repo:ops/attested/AdmissionCoreTest.java	two REAL quotes
+docs/milestone-5-signed-records.md	the real bundles of run 15, used as test vectors	@repo:ops/attested/testdata/TDX-428f3734fdb03238.attestkey	ATTESTED-KEY-BUNDLE 1
+docs/milestone-5-signed-records.md	**enforced** register	@repo:ops/attested/reference-measurements-m521.txt	# TO CHANGE A DECISION
+docs/milestone-5-signed-records.md	(the kit `m521-test`, 13:57:41)	evidence-m521/m521-test-console.txt	m521-test: 2026-10-16T13:57:41Z on tdx-lab
+docs/milestone-5-signed-records.md	the fake-mode smoke test **239 of 239**	evidence-m521/m521-test-console.txt	the fake-mode smoke test passes 239 of 239 checks
+docs/milestone-5-signed-records.md	Hadoop's real committer with signing and binding **16 of 16**	evidence-m521/m521-test-console.txt	re:mode mr-bound .*: ALL-PASS \(16 of 16
+docs/milestone-5-signed-records.md	the hash test **18 of 18**	evidence-m521/m521-test-console.txt	re:mode hash: ALL-PASS \(18 of 18
+docs/milestone-5-signed-records.md	**the real HDFS 237 of 237**	evidence-m521/m521-test-console.txt	re:mode hdfs \(the real HDFS\): ALL-PASS \(237 of 237
+docs/milestone-5-signed-records.md	the signing core **73 of 73**	evidence-m521/m521-test-console.txt	the signing core passes 73 of 73 checks
+docs/milestone-5-signed-records.md	the key core **68 of 68**	evidence-m521/m521-test-console.txt	the key core passes 68 of 68 checks
+docs/milestone-5-signed-records.md	the admission core **73 of 73**	evidence-m521/m521-test-console.txt	the admission core passes 73 of 73 checks
+docs/milestone-5-signed-records.md	the admission core **73 of 73**	evidence-m521/m521-test-console.txt	M521-TEST-OK
+docs/milestone-5-signed-records.md	(`m521-build`, 13:59:10)	evidence-m521/m521b-build-console.txt	m521-build: 2026-10-16T13:59:10Z on tdx-lab
+docs/milestone-5-signed-records.md	built in 34 s	evidence-m521/m521b-build-console.txt	BUILD SUCCESSFUL in 34 s
+docs/milestone-5-signed-records.md	the job `8f21a37f933ee2ca…` (134,909,332 bytes	evidence-m521/m521b-build-console.txt	re:new job:\s+8f21a37f933ee2ca\.\.\.\s+134909332 bytes
+docs/milestone-5-signed-records.md	4 changed and 5 new classes, none unexpected	evidence-m521/m521b-build-console.txt	JOB-DIFF-ONLY-THE-PATCH (changed 4, new 5, removed 0, unexpected 0)
+docs/milestone-5-signed-records.md	the wrapper jar `ef611d1260b3b427…` has 37 classes (32 before)	evidence-m521/m521b-build-console.txt	re:37 classes written; sha256 ef611d1260b3b427
+docs/milestone-5-signed-records.md	the wrapper jar `ef611d1260b3b427…` has 37 classes (32 before)	evidence-m521/m521b-build-console.txt	installed jar: 32 classes, new jar: 37 classes
+docs/milestone-5-signed-records.md	the built jar admits a real bundle of run 15	evidence-m521/m521b-build-console.txt	the built jar admits a REAL bundle of run 15 by its quote
+docs/milestone-5-signed-records.md	the built jar admits a real bundle of run 15	evidence-m521/m521b-build-console.txt	M521B-BUILD-OK
+docs/milestone-5-signed-records.md	13:59:59, read-only	evidence-m521/m521-realdata-console.txt	m521-realdata: 2026-10-16T13:59:59Z on tdx-lab
+docs/milestone-5-signed-records.md	both real keys are admitted by their quotes	evidence-m521/m521-realdata-console.txt	ADMIT   key id TDX-428f3734fdb03238   host tdx-lab   admitted by quote: mrtd=c1ee9c16e3af(enforced)
+docs/milestone-5-signed-records.md	both real keys are admitted by their quotes	evidence-m521/m521-realdata-console.txt	ADMIT   key id TDX-5fdb825500807c66   host tdx-lab-worker   admitted by quote: mrtd=c1ee9c16e3af(enforced)
+docs/milestone-5-signed-records.md	the seeds folder, and the crawl output of 55 folders and 60 files	evidence-m521/m521-realdata-console.txt	seeds-run15: folders=1 files=1 verify, both keys admitted by their quotes
+docs/milestone-5-signed-records.md	the seeds folder, and the crawl output of 55 folders and 60 files	evidence-m521/m521-realdata-console.txt	crawl-run15: folders=55 files=60 verify, both keys admitted by their quotes
+docs/milestone-5-signed-records.md	each decision flips with one edit	evidence-m521/m521-realdata-console.txt	EDIT 1: one changed MRTD in the reference: no key is admitted
+docs/milestone-5-signed-records.md	each decision flips with one edit	evidence-m521/m521-realdata-console.txt	EDIT 2: take mrtd out of the enforce list (the same wrong reference): the tree verifies again
+docs/milestone-5-signed-records.md	each decision flips with one edit	evidence-m521/m521-realdata-console.txt	EDIT 3: pin another root certificate: no key is admitted (not one of the trusted roots)
+docs/milestone-5-signed-records.md	each decision flips with one edit	evidence-m521/m521-realdata-console.txt	EDIT 4: enforce rtmr3 (the reference has no RTMR3 lines): refused, fail closed, with the reason
+docs/milestone-5-signed-records.md	a quote changed by one bit of MRTD is refused	evidence-m521/m521-realdata-console.txt	one flipped bit in MRTD of both quotes: no key is admitted (the signature of the quote does not verify)
+docs/milestone-5-signed-records.md	RTMR3 is shown, not enforced	evidence-m521/m521-realdata-console.txt	rtmr3=0e137cc3e973(shown only)
+docs/milestone-5-signed-records.md	**MRTD is the same on the two machines** (`c1ee9c16e3af…`)	evidence-m521/m521-realdata-console.txt	re:rtmr0=5e276dcf6867\(enforced\).*
+docs/milestone-5-signed-records.md	(`SOURCE-IDENTICAL`)	evidence-m521/master-tree-source-sha.txt	re:76d1fef1dc4f0898[0-9a-f]+\s+src/java/org/apache/nutch/attested/QuoteVerifier\.java
+docs/milestone-5-signed-records.md	(`m521tb` `1be67c3b…`)	evidence-m521/SHA256SUMS	re:1be67c3b0296665108bade813ea47367f5bebe7a1e3000be5d8d159ec34afae7\s+\./m521tb-files\.zip
+docs/milestone-5-signed-records.md	`evidence-m521` (`8b7a034a…`, 9 files)	evidence-m521/SHA256SUMS	re:[0-9a-f]{64}\s+\./m521-realdata-results\.tar\.gz
+docs/milestone-5-signed-records.md	(ADR-050 to ADR-052)	@docs:docs/decisions.md	## ADR-050: A key is admitted by its quote
+docs/milestone-5-signed-records.md	(ADR-050 to ADR-052)	@docs:docs/decisions.md	## ADR-052: What is not checked offline
+docs/milestone-5-signed-records.md	(limitations row 117)	@docs:docs/limitations-and-trust.md	| 117 | Revocation lists, the TCB status
+docs/milestone-5-signed-records.md	(row 118)	@docs:docs/limitations-and-trust.md	| 118 | The reference file records what the two machines reported
+docs/milestone-5-signed-records.md	(row 119)	@docs:docs/limitations-and-trust.md	| 119 | RTMR3 (the measured stack) is shown
+docs/milestone-5-signed-records.md	(row 121)	@docs:docs/limitations-and-trust.md	| 121 | The admission has run on the real machines only offline
+docs/milestone-5-signed-records.md	(mistake log 117)	@docs:docs/guide-pitfalls-and-lessons.md	| 117 | Tests | My scripts counted 22 files
+docs/milestone-5-signed-records.md	(mistake log 118)	@docs:docs/guide-pitfalls-and-lessons.md	| 118 | Tests | A planted fault survived
+docs/milestone-5-signed-records.md	(mistake log 119)	@docs:docs/guide-pitfalls-and-lessons.md	| 119 | Process | The pre-check said
+docs/milestone-plan.md	[milestone-5](milestone-5-signed-records.md) section 7, ADR-050 to ADR-052	@docs:docs/milestone-5-signed-records.md	## 7. Step 5.2.1: readers accept only keys of attested machines
+docs/session-start.md	[milestone-5-signed-records.md](milestone-5-signed-records.md) section 7, ADR-050 to ADR-052	@docs:docs/milestone-5-signed-records.md	## 7. Step 5.2.1: readers accept only keys of attested machines
+docs/cluster-configuration.md	the report is [milestone-5-signed-records.md](milestone-5-signed-records.md) section 7	@docs:docs/milestone-5-signed-records.md	## 7. Step 5.2.1: readers accept only keys of attested machines
