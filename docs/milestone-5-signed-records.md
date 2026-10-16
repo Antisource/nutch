@@ -1,6 +1,6 @@
 # Milestone 5: signed records
 
-Status: **steps 5.1.1 and 5.1.2 are done on 15 October 2026**: every record can be signed with a labelled test key, a file rewritten together with its record, without the key, fails the read (section 3), and every file is bound to its folder and its name, so that a signed file moved or copied elsewhere fails the read too (section 4); both are shown on the real HDFS. The combined crawl, with signing and folder binding on and required, ran on the real cluster the same day and its whole output verifies offline with the public key only (section 5). Steps 5.1.3, 5.2 and 5.3 are open ([milestone-plan.md](milestone-plan.md)). It is extended as the later steps close. All times are UTC.
+Status: **steps 5.1.1 and 5.1.2 are done on 15 October 2026**: every record can be signed with a labelled test key, a file rewritten together with its record, without the key, fails the read (section 3), and every file is bound to its folder and its name, so that a signed file moved or copied elsewhere fails the read too (section 4); both are shown on the real HDFS. The combined crawl, with signing and folder binding on and required, ran on the real cluster the same day and its whole output verifies offline with the public key only (section 5). **Step 5.1.3, the real key, is done on 16 October 2026**: each VM makes its own signing key in the memory of a small signing service, the hardware quote vouches for exactly that key, and a crawl with the real keys verifies offline against a key list (section 6). Steps 5.2 and 5.3 are open ([milestone-plan.md](milestone-plan.md)). It is extended as the later steps close. All times are UTC.
 
 ## 1. What this milestone does, in plain words
 
@@ -13,7 +13,7 @@ Until now every file in HDFS has a tamper sticker, its record. The sticker prove
 | 5.1.1 | records are signed with a test key, clearly labelled and never used in evidence | **Done on 15 October 2026** (section 3) |
 | 5.1.2 | folder identity files bind each file to its folder (ADR-035) | **Done on 15 October 2026** (section 4) |
 | 5.1.2b | the combined crawl with signing and folder binding on and required (`run14`) | **Done on 15 October 2026** (section 5) |
-| 5.1.3 | the real key: generated per VM at boot, held by a small signing service, bound to the quote through REPORTDATA | Open |
+| 5.1.3 | the real key: generated per VM at boot, held by a small signing service, bound to the quote through REPORTDATA | **Done on 16 October 2026** (section 6) |
 | 5.2.1 | readers accept only keys of attested machines | Open |
 | 5.3 | locked image, fixed driver, TLS checking on | Open |
 
@@ -253,3 +253,76 @@ Folder binding changes what the NameNode shows, so two analysis tools were updat
 - A claim about what a restart keeps must be checked before it is relied on for evidence (mistake log 109).
 - A rehearsal fixture is made from what the script produces, not from the shape of an older run (mistake log 110).
 - A rehearsal must be hermetic against the environment of the machine it runs on, and its first run on the real machine is a test of the test (mistake log 111).
+
+
+## 6. Step 5.1.3: the real signing key (`run15`, 16 October 2026)
+
+### 6.1 What it does
+
+Until now the signing key was a **test key**: a file on both nodes, which anybody who could read the file could copy and use. Step 5.1.3 replaces it, for real runs, by a key that no file ever holds. On each VM a small **signing service** makes the machine's key when it starts and keeps it in memory only; it signs on request over a loopback socket and dies with its process. The hardware then vouches for the key: the service asks for a TDX quote whose `REPORTDATA` field is the SHA-512 of a short **key statement** (the key id, the public key, the host, the time and a random nonce), exactly the rule that `attest/quote.sh` and `attest/verify-binding.sh` already use. The result is a **key bundle** (the statement and the quote). A reader trusts a key only if its bundle is in its **key list** and passes the checks (ADR-047 to ADR-049).
+
+### 6.2 The design
+
+| Part | What it is |
+|---|---|
+| The signing service (`KeyService`, in the wrapper jar) | a process of its own on each VM: the key (ECDSA P-256) is made at start and never written; a loopback socket with a token; it signs only the three statement formats of the wrapper and only for its own key id, so it is not a general signing oracle; every request is logged (time, result, a short digest, never the statement or the signature) |
+| The key bundle (`KeyBundle`, `*.attestkey`) | the statement and the quote; the key id is `TDX-` and 16 hex digits of the SHA-256 of the public key; a TDX key is never made without its quote; a service key without a quote (`SVC-`) exists for tests only |
+| The key list (`KeyList`, `BundleCheck`) | a folder of bundles; a bundle is trusted only if the key id is the hash of the public key and the quote's `REPORTDATA` is the SHA-512 of the statement; a key without a quote is refused unless the list says otherwise; an extra check class (`attested.keys.list.check.class`) is the hook where step 5.2.1 verifies the quote's signature chain and the measurements |
+| The wrapper's side (`ServiceKeys`, `AttestedKeyFactory`) | one new setting; signing goes to the service, public keys come from the list; reading needs only the list, writing needs the service and fails closed with a message that names the service |
+| The key tool | `bundle-info` and `bundle-verify` |
+
+| Setting (core-site.xml only, ADR-039) | Default | Meaning |
+|---|---|---|
+| `attested.keys.provider` | `test` | `test` is the test key of step 5.1.1; `service` is the real key |
+| `attested.keys.service.address` | none | `HOST:PORT` of the local signing service (needed to sign) |
+| `attested.keys.service.token.file` | `~/tc-keyservice/token` | the token of the service |
+| `attested.keys.list.dir` | `~/tc-keys/list` | the key list |
+| `attested.keys.list.allow.unquoted` | false | accept `SVC-` keys (tests only) |
+| `attested.keys.list.cache.seconds` | 10 | how long the list is kept before it is read again |
+
+### 6.3 How it was built and tested
+
+1. **In the sandbox:** 68 core checks (bundle, service, key list, the signed formats, a restart, eight threads at once), 21 new wrapper-level checks in the smoke test (real service and list; attacks with a test key, with another machine's real key that is not in the list, and with one flipped bit; the service stopped; a restart; a key without a quote), the signing core still 73 of 73, and 18 planted faults, all caught (the first run found three blind spots in my own tests, which were fixed).
+2. **On the master, in a scratch clone** (the kit `m513-test`, 08:46:09): the fake-mode smoke test **235 of 235**, Hadoop's real committer with signing and binding **16 of 16**, the hash test **18 of 18**, **the real HDFS 233 of 233** (the 212 of step 5.1.2 plus the 21 new checks), the signing core **73 of 73**, the key core **68 of 68**.
+3. **The build** (`m513-build`, 08:47:30): the job `3a55e21d17c07d78…` (134,891,448 bytes, built in 34 s) differs from the job of step 5.1.2 in 4 changed and 6 new classes, none unexpected; the wrapper jar `36324a608d9d1a2c…` has 32 classes (26 before) and starts a throw-away signing service that makes a key bundle that verifies.
+4. **The self-test of the window kit on the master** (11:03 to 11:05, read-only): six parts, all passing (the offline verifier and bundle extraction 11 of 11, the key exchange, the analysis, the run script, the window script and the worker script, with their planted faults).
+
+### 6.4 The window
+
+The cluster was reserved at 11:17:03. The master was opened at 11:17:42 and its signing service started at 11:18:43 with the key `TDX-428f3734fdb03238`; the worker was opened at 11:27:50 and its service started at 11:28:50 with the key `TDX-5fdb825500807c66`. On each VM the hardware quote is **8,000 bytes**, its `REPORTDATA` equals the SHA-512 of the key statement (our check, and `attest/verify-binding.sh` says `MATCH`), and the service answered on `127.0.0.1:7461` with its token. At 11:36:43 the two bundles were exchanged in Cloud Shell and checked there again (`M513-SYNC-OK`; a first attempt had stopped safely because Cloud Shell had no `xxd`). On the laptop, go-tdx-guest's `check` verified the Intel signature chain of **both quotes**. The master was closed at 12:11:27 and the worker at 12:14:20: each signing service was stopped (its key disappeared with it), its port closed, the measured jar and settings restored byte for byte, `ALL-UNCHANGED` 9 and 6. **Nothing from the window is covered by the measurement** (ADR-029).
+
+### 6.5 The crawl `run15`
+
+| Item | Value |
+|---|---|
+| The crawl | started 11:46:59, exit code 0 after 736 s, with signing and folder binding on and required, the keys from the signing services, test keys not allowed |
+| The listings | 3,806 paths before and 4,036 after (230 added); the NameNode's audit window has 8,551 events |
+| The offline verification against the key list | the seeds folder (1 file) clean; the crawl output (**55 folders and 60 files**) clean; the plain copy held 175 files (1,264 KB) |
+| The keys in the output | the tree was signed by exactly **2 keys**, the master's and the worker's, both in the key list |
+| The negative control | with only the master's bundle in the list, the worker's files are refused (**13 findings, not trusted here**) |
+| The services | the master's signed **180** statements and the worker's **436**, neither refused any, both with a hardware quote |
+| The analysis | `M513C-ANALYSIS-CLEAN`: `AUDIT-CLEAN` (230 added), `RECORDS-COMPLETE` (61 of 61), `VERIFY-CLEAN` (211 opens), `NN-AUDIT-COMPARE-CLEAN` (27 folders made with their identity), every one of the **211 verified reads with `sig=ok` and `bind=ok`**, none with a test key, no `VERIFY-FAIL`, and the worker's task logs present (671 files) |
+
+### 6.6 What it does not show
+
+- The signing service runs under the same user as the fetcher in this first window: the key is in no file, but a compromised fetcher could read the service's memory and could ask for signatures while the service runs (limitations row 109).
+- The key list is a folder that the node trusts; the wrapper does not itself verify the quote's signature chain or the measurements (rows 110 and 111): the chain of both quotes was verified on the laptop. Step 5.2.1 builds this into the list through the hook.
+- One crawl only: no timing claim (row 116).
+- The data of the run (`/user/rishabsdp17/crawl-run15` and `seeds-run15`, about 1.3 MB) stays in HDFS (row 115).
+- The worker script's `pack` stopped by mistake and the pack of this run was made by hand (row 114).
+
+### 6.7 Evidence and commits
+
+| Item | Value |
+|---|---|
+| The patch that was tested | `2534afa5b62423fc…` (10 files, against branch head `ee6571e6f`) |
+| The code commit | `feat(attested): the real signing key: a signing service, key bundles bound to the hardware quote, and a key list (step 5.1.3)` (10 files: 7 new, 3 modified), exactly the files that were built, tested and run |
+| The kits commit | `feat(ops): add the test, build and window kits of the real key (step 5.1.3)` (`ops/kits/m513-test`, `m513-build`, `m513-window`) |
+| Evidence bundles (outside the repository) | the test and build on the master (`evidence-m513`, `dc5a1d93…`), the self-test of the window kit (`evidence-m513w-selftest`, `a667b5a9…`), and the window, the run, the exchange, the analysis and the laptop's quote check (`evidence-run15`, `9cd82ec0…`, 292 files) |
+| The files that ran | the ten source files in the tree on the master equal the source package (`SOURCE-IDENTICAL`); the scripts that ran on the cluster are the files of the kit zips that were delivered (`m513tb` `5f45dcc4…`, `m513w` `c483f023…`); the rehearsals ran in the self-test on the master; the worker script's `pack` ran on the cluster for the first time and stopped by mistake |
+
+### 6.8 Lessons
+
+- A rehearsal fixture must be as large as the real thing: a check of a big archive that failed because of a broken pipe never showed on a small one (mistake log 114).
+- A tool needed by a step must be checked on every machine that runs the step, not only on the nodes (mistake log 113).
+- A helper used by a test must be compiled by the script that compiles the test (mistake log 112), and a script must look at the folder of the step that it belongs to (mistake log 115).
