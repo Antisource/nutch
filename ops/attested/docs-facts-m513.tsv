@@ -1,0 +1,97 @@
+# Facts of step 5.1.3 (16 October 2026), tied to the evidence folders in the Cloud Shell home (evidence-m513, evidence-m513w-selftest, evidence-run15), to the repository after the commits of step 5.1.3, and to the documents as committed with this list
+docs/milestone-5-signed-records.md	feat(attested): the real signing key: a signing service, key bundles bound to the hardware quote, and a key list (step 5.1.3)	@git-log	feat(attested): the real signing key: a signing service, key bundles bound to the hardware quote, and a key list (step 5.1.3)
+docs/milestone-5-signed-records.md	feat(ops): add the test, build and window kits of the real key (step 5.1.3)	@git-log	feat(ops): add the test, build and window kits of the real key (step 5.1.3)
+docs/milestone-5-signed-records.md	a process of its own on each VM	@repo:src/java/org/apache/nutch/attested/KeyService.java	ATTEST03-SIGNED
+docs/milestone-5-signed-records.md	the key id is `TDX-` and 16 hex digits of the SHA-256 of the public key	@repo:src/java/org/apache/nutch/attested/KeyBundle.java	static final String TDX = "TDX-";
+docs/milestone-5-signed-records.md	the quote's `REPORTDATA` is the SHA-512 of the statement	@repo:src/java/org/apache/nutch/attested/KeyBundle.java	REPORTDATA_OFFSET = 568
+docs/milestone-5-signed-records.md	an extra check class (`attested.keys.list.check.class`)	@repo:src/java/org/apache/nutch/attested/AttestedKeyFactory.java	attested.keys.list.check.class
+docs/milestone-5-signed-records.md	| `attested.keys.provider` | `test` |	@repo:src/java/org/apache/nutch/attested/AttestedKeyFactory.java	attested.keys.provider
+docs/milestone-5-signed-records.md	BundleCheck	@repo:src/java/org/apache/nutch/attested/BundleCheck.java	interface BundleCheck
+docs/milestone-5-signed-records.md	the hook where step 5.2.1 verifies the quote's signature chain and the measurements	@repo:src/java/org/apache/nutch/attested/KeyList.java	extra.check(b)
+docs/milestone-5-signed-records.md	the worker script's `pack` ran on the cluster for the first time and stopped by mistake	@repo:ops/kits/m513-window/ops/attested/m513c-worker.sh	the pack has no userlogs
+docs/milestone-5-signed-records.md	(`m513-build`, 08:47:30)	@repo:ops/kits/m513-build/ops/attested/m513-build.sh	M513B-BUILD-OK
+docs/milestone-5-signed-records.md	(the kit `m513-test`, 08:46:09)	@repo:ops/kits/m513-test/ops/attested/m513-test.sh	M513-TEST-OK
+docs/milestone-5-signed-records.md	the self-test of the window kit	@repo:ops/kits/m513-window/ops/attested/m513-window.sh	M513W-OPEN-OK
+docs/milestone-5-signed-records.md	the self-test of the window kit	@repo:ops/kits/m513-window/ops/attested/m513c-run.sh	M513C-RUN-DONE
+docs/milestone-5-signed-records.md	(the kit `m513-test`, 08:46:09)	evidence-m513/m513-test-console.txt	m513-test: 2026-10-16T08:46:09Z on tdx-lab
+docs/milestone-5-signed-records.md	the fake-mode smoke test **235 of 235**	evidence-m513/m513-test-console.txt	the fake-mode smoke test passes 235 of 235 checks
+docs/milestone-5-signed-records.md	Hadoop's real committer with signing and binding **16 of 16**	evidence-m513/m513-test-console.txt	re:mode mr-bound .*: ALL-PASS \(16 of 16
+docs/milestone-5-signed-records.md	the hash test **18 of 18**	evidence-m513/m513-test-console.txt	re:mode hash: ALL-PASS \(18 of 18
+docs/milestone-5-signed-records.md	**the real HDFS 233 of 233**	evidence-m513/m513-test-console.txt	re:mode hdfs \(the real HDFS\): ALL-PASS \(233 of 233
+docs/milestone-5-signed-records.md	the signing core **73 of 73**	evidence-m513/m513-test-console.txt	the signing core passes 73 of 73 checks
+docs/milestone-5-signed-records.md	the key core **68 of 68**	evidence-m513/m513-test-console.txt	the key core passes 68 of 68 checks
+docs/milestone-5-signed-records.md	the key core **68 of 68**	evidence-m513/m513-test-console.txt	M513-TEST-OK
+docs/milestone-5-signed-records.md	(`m513-build`, 08:47:30)	evidence-m513/m513b-build-console.txt	m513-build: 2026-10-16T08:47:30Z on tdx-lab
+docs/milestone-5-signed-records.md	built in 34 s	evidence-m513/m513b-build-console.txt	BUILD SUCCESSFUL in 34 s
+docs/milestone-5-signed-records.md	the job `3a55e21d17c07d78…` (134,891,448 bytes	evidence-m513/m513b-build-console.txt	re:new job:\s+3a55e21d17c07d78\.\.\.\s+134891448 bytes
+docs/milestone-5-signed-records.md	4 changed and 6 new classes, none unexpected	evidence-m513/m513b-build-console.txt	JOB-DIFF-ONLY-THE-PATCH (changed 4, new 6, removed 0, unexpected 0)
+docs/milestone-5-signed-records.md	the wrapper jar `36324a608d9d1a2c…` has 32 classes (26 before)	evidence-m513/m513b-build-console.txt	re:32 classes written; sha256 36324a608d9d1a2c
+docs/milestone-5-signed-records.md	the wrapper jar `36324a608d9d1a2c…` has 32 classes (26 before)	evidence-m513/m513b-build-console.txt	installed jar: 26 classes, new jar: 32 classes
+docs/milestone-5-signed-records.md	starts a throw-away signing service that makes a key bundle that verifies	evidence-m513/m513b-build-console.txt	the jar's signing service starts, makes a key bundle, and the bundle verifies
+docs/milestone-5-signed-records.md	(11:03 to 11:05, read-only)	evidence-m513w-selftest/m513w-selftest-console.txt	2026-10-16T11:03:00Z
+docs/milestone-5-signed-records.md	(11:03 to 11:05, read-only)	evidence-m513w-selftest/m513w-selftest-console.txt	2026-10-16T11:05:02Z
+docs/milestone-5-signed-records.md	six parts, all passing	evidence-m513w-selftest/m513w-selftest-console.txt	REHEARSAL-PASS: the real window script, with the real signing service, key tool and bundle checks, passes
+docs/milestone-5-signed-records.md	the offline verifier and bundle extraction 11 of 11	evidence-m513w-selftest/m513w-selftest-console.txt	pass: 11   fail: 0
+docs/milestone-5-signed-records.md	The master was opened at 11:17:42 and its signing service started at 11:18:43 with the key `TDX-428f3734fdb03238`	evidence-run15/m513w-open-master-console.txt	m513-window open: 2026-10-16T11:17:42Z on tdx-lab
+docs/milestone-5-signed-records.md	The master was opened at 11:17:42 and its signing service started at 11:18:43 with the key `TDX-428f3734fdb03238`	evidence-run15/m513w-open-master-console.txt	the signing service runs with the key TDX-428f3734fdb03238 (pid 1266280), started at 2026-10-16T11:18:43Z
+docs/milestone-5-signed-records.md	the worker was opened at 11:27:50 and its service started at 11:28:50 with the key `TDX-5fdb825500807c66`	evidence-run15/m513w-open-worker-console.txt	m513-window open: 2026-10-16T11:27:50Z on tdx-lab-worker
+docs/milestone-5-signed-records.md	the worker was opened at 11:27:50 and its service started at 11:28:50 with the key `TDX-5fdb825500807c66`	evidence-run15/m513w-open-worker-console.txt	the signing service runs with the key TDX-5fdb825500807c66 (pid 972570), started at 2026-10-16T11:28:50Z
+docs/milestone-5-signed-records.md	the hardware quote is **8,000 bytes**	evidence-run15/m513w-open-master-console.txt	the quote (8000 bytes) was taken out of the bundle: its REPORTDATA equals the SHA-512 of the statement
+docs/milestone-5-signed-records.md	the hardware quote is **8,000 bytes**	evidence-run15/m513w-open-worker-console.txt	the quote (8000 bytes) was taken out of the bundle: its REPORTDATA equals the SHA-512 of the statement
+docs/milestone-5-signed-records.md	`attest/verify-binding.sh` says `MATCH`	evidence-run15/m513w-open-master-console.txt	attest/verify-binding.sh, the check of the earlier milestones, says MATCH
+docs/milestone-5-signed-records.md	`attest/verify-binding.sh` says `MATCH`	evidence-run15/m513w-open-worker-console.txt	attest/verify-binding.sh, the check of the earlier milestones, says MATCH
+docs/milestone-5-signed-records.md	the service answered on `127.0.0.1:7461` with its token	evidence-run15/m513w-open-master-console.txt	the service answers with its key id on 127.0.0.1:7461, and the token works
+docs/milestone-5-signed-records.md	`M513-SYNC-OK`	evidence-run15/m513-sync-console2.txt	M513-SYNC-OK
+docs/milestone-5-signed-records.md	At 11:36:43 the two bundles were exchanged	evidence-run15/m513-sync-console2.txt	m513-keylist-sync: 2026-10-16T11:36:43Z
+docs/milestone-5-signed-records.md	a first attempt had stopped safely because Cloud Shell had no `xxd`	evidence-run15/m513-sync-console.txt	M513-SYNC-STOP: xxd is missing here (attest/verify-binding.sh needs it)
+docs/milestone-5-signed-records.md	go-tdx-guest's `check` verified the Intel signature chain of **both quotes**	evidence-run15/quote-check-laptop.txt	TDX Quote verified successfully
+docs/milestone-5-signed-records.md	The master was closed at 12:11:27 and the worker at 12:14:20	evidence-run15/m513w-close-master-console.txt	m513-window close: 2026-10-16T12:11:27Z on tdx-lab
+docs/milestone-5-signed-records.md	The master was closed at 12:11:27 and the worker at 12:14:20	evidence-run15/m513w-close-worker-console.txt	m513-window close: 2026-10-16T12:14:20Z on tdx-lab-worker
+docs/milestone-5-signed-records.md	each signing service was stopped (its key disappeared with it)	evidence-run15/m513w-close-master-console.txt	the signing service is stopped (its private key disappeared with it: it was never written anywhere)
+docs/milestone-5-signed-records.md	each signing service was stopped (its key disappeared with it)	evidence-run15/m513w-close-worker-console.txt	the signing service is stopped (its private key disappeared with it: it was never written anywhere)
+docs/milestone-5-signed-records.md	its port closed	evidence-run15/m513w-close-master-console.txt	port 7461 is closed
+docs/milestone-5-signed-records.md	`ALL-UNCHANGED` 9 and 6	evidence-run15/m513w-close-master-console.txt	ALL-UNCHANGED (9 components checked)
+docs/milestone-5-signed-records.md	`ALL-UNCHANGED` 9 and 6	evidence-run15/m513w-close-worker-console.txt	ALL-UNCHANGED (6 components checked)
+docs/milestone-5-signed-records.md	started 11:46:59, exit code 0 after 736 s	evidence-run15/run15-console.txt	m513c-run: 2026-10-16T11:46:59Z on tdx-lab   run=run15 mode=on
+docs/milestone-5-signed-records.md	started 11:46:59, exit code 0 after 736 s	evidence-run15/run15-console.txt	the crawl finished, exit code 0, 736 s
+docs/milestone-5-signed-records.md	3,806 paths before and 4,036 after (230 added); the NameNode's audit window has 8,551 events	evidence-run15/run15-console.txt	before listing: 3806 paths
+docs/milestone-5-signed-records.md	3,806 paths before and 4,036 after (230 added); the NameNode's audit window has 8,551 events	evidence-run15/run15-console.txt	after listing: 4036 paths
+docs/milestone-5-signed-records.md	3,806 paths before and 4,036 after (230 added); the NameNode's audit window has 8,551 events	evidence-run15/run15-console.txt	NameNode window: lines 66606 to 75156 (8551 events)
+docs/milestone-5-signed-records.md	the seeds folder (1 file) clean	evidence-run15/run15-console.txt	offline: every folder and every file of /user/rishabsdp17/seeds-run15 verifies against the key list (folders=1 files=1)
+docs/milestone-5-signed-records.md	the crawl output (**55 folders and 60 files**) clean	evidence-run15/run15-console.txt	offline: every folder and every file of /user/rishabsdp17/crawl-run15 verifies against the key list (folders=55 files=60)
+docs/milestone-5-signed-records.md	the plain copy held 175 files (1,264 KB)	evidence-run15/run15-console.txt	a local copy of /user/rishabsdp17/crawl-run15 was made (175 files, 1264 KB)
+docs/milestone-5-signed-records.md	signed by exactly **2 keys**, the master's and the worker's, both in the key list	evidence-run15/run15-console.txt	the tree was signed by 2 key(s), all of them in the key list: TDX-428f3734fdb03238 TDX-5fdb825500807c66
+docs/milestone-5-signed-records.md	(**13 findings, not trusted here**)	evidence-run15/run15-console.txt	negative control: with only this node's bundle in the list, the other machine's files are refused (13 findings, not trusted here)
+docs/milestone-5-signed-records.md	the master's signed **180** statements	evidence-run15/run15-console.txt	the signing service of this node signed 180 statements and refused none
+docs/milestone-5-signed-records.md	the worker's **436**	evidence-run15/run15-analysis-console.txt	the worker's signing service (TDX-5fdb825500807c66, with a hardware quote) signed 436 statements and refused none
+docs/milestone-5-signed-records.md	the master's signed **180** statements	evidence-run15/run15-analysis-console.txt	the master's signing service (TDX-428f3734fdb03238, with a hardware quote) signed 180 statements and refused none
+docs/milestone-5-signed-records.md	`AUDIT-CLEAN` (230 added)	evidence-run15/run15-analysis-console.txt	audit_compare: AUDIT-CLEAN (explained by the log: added 230, removed 0, changed 0)
+docs/milestone-5-signed-records.md	`RECORDS-COMPLETE` (61 of 61)	evidence-run15/run15-analysis-console.txt	records_expected: RECORDS-COMPLETE (files judged: 61   with a matching record: 61)
+docs/milestone-5-signed-records.md	`VERIFY-CLEAN` (211 opens)	evidence-run15/run15-analysis-console.txt	verify_summary: VERIFY-CLEAN (opens in total: 211)
+docs/milestone-5-signed-records.md	`NN-AUDIT-COMPARE-CLEAN` (27 folders made with their identity)	evidence-run15/run15-analysis-console.txt	re:NN-AUDIT-COMPARE-CLEAN \(folders made with their identity file .*: 27\)
+docs/milestone-5-signed-records.md	every one of the **211 verified reads with `sig=ok` and `bind=ok`**	evidence-run15/run15-analysis-console.txt	every verified read had a REAL signature: 211 reads with sig=ok, none with sig=ok-test or sig=none
+docs/milestone-5-signed-records.md	every one of the **211 verified reads with `sig=ok` and `bind=ok`**	evidence-run15/run15-analysis-console.txt	every verified read was bound to its folder: 211 reads with bind=ok, none with bind=none
+docs/milestone-5-signed-records.md	no `VERIFY-FAIL`	evidence-run15/run15-analysis-console.txt	no VERIFY-FAIL line in any audit log
+docs/milestone-5-signed-records.md	the worker's task logs present (671 files)	evidence-run15/run15-analysis-console.txt	the worker's task logs: 671 files
+docs/milestone-5-signed-records.md	`M513C-ANALYSIS-CLEAN`	evidence-run15/run15-analysis-console.txt	M513C-ANALYSIS-CLEAN (run15)
+docs/limitations-and-trust.md	`6fd22f90…`	evidence-run15/run15-worker-pack-sha.txt	re:6fd22f9050023df70c8791b705237854f98ad147c200d4a1487e16d257f81cb3
+docs/milestone-5-signed-records.md	the worker script's `pack` ran on the cluster for the first time and stopped by mistake	evidence-run15/run15-worker-pack-console.txt	M513C-WORKER-STOP: the pack has no userlogs
+docs/milestone-5-signed-records.md	(`SOURCE-IDENTICAL`)	evidence-run15/master-tree-source-sha.txt	re:5b634aeba57b324c[0-9a-f]+\s+src/java/org/apache/nutch/attested/KeyService\.java
+docs/milestone-5-signed-records.md	(`evidence-m513`, `dc5a1d93…`)	evidence-m513/SHA256SUMS	re:[0-9a-f]{64}\s+\./m513tb-files\.zip
+docs/milestone-5-signed-records.md	(`m513tb` `5f45dcc4…`, `m513w` `c483f023…`)	evidence-m513/SHA256SUMS	re:5f45dcc4bd1e6c2f70893ddbd498c5a780aef4415c141d98d742dbde3887179b\s+\./m513tb-files\.zip
+docs/milestone-5-signed-records.md	(`m513tb` `5f45dcc4…`, `m513w` `c483f023…`)	evidence-m513w-selftest/SHA256SUMS	re:c483f0239fd50c9a7f241457af101f4865bee31bf9452312cda382e0ddf7fae1\s+\./m513w-files\.zip
+docs/milestone-5-signed-records.md	(ADR-047 to ADR-049)	@docs:docs/decisions.md	## ADR-047: The real key is made per boot inside a separate signing service
+docs/milestone-5-signed-records.md	(ADR-047 to ADR-049)	@docs:docs/decisions.md	## ADR-049: One switch for the key provider
+docs/milestone-5-signed-records.md	(mistake log 114)	@docs:docs/guide-pitfalls-and-lessons.md	| 114 | Tests | The pack script reported
+docs/milestone-5-signed-records.md	(mistake log 113)	@docs:docs/guide-pitfalls-and-lessons.md	| 113 | Process | The key exchange stopped in Cloud Shell
+docs/milestone-5-signed-records.md	(mistake log 112)	@docs:docs/guide-pitfalls-and-lessons.md	| 112 | Tests | My smoke test called two helpers
+docs/milestone-5-signed-records.md	(mistake log 115)	@docs:docs/guide-pitfalls-and-lessons.md	| 115 | Process | The worker script looked for the window folder
+docs/milestone-5-signed-records.md	(limitations row 109)	@docs:docs/limitations-and-trust.md	| 109 | The signing service runs under the same user as the fetcher
+docs/milestone-5-signed-records.md	(rows 110 and 111)	@docs:docs/limitations-and-trust.md	| 110 | The key list is a folder that the node trusts
+docs/milestone-5-signed-records.md	(rows 110 and 111)	@docs:docs/limitations-and-trust.md	| 111 | The measurements in the quotes
+docs/milestone-5-signed-records.md	(row 116)	@docs:docs/limitations-and-trust.md	| 116 | One crawl with the real key only
+docs/milestone-5-signed-records.md	(row 115)	@docs:docs/limitations-and-trust.md	| 115 | The data of run 15
+docs/milestone-5-signed-records.md	(row 114)	@docs:docs/limitations-and-trust.md	| 114 | `tar tzf` piped into `grep -q`
+docs/milestone-plan.md	[milestone-5](milestone-5-signed-records.md) section 6, ADR-047 to ADR-049	@docs:docs/milestone-5-signed-records.md	## 6. Step 5.1.3: the real signing key (`run15`, 16 October 2026)
+docs/session-start.md	[milestone-5-signed-records.md](milestone-5-signed-records.md) section 6, ADR-047 to ADR-049	@docs:docs/milestone-5-signed-records.md	## 6. Step 5.1.3: the real signing key
+docs/cluster-configuration.md	the report is [milestone-5-signed-records.md](milestone-5-signed-records.md) section 6	@docs:docs/milestone-5-signed-records.md	## 6. Step 5.1.3: the real signing key
