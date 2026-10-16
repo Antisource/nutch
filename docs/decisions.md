@@ -55,6 +55,9 @@ Times are UTC.
 | 047 | The real key is made per boot inside a separate signing service and kept in memory only | Accepted (the defaults recommended on 15 October, the mentor not having answered) |
 | 048 | Keys are trusted only through a key list of bundles whose quote binds them, with a hook for step 5.2.1 | Accepted |
 | 049 | One switch for the key provider; the test key stays as a labelled option | Accepted |
+| 050 | A key is admitted by its quote, verified offline in Java inside the key list | Accepted (the recommended defaults, the mentor not having answered) |
+| 051 | "Attested" means a genuine quote and MRTD and RTMR0 to RTMR2 allowed by an editable reference file; RTMR3 is shown, not enforced | Accepted |
+| 052 | What is not checked offline, and how a rejection and the bundle delivery are handled | Accepted |
 
 ---
 
@@ -459,3 +462,28 @@ Times are UTC.
 - **Decision:** a single setting, `attested.keys.provider` (`test` by default, `service` for the real key), read from core-site.xml only (ADR-039); everything the earlier steps verified stays as it was, so no earlier evidence or test breaks; test keys are not accepted in the window of step 5.1.3 (`attested.signature.allow.test.keys` false).
 - **Why:** the wrapper's `AttestedKeys` interface of step 5.1.1 was made for this, so the change in the wrapper is a few lines; the real key is a new implementation behind the same interface.
 - **Consequences:** a later step can add another provider (for example a service on another machine) without changing the signed formats.
+
+
+## ADR-050: A key is admitted by its quote, verified offline in Java inside the key list
+
+- **Date:** 16 October 2026. **Status:** accepted. It carries out step 5.2.1 through the hook of ADR-048.
+- **Context:** the binding of a quote to a key (REPORTDATA) does not prove that the quote is genuine; a fake quote of the right shape passes it.
+- **Decision:** a class `QuoteAdmission` is the extra check of the key list. It verifies the quote offline: the certificate chain in the quote leads to a pinned Intel root (the SHA-256 of Intel's SGX Root CA is the default), the PCK certificate's key signed the quoting enclave's report, the report names the attestation key, and the attestation key signed the quote's header and body. It is off by default (`attested.keys.admission.enabled`).
+- **Why:** the reader decides by itself, nobody is in the loop, and nothing new has to be installed; go-tdx-guest's `check` stays as an independent second opinion.
+- **How to change it:** pin another root or several (`attested.keys.admission.root.sha256`), switch the certificate dates off (`attested.keys.admission.check.dates`), or switch the whole check off (`attested.keys.admission.enabled`). To verify quotes some other way, replace the class named by `attested.keys.list.check.class`; nothing else changes.
+- **Consequences:** the quote's verification is Intel's offline procedure, not the whole of it (ADR-052).
+
+## ADR-051: "Attested" means a genuine quote and measurements allowed by an editable reference file; RTMR3 is shown, not enforced
+
+- **Date:** 16 October 2026. **Status:** accepted.
+- **Decision:** besides the genuine quote, every **enforced** register (default MRTD, RTMR0, RTMR1, RTMR2) must have a value that the reference file allows for the host named in the key's statement; the reference file is plain text with one line per allowed value, `REGISTER VALUE [HOST]`; the values are those of the two machines' quotes of run 15; a register that is enforced but has no line in the reference fails closed with the reason; RTMR3 is not enforced and is written to the audit.
+- **Why:** MRTD and the boot registers can be compared with what the machines reported today; RTMR3 (the measured stack) needs the event log of each node and a bundle format change, which is a separate step.
+- **How to change it:** add a line to allow a value; delete a line to forbid one; change `attested.keys.admission.enforce` to choose the registers (for example add `rtmr3` after adding the RTMR3 lines); give the file's SHA-256 in `attested.keys.admission.reference.sha256` to lock it, so that a changed file stops the wrapper.
+- **Consequences:** the reference records what these machines reported; the firmware is the cloud provider's, so it is not an independent reference (limitations row 118).
+
+## ADR-052: What is not checked offline, and how a rejection and the bundle delivery are handled
+
+- **Date:** 16 October 2026. **Status:** accepted.
+- **Decision:** (1) revocation lists, the TCB status and the quoting enclave's identity need Intel's online collateral and are not checked by the wrapper; (2) every admission, with the registers checked, and every rejection, with its reason, is written once to `attested.keys.list.audit.file` (default `keylist-audit.log` next to the list), a separate file so that the analysis tools never meet an unknown line; (3) the bundles are still delivered by the Cloud Shell script, because the checks make the delivery path irrelevant for safety.
+- **How to change it:** to add the collateral checks, add a second `BundleCheck` through `attested.keys.list.check.class` (the factory runs it after the admission); to change the audit file, set its setting; to automate the delivery, replace the script and nothing else.
+- **Consequences:** limitations rows 117 to 122.

@@ -412,3 +412,15 @@ To count what the NodeManager read through the wrapper, on the worker: `cat /tmp
 | Files | state in `~/m513w/window` while open, then `~/m513w/window-closed-<role>-<time>` (it holds `keyservice-dir` with the bundle, the quote and the audit log of the service; its token is deleted); on the master `~/run15`, the kit in `~/m513wkit`, the scratch tree `~/m513/tree` and `~/m513b`; on the worker `~/run15-worker.tar.gz` (made by hand) |
 | Current state | **measured stack on both nodes**; the window is closed; no signing service runs; the test key `TEST-37c2a6aa…` is still in `~/tc-test-key` on both nodes (unused; delete it at the end of Milestone 5) |
 | Kits | `ops/kits/m513-test`, `ops/kits/m513-build`, `ops/kits/m513-window`; the report is [milestone-5-signed-records.md](milestone-5-signed-records.md) section 6 |
+
+
+## 25. The scratch runs of step 5.2.1 on the master (16 October 2026, no window)
+
+| Item | Value |
+|---|---|
+| What it is | the test, the build and the real-data check of the quote admission, run on the master in scratch folders; **no window was opened and nothing of the measured stack was touched** |
+| Times | the test at 13:57:41, the build at 13:59:10, the real-data check at 13:59:59 |
+| Folders on the master | `~/m521tbkit` (the kit), `~/m521/tree` (the scratch clone with her patch and ours), `~/m521b` (the built job `8f21a37f933ee2ca…` and the jar `ef611d1260b3b427…`, not installed anywhere), `~/m521r` (the real-data results) |
+| The real data it read | `~/run15/verify/keylist` (the two bundles of run 15) and `~/run15/verify/crawl-run15` and `seeds-run15` (the plain copies of the output) |
+| Current state | **measured stack on both nodes**; no window is open; no signing service runs |
+| Kit | `ops/kits/m521-test` and `ops/kits/m521-build`; the report is [milestone-5-signed-records.md](milestone-5-signed-records.md) section 7 |
