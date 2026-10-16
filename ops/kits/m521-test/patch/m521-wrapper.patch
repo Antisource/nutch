@@ -1,0 +1,1146 @@
+diff --git a/ops/attested/AdmissionCoreTest.java b/ops/attested/AdmissionCoreTest.java
+new file mode 100644
+index 000000000..8a4de921a
+--- /dev/null
++++ b/ops/attested/AdmissionCoreTest.java
+@@ -0,0 +1,280 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.nutch.attested;
++
++import java.io.ByteArrayOutputStream;
++import java.io.IOException;
++import java.io.PrintStream;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.nio.file.Paths;
++import java.time.Instant;
++import java.util.ArrayList;
++import java.util.Arrays;
++import java.util.Base64;
++import java.util.Collections;
++import java.util.HashSet;
++import java.util.List;
++import java.util.Set;
++import org.apache.hadoop.conf.Configuration;
++
++/**
++ * Tests of step 5.2.1: the offline verification of real TDX quotes (two quotes of run 15 are the test vectors), the reference file, the admission check,
++ * the key list with admission, the settings and the tool. Every decision of the step is shown to flip with ONE edit: a line of the reference file, the enforce
++ * setting or the pinned root.
++ */
++public final class AdmissionCoreTest {
++  static int pass = 0;
++  static int fail = 0;
++  static final Instant NOW = Instant.parse("2026-10-16T12:00:00Z");
++  static final Set<String> ROOT = Collections.singleton(QuoteAdmission.INTEL_SGX_ROOT_SHA256);
++
++  static void chk(String what, boolean ok) {
++    if (ok) { pass++; System.out.println("  pass: " + what); } else { fail++; System.out.println("  FAIL: " + what); }
++  }
++
++  interface Thrower { void run() throws Exception; }
++
++  static boolean refuses(Thrower t, String text) {
++    try { t.run(); return false; } catch (Exception e) { return e.getMessage() != null && e.getMessage().contains(text); }
++  }
++
++  static boolean accepts(Thrower t) {
++    try { t.run(); return true; } catch (Exception e) { System.out.println("      unexpected: " + e.getMessage()); return false; }
++  }
++
++  static byte[] flip(byte[] q, int at) { byte[] c = q.clone(); c[at] ^= 0x01; return c; }
++
++  static String hex(byte[] b) { return MerkleHasher.hex(b); }
++
++  static void verify(byte[] quote) throws Exception { QuoteVerifier.verify(QuoteVerifier.parse(quote), ROOT, true, NOW); }
++
++  static String refText(String mrtd, String rtmr0M, String rtmr0W, String rtmr1M, String rtmr1W, String rtmr2M, String rtmr2W) {
++    return "MRTD " + mrtd + " *\nRTMR0 " + rtmr0M + " tdx-lab\nRTMR0 " + rtmr0W + " tdx-lab-worker\nRTMR1 " + rtmr1M + " tdx-lab\nRTMR1 " + rtmr1W + " tdx-lab-worker\nRTMR2 " + rtmr2M + " tdx-lab\nRTMR2 " + rtmr2W + " tdx-lab-worker\n";
++  }
++
++  static AdmissionReference refOf(Path tmp, String name, String text) throws IOException {
++    Path f = tmp.resolve(name); Files.write(f, text.getBytes(StandardCharsets.UTF_8)); return AdmissionReference.load(f, "");
++  }
++
++  static QuoteAdmission adm(AdmissionReference r, String enforce, Set<String> roots, boolean dates) throws IOException {
++    return new QuoteAdmission(r, QuoteAdmission.registers(enforce), roots, dates, () -> NOW);
++  }
++
++  public static void main(String[] args) throws Exception {
++    Path vec = Paths.get(System.getProperty("m521.vectors", "ops/attested/testdata"));
++    Path realRef = Paths.get(System.getProperty("m521.reference", "ops/attested/reference-measurements-m521.txt"));
++    Path tmp = Files.createTempDirectory("admission");
++    KeyBundle m = KeyBundle.decode(Files.readAllBytes(vec.resolve("TDX-428f3734fdb03238.attestkey")));
++    KeyBundle w = KeyBundle.decode(Files.readAllBytes(vec.resolve("TDX-5fdb825500807c66.attestkey")));
++    m.checkBinding(); w.checkBinding();
++
++    System.out.println("== 1. two REAL quotes (run 15) verify offline: the certificate chain to Intel's root, the quoting enclave's report, the quote's signature");
++    QuoteVerifier.Quote qm = QuoteVerifier.parse(m.quote); QuoteVerifier.Quote qw = QuoteVerifier.parse(w.quote);
++    chk("the master's quote is version 4, ECDSA P-256, a TDX quote", qm.version == 4 && qm.attKeyType == 2 && qm.teeType == 0x81);
++    chk("the master's quote verifies", accepts(() -> verify(m.quote)));
++    chk("the worker's quote verifies", accepts(() -> verify(w.quote)));
++    chk("the registers are the ones documented for these machines (MRTD c1ee9c16e3af, RTMR0 036d0bf4b669 and 5e276dcf6867)", qm.register("mrtd").startsWith("c1ee9c16e3af") && qm.register("rtmr0").startsWith("036d0bf4b669") && qw.register("rtmr0").startsWith("5e276dcf6867") && qw.register("mrtd").equals(qm.register("mrtd")));
++    chk("the two machines have different RTMR3 (the registers differ, so the quotes are not copies)", !qm.register("rtmr3").equals(qw.register("rtmr3")));
++
++    System.out.println("== 2. the dates and the pinned root");
++    chk("before the PCK certificate's notBefore (1 August 2026) the quote is refused", refuses(() -> QuoteVerifier.verify(qm, ROOT, true, Instant.parse("2026-08-01T00:00:00Z")), "certificate chain"));
++    chk("after the PCK certificate expired (2034) the quote is refused", refuses(() -> QuoteVerifier.verify(qm, ROOT, true, Instant.parse("2034-01-01T00:00:00Z")), "certificate chain"));
++    chk("... and with the date check switched off (one setting) it passes again", accepts(() -> QuoteVerifier.verify(qm, ROOT, false, Instant.parse("2034-01-01T00:00:00Z"))));
++    chk("another root fingerprint is not trusted", refuses(() -> QuoteVerifier.verify(qm, Collections.singleton("00".repeat(32)), true, NOW), "not one of the trusted roots"));
++    chk("an empty list of roots verifies nothing", refuses(() -> QuoteVerifier.verify(qm, new HashSet<>(), true, NOW), "no trusted root"));
++
++    System.out.println("== 3. one flipped bit in each part of the quote is found");
++    int sig = 636;
++    chk("in the quote's own signature", refuses(() -> verify(flip(m.quote, sig + 5)), "signature of the quote does not verify"));
++    chk("in the header (the quoting enclave's version)", refuses(() -> verify(flip(m.quote, 8)), "signature of the quote does not verify"));
++    chk("in MRTD (the measurement that a machine cannot change without the signature failing)", refuses(() -> verify(flip(m.quote, 184)), "signature of the quote does not verify"));
++    chk("in RTMR3", refuses(() -> verify(flip(m.quote, 520)), "signature of the quote does not verify"));
++    chk("in the attestation key", refuses(() -> verify(flip(m.quote, sig + 64 + 3)), "does not name the attestation key"));
++    chk("in the quoting enclave's report", refuses(() -> verify(flip(m.quote, sig + 128 + 6 + 10)), "quoting enclave's report does not verify"));
++    chk("in the quoting enclave's signature", refuses(() -> verify(flip(m.quote, sig + 128 + 6 + 384 + 7)), "quoting enclave's report does not verify"));
++    chk("in the quoting enclave's authentication data", refuses(() -> verify(flip(m.quote, sig + 128 + 6 + 448 + 2 + 3)), "does not name the attestation key"));
++    int pemAt = new String(m.quote, StandardCharsets.ISO_8859_1).indexOf("-----BEGIN CERTIFICATE-----");
++    chk("in the PCK certificate (one character of its text)", refuses(() -> verify(flip(m.quote, pemAt + 120)), "certificate chain"));
++    chk("in the platform CA certificate", refuses(() -> verify(flip(m.quote, new String(m.quote, StandardCharsets.ISO_8859_1).indexOf("-----BEGIN CERTIFICATE-----", pemAt + 30) + 130)), "certificate chain"));
++    String pem = new String(qm.pemChain, StandardCharsets.US_ASCII);
++    int second = pem.indexOf("-----END CERTIFICATE-----") + "-----END CERTIFICATE-----".length();
++    byte[] leafOnly = Arrays.copyOf(pem.getBytes(StandardCharsets.US_ASCII), second);
++    chk("a chain that stops at the leaf (no root) is refused", refuses(() -> QuoteVerifier.verify(withChain(qm, leafOnly), ROOT, true, NOW), "does not reach a root"));
++    int third = pem.indexOf("-----END CERTIFICATE-----", second) + "-----END CERTIFICATE-----".length();
++    byte[] noRoot = Arrays.copyOf(pem.getBytes(StandardCharsets.US_ASCII), third);
++    chk("a chain without the root certificate is refused", refuses(() -> QuoteVerifier.verify(withChain(qm, noRoot), ROOT, true, NOW), "certificate chain"));
++    chk("the other machine's chain does not fit this machine's quote", refuses(() -> QuoteVerifier.verify(withChain(qm, qw.pemChain), ROOT, true, NOW), "does not verify"));
++
++    System.out.println("== 4. a quote that is not what it should be");
++    chk("a short quote", refuses(() -> QuoteVerifier.parse(Arrays.copyOf(m.quote, 500)), "too short"));
++    byte[] v3 = m.quote.clone(); v3[0] = 3;
++    chk("version 3", refuses(() -> QuoteVerifier.parse(v3), "version 3 is not supported"));
++    byte[] sgx = m.quote.clone(); sgx[4] = 0;
++    chk("an SGX quote (tee type 0)", refuses(() -> QuoteVerifier.parse(sgx), "not a TDX quote"));
++    byte[] ak = m.quote.clone(); ak[2] = 3;
++    chk("another attestation key type", refuses(() -> QuoteVerifier.parse(ak), "attestation key type 3"));
++    byte[] tail = m.quote.clone(); tail[tail.length - 1] = 1;
++    chk("a non-zero byte after the signature data", refuses(() -> QuoteVerifier.parse(tail), "non-zero bytes after"));
++    byte[] big = m.quote.clone(); big[632 + 3] = (byte) 0x7f;
++    chk("a signature data length that does not fit", refuses(() -> QuoteVerifier.parse(big), "does not fit the quote"));
++    byte[] outer = m.quote.clone(); outer[636 + 128] = 7;
++    chk("an unsupported outer certification data type", refuses(() -> QuoteVerifier.parse(outer), "not of type 6"));
++    byte[] inner = m.quote.clone(); inner[636 + 128 + 6 + 448 + 2 + 32] = 4;
++    chk("an unsupported certification data type (not a PCK chain)", refuses(() -> QuoteVerifier.parse(inner), "not 5"));
++    chk("a raw signature of the wrong length", refuses(() -> QuoteVerifier.derOf(new byte[63]), "64 bytes"));
++
++    System.out.println("== 5. the reference file");
++    String good = refText(qm.register("mrtd"), qm.register("rtmr0"), qw.register("rtmr0"), qm.register("rtmr1"), qw.register("rtmr1"), qm.register("rtmr2"), qw.register("rtmr2"));
++    AdmissionReference ref = refOf(tmp, "good.txt", "# a comment\n\n" + good);
++    chk("comments and empty lines are ignored; the allowed values are found per host", ref.allows("mrtd", qm.register("mrtd"), "any-host") && ref.allows("rtmr0", qm.register("rtmr0"), "tdx-lab") && !ref.allows("rtmr0", qm.register("rtmr0"), "tdx-lab-worker"));
++    chk("the shipped reference file (made from these two quotes) loads", accepts(() -> AdmissionReference.load(realRef, "")));
++    chk("a bad register name is refused with its line number", refuses(() -> refOf(tmp, "b1.txt", "MRTD " + "0".repeat(96) + "\nFOO " + "0".repeat(96) + "\n"), "reference line 2: unknown register FOO"));
++    chk("a value of the wrong length is refused", refuses(() -> refOf(tmp, "b2.txt", "MRTD abc\n"), "must be 96 hex digits"));
++    chk("a line with four fields is refused", refuses(() -> refOf(tmp, "b3.txt", "MRTD " + "0".repeat(96) + " * x\n"), "expected REGISTER VALUE [HOST]"));
++    chk("a bad host is refused", refuses(() -> refOf(tmp, "b4.txt", "MRTD " + "0".repeat(96) + " bad host!\n"), "reference line 1"));
++    chk("a missing file is refused", refuses(() -> AdmissionReference.load(tmp.resolve("nowhere.txt"), ""), "cannot be read"));
++    String realSha = AdmissionReference.load(realRef, "").sha256;
++    chk("a pin that equals the file's SHA-256 is accepted, another pin is refused", accepts(() -> AdmissionReference.load(realRef, realSha)) && refuses(() -> AdmissionReference.load(realRef, "0".repeat(64)), "pin"));
++
++    System.out.println("== 6. admission: each decision flips with ONE edit");
++    QuoteAdmission base = adm(ref, QuoteAdmission.DEFAULT_ENFORCE, ROOT, true);
++    chk("both real machines are admitted with the reference and the default enforce list", accepts(() -> base.check(m)) && accepts(() -> base.check(w)));
++    chk("the audit note says which registers were enforced and that RTMR3 is only shown", base.note(m).contains("mrtd=c1ee9c16e3af(enforced)") && base.note(m).contains("rtmr3=0e137cc3e973(shown only)"));
++    AdmissionReference wrongMrtd = refOf(tmp, "e1.txt", good.replace(qm.register("mrtd"), "ab".repeat(48)));
++    chk("EDIT 1: change MRTD in the reference: both are refused, and the message names MRTD and the allowed value", refuses(() -> adm(wrongMrtd, QuoteAdmission.DEFAULT_ENFORCE, ROOT, true).check(m), "MRTD of tdx-lab is c1ee9c16e3af..., which the reference does not allow (allowed: abababababab...)"));
++    AdmissionReference swapped = refOf(tmp, "e2.txt", good.replace("RTMR0 " + qm.register("rtmr0") + " tdx-lab\n", "RTMR0 " + qm.register("rtmr0") + " tdx-lab-worker\n").replace("RTMR0 " + qw.register("rtmr0") + " tdx-lab-worker\n", "RTMR0 " + qw.register("rtmr0") + " tdx-lab\n"));
++    chk("EDIT 2: put the RTMR0 values on the other hosts: the machines are refused (values are per host)", refuses(() -> adm(swapped, QuoteAdmission.DEFAULT_ENFORCE, ROOT, true).check(m), "RTMR0 of tdx-lab"));
++    chk("EDIT 3: take rtmr0 out of the enforce setting: the same wrong reference now admits the machine", accepts(() -> adm(swapped, "mrtd,rtmr1,rtmr2", ROOT, true).check(m)));
++    chk("EDIT 4: enforce RTMR3 although the reference has no RTMR3 line: refused, and it says why", refuses(() -> adm(ref, "mrtd,rtmr3", ROOT, true).check(m), "the reference has no value for RTMR3, which is enforced"));
++    AdmissionReference withR3 = refOf(tmp, "e3.txt", good + "RTMR3 " + qm.register("rtmr3") + " tdx-lab\nRTMR3 " + qw.register("rtmr3") + " tdx-lab-worker\n");
++    chk("EDIT 5: add the two RTMR3 lines and enforce rtmr3: admitted (RTMR3 can be enforced without changing any code)", accepts(() -> adm(withR3, "mrtd,rtmr0,rtmr1,rtmr2,rtmr3", ROOT, true).check(m)) && adm(withR3, "mrtd,rtmr3", ROOT, true).note(m).contains("rtmr3=0e137cc3e973(enforced)"));
++    chk("EDIT 6: another pinned root: refused", refuses(() -> adm(ref, QuoteAdmission.DEFAULT_ENFORCE, Collections.singleton("11".repeat(32)), true).check(m), "not one of the trusted roots"));
++    chk("EDIT 7: a wildcard host line (a value allowed for any host) admits the worker with the master's RTMR0, which the per-host file refuses", refuses(() -> adm(refOf(tmp, "e4a.txt", good.replace("RTMR0 " + qw.register("rtmr0") + " tdx-lab-worker\n", "")), QuoteAdmission.DEFAULT_ENFORCE, ROOT, true).check(w), "RTMR0 of tdx-lab-worker") && accepts(() -> adm(refOf(tmp, "e4b.txt", good.replace("RTMR0 " + qw.register("rtmr0") + " tdx-lab-worker\n", "RTMR0 " + qw.register("rtmr0") + " *\n")), QuoteAdmission.DEFAULT_ENFORCE, ROOT, true).check(w)));
++    chk("an empty enforce list admits by the quote alone (the chain and the binding)", accepts(() -> adm(ref, "", ROOT, true).check(m)));
++    chk("an unknown register in the enforce setting is refused", refuses(() -> QuoteAdmission.registers("mrtd,rtmr9"), "unknown register in the enforce list"));
++    chk("a root that is not 64 hex digits is refused (colons are accepted)", refuses(() -> QuoteAdmission.rootList("zz"), "64 hex digits") && QuoteAdmission.rootList("44:a0:19:6b:2b:99:f8:89:b8:e1:49:e9:5b:80:7a:35:0e:74:24:96:43:99:e8:85:a7:cb:b8:cc:fa:b6:74:d3").contains(QuoteAdmission.INTEL_SGX_ROOT_SHA256));
++    KeyBundle noQuote = KeyBundle.decode(("ATTESTED-KEY-BUNDLE 1\nstatement=" + Base64.getEncoder().encodeToString(m.statement) + "\nquote=none\n").getBytes());
++    chk("a bundle without a quote cannot be admitted", refuses(() -> base.check(noQuote), "has no quote"));
++
++    System.out.println("== 7. the key list with admission, and its audit lines");
++    Path list = tmp.resolve("list"); Files.createDirectories(list);
++    Files.copy(vec.resolve("TDX-428f3734fdb03238.attestkey"), list.resolve("TDX-428f3734fdb03238.attestkey")); Files.copy(vec.resolve("TDX-5fdb825500807c66.attestkey"), list.resolve("TDX-5fdb825500807c66.attestkey"));
++    List<String> lines = new ArrayList<>();
++    KeyList kl = new KeyList(list, false, base, 0); kl.setSink(lines::add);
++    chk("both real keys are trusted by a list that admits by quote", kl.publicKey(m.keyId) != null && kl.publicKey(w.keyId) != null && kl.size() == 2);
++    kl.refresh();
++    chk("each admission is reported once (a second reading adds no line), with the registers that were checked", lines.size() == 2 && lines.get(0).startsWith("ADMIT key=TDX-") && lines.get(0).contains("(enforced)"));
++    Path badDir = tmp.resolve("svc-fake"); java.nio.file.Path fq = tmp.resolve("fake-quote.sh");
++    Files.write(fq, ("#!/usr/bin/env bash\npython3 - \"$1\" \"$2\" <<'PY'\nimport hashlib, sys\nst = open(sys.argv[1], 'rb').read()\nq = bytearray(b'\\x04\\x00' + b'\\x00' * 630)\nq[568:632] = hashlib.sha512(st).digest()\nopen(sys.argv[2], 'wb').write(bytes(q))\nPY\n").getBytes());
++    Files.setPosixFilePermissions(fq, java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x"));
++    KeyService fake = KeyService.start(badDir, 0, list, fq.toString(), "rogue-node");
++    chk("a key whose quote is a fake (it passes the binding check, but has no Intel chain) is NOT trusted by the admitting list", kl.publicKey(fake.keyId()) == null && kl.rejected().stream().anyMatch(r -> r.contains(fake.keyId()) && r.contains("too short")));
++    chk("... and the rejection is reported with its reason", lines.stream().anyMatch(l -> l.startsWith("REJECT file=" + fake.keyId()) && l.contains("reason=")));
++    chk("the same list WITHOUT admission trusts that fake key (this is the hole that step 5.2.1 closes)", new KeyList(list, false, null, 0).publicKey(fake.keyId()) != null);
++    fake.close();
++    AdmissionReference noHost = refOf(tmp, "e5.txt", good.replace("tdx-lab-worker", "somewhere-else"));
++    KeyList kl2 = new KeyList(list, false, adm(noHost, QuoteAdmission.DEFAULT_ENFORCE, ROOT, true), 0);
++    chk("a reference that does not know the worker's host refuses the worker's key and keeps the master's", kl2.publicKey(m.keyId) != null && kl2.publicKey(w.keyId) == null);
++
++    System.out.println("== 8. the settings (the wrapper's own wiring)");
++    AttestedSettings.trustAllSourcesForTesting(true);
++    Configuration c = new Configuration(false);
++    c.set(AttestedKeyFactory.LIST_DIR_KEY, list.toString()); c.setLong(AttestedKeyFactory.LIST_CACHE_KEY, 0);
++    c.set(AttestedKeyFactory.LIST_AUDIT_FILE_KEY, tmp.resolve("keylist-audit.log").toString());
++    c.setBoolean(AttestedKeyFactory.ADMISSION_ENABLED_KEY, true); c.set(AttestedKeyFactory.ADMISSION_REFERENCE_KEY, realRef.toString());
++    List<String> ign = new ArrayList<>();
++    Path vec2 = tmp.resolve("list-real"); Files.createDirectories(vec2);
++    Files.copy(vec.resolve("TDX-428f3734fdb03238.attestkey"), vec2.resolve("TDX-428f3734fdb03238.attestkey")); Files.copy(vec.resolve("TDX-5fdb825500807c66.attestkey"), vec2.resolve("TDX-5fdb825500807c66.attestkey"));
++    c.set(AttestedKeyFactory.LIST_DIR_KEY, vec2.toString());
++    ServiceKeys sk = AttestedKeyFactory.service(c, false, ign);
++    chk("with the settings alone (enabled + the reference file) the list admits both real keys", sk.publicKey(m.keyId) != null && sk.publicKey(w.keyId) != null);
++    chk("the list's audit lines are written to the file that the setting names", Files.readAllLines(tmp.resolve("keylist-audit.log")).stream().filter(l -> l.contains(" ADMIT key=TDX-")).count() == 2);
++    chk("the default of the admission is OFF: the same configuration without the enabled setting does not call the quote check at all", doesNotAdmit(vec2, tmp, ign));
++    Configuration c2 = new Configuration(c); c2.unset(AttestedKeyFactory.ADMISSION_REFERENCE_KEY);
++    chk("enabled without a reference file is refused at start, and says which setting is missing", refuses(() -> AttestedKeyFactory.service(c2, false, ign), AttestedKeyFactory.ADMISSION_REFERENCE_KEY));
++    Configuration c3 = new Configuration(c); c3.set(AttestedKeyFactory.ADMISSION_REFERENCE_SHA_KEY, "0".repeat(64));
++    chk("a reference file that does not match its pinned SHA-256 is refused at start", refuses(() -> AttestedKeyFactory.service(c3, false, ign), "pin"));
++    Configuration c4 = new Configuration(c); c4.set(AttestedKeyFactory.ADMISSION_ENFORCE_KEY, "mrtd,bogus");
++    chk("a bad enforce setting is refused at start", refuses(() -> AttestedKeyFactory.service(c4, false, ign), "unknown register"));
++    Configuration c5 = new Configuration(c); c5.set(AttestedKeyFactory.ADMISSION_ENFORCE_KEY, "mrtd,rtmr0,rtmr1,rtmr2,rtmr3");
++    chk("SETTING EDIT: enforcing rtmr3 with the shipped reference (which has no RTMR3 lines) makes the list trust nobody (fail closed), with no code change", AttestedKeyFactory.service(c5, false, ign).publicKey(m.keyId) == null);
++    Configuration c6 = new Configuration(c); c6.set(AttestedKeyFactory.ADMISSION_ROOT_KEY, "22".repeat(32));
++    chk("SETTING EDIT: pinning another root makes the list trust nobody", AttestedKeyFactory.service(c6, false, ign).publicKey(m.keyId) == null);
++    AttestedKeyFactory.clock = () -> Instant.parse("2034-01-01T00:00:00Z");
++    chk("SETTING EDIT: the clock is after the certificates expired and the dates are checked (the default): nobody is trusted", AttestedKeyFactory.service(c, false, ign).publicKey(m.keyId) == null);
++    Configuration c7 = new Configuration(c); c7.setBoolean(AttestedKeyFactory.ADMISSION_DATES_KEY, false);
++    chk("SETTING EDIT: attested.keys.admission.check.dates false: the same keys are trusted again", AttestedKeyFactory.service(c7, false, ign).publicKey(m.keyId) != null);
++    AttestedKeyFactory.clock = Instant::now;
++    AttestedSettings.trustAllSourcesForTesting(false);
++
++    System.out.println("== 9. the tool");
++    ByteArrayOutputStream o = new ByteArrayOutputStream(), e = new ByteArrayOutputStream();
++    String bf = vec.resolve("TDX-428f3734fdb03238.attestkey").toString();
++    int rc = AttestedKeyTool.run(new String[]{"bundle-admit", bf, realRef.toString()}, new PrintStream(o), new PrintStream(e));
++    chk("bundle-admit admits the real bundle (exit 0, ADMIT line with the registers)", rc == 0 && o.toString().contains("ADMIT   key id TDX-428f3734fdb03238") && o.toString().contains("rtmr3=0e137cc3e973(shown only)"));
++    o.reset(); e.reset();
++    rc = AttestedKeyTool.run(new String[]{"bundle-admit", bf, realRef.toString(), "--root", "33".repeat(32)}, new PrintStream(o), new PrintStream(e));
++    chk("bundle-admit with another root refuses (exit 1) and says why", rc == 1 && e.toString().contains("not one of the trusted roots"));
++    o.reset(); e.reset();
++    rc = AttestedKeyTool.run(new String[]{"bundle-admit", bf, realRef.toString(), "--enforce", "rtmr3"}, new PrintStream(o), new PrintStream(e));
++    chk("bundle-admit with an enforced register that the reference lacks refuses", rc == 1 && e.toString().contains("RTMR3"));
++    o.reset(); e.reset();
++    rc = AttestedKeyTool.run(new String[]{"quote-info", bf}, new PrintStream(o), new PrintStream(e));
++    chk("quote-info prints the five registers", rc == 0 && o.toString().contains("MRTD   c1ee9c16e3af") && o.toString().contains("RTMR3"));
++    System.out.println("\npass: " + pass + "   fail: " + fail);
++    System.out.println(fail == 0 ? "ADMISSION-PASS" : "ADMISSION-FAIL");
++    if (fail != 0) System.exit(1);
++  }
++
++  /** With the admission switched off the list trusts the real keys without reading any reference and writes no admission note. */
++  static boolean doesNotAdmit(Path listDir, Path tmp, List<String> ign) throws Exception {
++    AttestedSettings.trustAllSourcesForTesting(true);
++    Configuration c = new Configuration(false);
++    c.set(AttestedKeyFactory.LIST_DIR_KEY, listDir.toString()); c.setLong(AttestedKeyFactory.LIST_CACHE_KEY, 0);
++    c.set(AttestedKeyFactory.LIST_AUDIT_FILE_KEY, tmp.resolve("off-audit.log").toString());
++    c.set(AttestedKeyFactory.ADMISSION_REFERENCE_KEY, "/nonexistent/reference.txt");
++    ServiceKeys k = AttestedKeyFactory.service(c, false, ign);
++    boolean trusts = k.publicKey("TDX-428f3734fdb03238") != null;
++    boolean noNote = !Files.exists(tmp.resolve("off-audit.log")) || Files.readAllLines(tmp.resolve("off-audit.log")).stream().noneMatch(l -> l.contains("(enforced)"));
++    return trusts && noNote;
++  }
++
++  /** The same quote with another certificate chain in place of its own (for the tests that cut or swap the chain). */
++  static QuoteVerifier.Quote withChain(QuoteVerifier.Quote q, byte[] chain) throws IOException {
++    int oldLen = q.pemChain.length; int pemAt = indexOf(q.raw, q.pemChain);
++    byte[] nq = Arrays.copyOf(q.raw, pemAt + chain.length + 4);
++    System.arraycopy(chain, 0, nq, pemAt, chain.length);
++    long newSig = (pemAt - 636) + chain.length;
++    nq[632] = (byte) newSig; nq[633] = (byte) (newSig >> 8); nq[634] = (byte) (newSig >> 16); nq[635] = (byte) (newSig >> 24);
++    long outer = newSig - 128 - 6; int oAt = 636 + 128 + 2;
++    nq[oAt] = (byte) outer; nq[oAt + 1] = (byte) (outer >> 8); nq[oAt + 2] = (byte) (outer >> 16); nq[oAt + 3] = (byte) (outer >> 24);
++    int innerAt = pemAt - 4;
++    nq[innerAt] = (byte) chain.length; nq[innerAt + 1] = (byte) (chain.length >> 8); nq[innerAt + 2] = (byte) (chain.length >> 16); nq[innerAt + 3] = (byte) (chain.length >> 24);
++    return QuoteVerifier.parse(Arrays.copyOf(nq, pemAt + chain.length));
++  }
++
++  static int indexOf(byte[] hay, byte[] needle) {
++    outer:
++    for (int i = 0; i + needle.length <= hay.length; i++) {
++      for (int j = 0; j < needle.length; j++) { if (hay[i + j] != needle[j]) continue outer; }
++      return i;
++    }
++    return -1;
++  }
++}
+diff --git a/ops/attested/AttestedFsSmoke.java b/ops/attested/AttestedFsSmoke.java
+index 9587a3a29..f2ee79432 100644
+--- a/ops/attested/AttestedFsSmoke.java
++++ b/ops/attested/AttestedFsSmoke.java
+@@ -249,6 +249,7 @@ public class AttestedFsSmoke {
+     signatureChecks(conf, base, plain);
+     bindingChecks(conf, base, plain);
+     keyServiceChecks(conf, base, plain);
++    keyAdmissionChecks(conf, base, plain);
+     metadataChecks(conf, base, plain);
+     fileContext(conf, new Path("hdfs://fake:9000" + tmp + "/fc"));
+     refusalChecks(conf, base, plain);
+@@ -278,6 +279,7 @@ public class AttestedFsSmoke {
+       signatureChecks(conf, base, plain);
+       bindingChecks(conf, base, plain);
+       keyServiceChecks(conf, base, plain);
++      keyAdmissionChecks(conf, base, plain);
+       fileContext(conf, new Path("hdfs://" + authority + work + "-fc"));
+       refusalChecks(conf, base, plain);
+       auditLines(conf, tmp + "/audit", DistributedFileSystem.class.getName(),
+@@ -1639,6 +1641,43 @@ public class AttestedFsSmoke {
+     svc2.close();
+   }
+ 
++  /**
++   * Step 5.2.1: a list that admits keys by their quote refuses a key whose quote is a fake. The service here makes its bundle with a stand-in quote command (632
++   * bytes with the right REPORTDATA, as in the other checks): it passes the binding check but has no Intel certificate chain, so the admitting list must not
++   * trust it, and the wrapper must refuse its own records. The control is the same list without admission.
++   */
++  static void keyAdmissionChecks(Configuration baseConf, Path base, FileSystem plain) throws Exception {
++    java.nio.file.Path work = Files.createTempDirectory("keyadm");
++    java.nio.file.Path listDir = work.resolve("list");
++    KeyService svc = KeyService.start(work.resolve("svc"), 0, listDir, fakeQuoteScript(work).toString(), "adm-node");
++    java.nio.file.Path ref = work.resolve("reference.txt");
++    Files.write(ref, ("MRTD " + "0".repeat(96) + " *\n").getBytes(StandardCharsets.US_ASCII));
++    java.nio.file.Path auditFile = work.resolve("keylist-audit.log");
++    Configuration on = serviceConf(baseConf, svc, work.resolve("svc"), listDir, false);
++    on.set(AttestedKeyFactory.LIST_AUDIT_FILE_KEY, auditFile.toString());
++    on.setBoolean(AttestedKeyFactory.ADMISSION_ENABLED_KEY, true);
++    on.set(AttestedKeyFactory.ADMISSION_REFERENCE_KEY, ref.toString());
++    on.set(AttestedKeyFactory.ADMISSION_ENFORCE_KEY, "mrtd");
++    FileSystem fs = FileSystem.newInstance(base.toUri(), on);
++    byte[] d = data(20000, 41);
++    String why = null;
++    try {
++      put(fs, new Path(new Path(base, "admit-refused"), "x.bin"), d);
++    } catch (IOException e) {
++      why = String.valueOf(e.getMessage());
++    }
++    check("with admission on, a key whose quote has no Intel certificate chain is not trusted: even its own writer refuses (not trusted here)", why != null && why.contains("not trusted here"));
++    check("the rejection is written to the key list's audit file, with its reason", Files.exists(auditFile)
++        && Files.readAllLines(auditFile).stream().anyMatch(l -> l.contains(" REJECT file=" + svc.keyId()) && l.contains("reason=")));
++    Configuration off = serviceConf(baseConf, svc, work.resolve("svc"), listDir, false);
++    Path ok = new Path(new Path(base, "admit-control"), "y.bin");
++    FileSystem fs2 = FileSystem.newInstance(base.toUri(), off);
++    put(fs2, ok, d);
++    check("control: the same list without admission trusts that key (the fake quote passes the binding check), so the write and the read work", Arrays.equals(d, readAll(fs2, ok)));
++    check("the admission is off by default: the settings of the control do not mention it", !off.getBoolean(AttestedKeyFactory.ADMISSION_ENABLED_KEY, false));
++    svc.close();
++  }
++
+   static void bindingChecks(Configuration baseConf, Path base, FileSystem plain) throws Exception {
+     java.nio.file.Path keyDir = Files.createTempDirectory("bindkeys");
+     java.nio.file.Path keyFile = keyDir.resolve("test-key.txt");
+diff --git a/ops/attested/reference-measurements-m521.txt b/ops/attested/reference-measurements-m521.txt
+new file mode 100644
+index 000000000..a8742394a
+--- /dev/null
++++ b/ops/attested/reference-measurements-m521.txt
+@@ -0,0 +1,13 @@
++# Reference measurements of the two attested machines (step 5.2.1). One line per allowed value: REGISTER VALUE [HOST].
++# Taken from the quotes of the two signing services of run 15 (16 October 2026), both verified with go-tdx-guest's check on the laptop.
++# TO CHANGE A DECISION: add a line to allow another value, delete a line to forbid one, or change attested.keys.admission.enforce to choose the registers that count.
++# RTMR3 is not listed on purpose: it is shown in the audit but not enforced (ADR-051). Add RTMR3 lines and put rtmr3 into the enforce setting to enforce it.
++# The firmware (MRTD) is the cloud provider's: this file records what these machines reported, it is not an independent reference.
++
++MRTD c1ee9c16e3afc506cfe042c5b846a368528f3b37618eafb27469bc114cf914e9222c91618470e7f2b28ac360968270a5 *
++RTMR0 036d0bf4b66913618e3e6f3457e04ad5698ed810d651b15cb71f8d32f183ccb415c25caa91ef587e8c358f2f31522ea4 tdx-lab
++RTMR0 5e276dcf68679535dee217a4c32f2f9159ba593525179a64573efc3476fd292098526b9030f5f7513d8cc04d8d25be78 tdx-lab-worker
++RTMR1 05718f1d5381a60438472782e9ade9dd4f4c5a5ae7ca7d4cc2691e5d601a70e0eee1f8136f9479eadbc29374b6e0e621 tdx-lab
++RTMR1 b8837821022e5b053541c2813f799c53a9144315fec275f3cee03d2c51352abb82b1725f04438bcf221ab7613caef1b7 tdx-lab-worker
++RTMR2 31d680d42f9ee244846e5ff72d3237c3d6733d0240535c3373476bc60faa8aba23fda802890ba5472b68bf562049e2ee tdx-lab
++RTMR2 6879c7f5bd13110c8b2c2db1ef0b02002388e3d9b4427b7ce8f744f63690f5379a77f999aff25bcd47c8669e01832e2c tdx-lab-worker
+diff --git a/ops/attested/testdata/TDX-428f3734fdb03238.attestkey b/ops/attested/testdata/TDX-428f3734fdb03238.attestkey
+new file mode 100644
+index 000000000..f2d5fd76d
+--- /dev/null
++++ b/ops/attested/testdata/TDX-428f3734fdb03238.attestkey
+@@ -0,0 +1,3 @@
++ATTESTED-KEY-BUNDLE 1
++statement=QVRURVNURUQtS0VZLVNUQVRFTUVOVCAxCmtleS1pZD1URFgtNDI4ZjM3MzRmZGIwMzIzOApwdWJsaWM9TUZrd0V3WUhLb1pJemowQ0FRWUlLb1pJemowREFRY0RRZ0FFaEdWWm9UeWVBTnhXb0txQ3o4Vzl5QnNkdTRIWW12Q3M1VGxEZUg5N00raVNncTQvZ21BL0NBR2d5U2U1Q01BZnFJdjZrNlZySEI5UStMajMyWHFONWc9PQpob3N0PXRkeC1sYWIKY3JlYXRlZD0yMDI2LTEwLTE2VDExOjE4OjQzWgpub25jZT0yODFhNmM4MzBlNjNhZDc3YzI4NDQ5YmE5ZjJlMTc2Mwo=
++quote=BAACAIEAAAAAAAAAk5pyM/ecTKmUCg2zlX8GBwAAAAAAAAAAAAAAAAAAAAAAAAAADwEKAAAAAAAAAAAAAAAAAKtiVhoXOsvRjuUP83dQ20QYTGz16IbfdCR8xXXhY7BMNLnhg3R1fCNa/6YU1BJ/awAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAADnAgYAAAAAAMHunBbjr8UGz+BCxbhGo2hSjzs3YY6vsnRpvBFM+RTpIiyRYYRw5/KyisNgloJwpQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAANBxw6G41MahXIpx15VpiM//dLJglCc32ixuMKdpgJfX40/jpNcNvFI0NDojlvWVUgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAANtC/S2aRNhjj5vNFfgStVpjtgQ1lGxXLcfjTLxg8y0FcJcqpHvWH6MNY8vMVIupAVxjx1TgaYEOEcngumt6d1PTFpa58p9TMJpHl1gGnDg7uH4E2+UeerbwpN0tuDmITHWgNQvnuJEhG5f9y0yN8PWcz0CQFNcM3NHa8YPqoq6I/2oAokLpUcraL9WIEni7g4TfMPpczM3kK0GRLYu9xZpr/A+Th3t3oy0+SceKiT03fCAuK1mBB0ONXh1n2fl8J2bICN/qwKODP+5sXToc+x7Ckm9WNxsOSmrzV3s2uPqHVNqFz1Ru6V93md//CouNIakTqPQTHhKStM7pumJ4yvLEAAAZ7Cj54EL1qk6qMiHv1jYvy09SYZJzTx9XI4x+rdFQrj7BECjCpQsiWsgo/JL1FYG5QktaABEFbBLCkWcVFT1G2R7k1HnPWAWiDZxgGPESHbJZKE+BD9/QZWzteZN2QFJme+dFczG8M+TD8EsIcDfxat3FOEjtixR+TjVHdWecdMGAEUQAAAKCv8bBv8ABgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAAAAAAAAAOcAAAAAAAAA5aOntdgwwpU7mFNMbFmjo0/cNOkz9/WJjwqFzwiEa8oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAANyeKnxvlI8XR040p/xD7QMPfBVj8bq932NAyC4OVKjFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAGAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMY6JUp6OAy4zALMD2+bpvzxDQn9/6chS8KfBJa0kwJJAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAorKZT3lNPTGIWoeIRk7QzGqsyGN1zhCz2nWUlxMUVBmPu7oDCAKKIrXj6O8VMaLIJ4Y+LOIoAXQnAe1L0SkX9IAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAUAXQ4AAC0tLS0tQkVHSU4gQ0VSVElGSUNBVEUtLS0tLQpNSUlFOERDQ0JKZWdBd0lCQWdJVkFONG1zT0ZrL2Nva3NIWncrUmtqZjcweE9LTk9NQW9HQ0NxR1NNNDlCQU1DCk1IQXhJakFnQmdOVkJBTU1HVWx1ZEdWc0lGTkhXQ0JRUTBzZ1VHeGhkR1p2Y20wZ1EwRXhHakFZQmdOVkJBb00KRVVsdWRHVnNJRU52Y25CdmNtRjBhVzl1TVJRd0VnWURWUVFIREF0VFlXNTBZU0JEYkdGeVlURUxNQWtHQTFVRQpDQXdDUTBFeEN6QUpCZ05WQkFZVEFsVlRNQjRYRFRJMk1EZ3dPREE0TlRVeE5sb1hEVE16TURnd09EQTROVFV4Ck5sb3djREVpTUNBR0ExVUVBd3daU1c1MFpXd2dVMGRZSUZCRFN5QkRaWEowYVdacFkyRjBaVEVhTUJnR0ExVUUKQ2d3UlNXNTBaV3dnUTI5eWNHOXlZWFJwYjI0eEZEQVNCZ05WQkFjTUMxTmhiblJoSUVOc1lYSmhNUXN3Q1FZRApWUVFJREFKRFFURUxNQWtHQTFVRUJoTUNWVk13V1RBVEJnY3Foa2pPUFFJQkJnZ3Foa2pPUFFNQkJ3TkNBQVRPCmFRSEJNZTQ4RVJab2Iwelh5dlhtZW5haW9ESFRadFc3V3dlQ3o5cFRlK01KSm82RW14QnJkWFloWm55TjRQWEQKUk1TNXdoc283cStGdndMWTNNV2RvNElERERDQ0F3Z3dId1lEVlIwakJCZ3dGb0FVbFc5ZHpiMGI0ZWxBU2NuVQo5RFBPQVZjTDNsUXdhd1lEVlIwZkJHUXdZakJnb0Y2Z1hJWmFhSFIwY0hNNkx5OWhjR2t1ZEhKMWMzUmxaSE5sCmNuWnBZMlZ6TG1sdWRHVnNMbU52YlM5elozZ3ZZMlZ5ZEdsbWFXTmhkR2x2Ymk5Mk5DOXdZMnRqY213L1kyRTkKY0d4aGRHWnZjbTBtWlc1amIyUnBibWM5WkdWeU1CMEdBMVVkRGdRV0JCU2F4UkFwa1QzVUtUZWYzTWJUUHJmeApzN3NqTmpBT0JnTlZIUThCQWY4RUJBTUNCc0F3REFZRFZSMFRBUUgvQkFJd0FEQ0NBamtHQ1NxR1NJYjRUUUVOCkFRU0NBaW93Z2dJbU1CNEdDaXFHU0liNFRRRU5BUUVFRU1jVW1qVHBDN1U0ek4wRDZjeVFKcll3Z2dGakJnb3EKaGtpRytFMEJEUUVDTUlJQlV6QVFCZ3NxaGtpRytFMEJEUUVDQVFJQkNUQVFCZ3NxaGtpRytFMEJEUUVDQWdJQgpDVEFRQmdzcWhraUcrRTBCRFFFQ0F3SUJBakFRQmdzcWhraUcrRTBCRFFFQ0JBSUJBakFRQmdzcWhraUcrRTBCCkRRRUNCUUlCQkRBUUJnc3Foa2lHK0UwQkRRRUNCZ0lCQVRBUUJnc3Foa2lHK0UwQkRRRUNCd0lCQURBUUJnc3EKaGtpRytFMEJEUUVDQ0FJQkJqQVFCZ3NxaGtpRytFMEJEUUVDQ1FJQkFEQVFCZ3NxaGtpRytFMEJEUUVDQ2dJQgpBREFRQmdzcWhraUcrRTBCRFFFQ0N3SUJBREFRQmdzcWhraUcrRTBCRFFFQ0RBSUJBREFRQmdzcWhraUcrRTBCCkRRRUNEUUlCQURBUUJnc3Foa2lHK0UwQkRRRUNEZ0lCQURBUUJnc3Foa2lHK0UwQkRRRUNEd0lCQURBUUJnc3EKaGtpRytFMEJEUUVDRUFJQkFEQVFCZ3NxaGtpRytFMEJEUUVDRVFJQkN6QWZCZ3NxaGtpRytFMEJEUUVDRWdRUQpDUWtDQWdRQkFBWUFBQUFBQUFBQUFEQVFCZ29xaGtpRytFMEJEUUVEQkFJQUFEQVVCZ29xaGtpRytFMEJEUUVFCkJBWUFnRzhGQUFBd0R3WUtLb1pJaHZoTkFRMEJCUW9CQVRBZUJnb3Foa2lHK0UwQkRRRUdCQkRBSXR6dWdQQ3EKRzQvSytGeXhhUFRkTUVRR0NpcUdTSWI0VFFFTkFRY3dOakFRQmdzcWhraUcrRTBCRFFFSEFRRUIvekFRQmdzcQpoa2lHK0UwQkRRRUhBZ0VCQURBUUJnc3Foa2lHK0UwQkRRRUhBd0VCL3pBS0JnZ3Foa2pPUFFRREFnTkhBREJFCkFpQjU0RytJcFVrUlJuVW5kK2F3eThLMS9kQVN5aWJXOEFjY1Q2Y092RStTeFFJZ1BvTTg1K1hvMFhQeGVEYnEKVVdIVG9lQ250RXF1bmtZZ2NLNnZaVmFkcFB3PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCi0tLS0tQkVHSU4gQ0VSVElGSUNBVEUtLS0tLQpNSUlDbGpDQ0FqMmdBd0lCQWdJVkFKVnZYYzI5RytIcFFFbkoxUFF6emdGWEM5NVVNQW9HQ0NxR1NNNDlCQU1DCk1HZ3hHakFZQmdOVkJBTU1FVWx1ZEdWc0lGTkhXQ0JTYjI5MElFTkJNUm93R0FZRFZRUUtEQkZKYm5SbGJDQkQKYjNKd2IzSmhkR2x2YmpFVU1CSUdBMVVFQnd3TFUyRnVkR0VnUTJ4aGNtRXhDekFKQmdOVkJBZ01Ba05CTVFzdwpDUVlEVlFRR0V3SlZVekFlRncweE9EQTFNakV4TURVd01UQmFGdzB6TXpBMU1qRXhNRFV3TVRCYU1IQXhJakFnCkJnTlZCQU1NR1VsdWRHVnNJRk5IV0NCUVEwc2dVR3hoZEdadmNtMGdRMEV4R2pBWUJnTlZCQW9NRVVsdWRHVnMKSUVOdmNuQnZjbUYwYVc5dU1SUXdFZ1lEVlFRSERBdFRZVzUwWVNCRGJHRnlZVEVMTUFrR0ExVUVDQXdDUTBFeApDekFKQmdOVkJBWVRBbFZUTUZrd0V3WUhLb1pJemowQ0FRWUlLb1pJemowREFRY0RRZ0FFTlNCLzd0MjFsWFNPCjJDdXpweHc3NGVKQjcyRXlER2dXNXJYQ3R4MnRWVExxNmhLazZ6K1VpUlpDbnFSN3BzT3ZncUZlU3hsbVRsSmwKZVRtaTJXWXozcU9CdXpDQnVEQWZCZ05WSFNNRUdEQVdnQlFpWlF6V1dwMDBpZk9EdEpWU3YxQWJPU2NHckRCUwpCZ05WSFI4RVN6QkpNRWVnUmFCRGhrRm9kSFJ3Y3pvdkwyTmxjblJwWm1sallYUmxjeTUwY25WemRHVmtjMlZ5CmRtbGpaWE11YVc1MFpXd3VZMjl0TDBsdWRHVnNVMGRZVW05dmRFTkJMbVJsY2pBZEJnTlZIUTRFRmdRVWxXOWQKemIwYjRlbEFTY25VOURQT0FWY0wzbFF3RGdZRFZSMFBBUUgvQkFRREFnRUdNQklHQTFVZEV3RUIvd1FJTUFZQgpBZjhDQVFBd0NnWUlLb1pJemowRUF3SURSd0F3UkFJZ1hzVmtpMHcraTZWWUdXM1VGLzIydWFYZTBZSkRqMVVlCm5BK1RqRDFhaTVjQ0lDWWIxU0FtRDV4a2ZUVnB2bzRVb3lpU1l4ckRXTG1VUjRDSTlOS3lmUE4rCi0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0KLS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUNqekNDQWpTZ0F3SUJBZ0lVSW1VTTFscWROSW56ZzdTVlVyOVFHemtuQnF3d0NnWUlLb1pJemowRUF3SXcKYURFYU1CZ0dBMVVFQXd3UlNXNTBaV3dnVTBkWUlGSnZiM1FnUTBFeEdqQVlCZ05WQkFvTUVVbHVkR1ZzSUVOdgpjbkJ2Y21GMGFXOXVNUlF3RWdZRFZRUUhEQXRUWVc1MFlTQkRiR0Z5WVRFTE1Ba0dBMVVFQ0F3Q1EwRXhDekFKCkJnTlZCQVlUQWxWVE1CNFhEVEU0TURVeU1URXdORFV4TUZvWERUUTVNVEl6TVRJek5UazFPVm93YURFYU1CZ0cKQTFVRUF3d1JTVzUwWld3Z1UwZFlJRkp2YjNRZ1EwRXhHakFZQmdOVkJBb01FVWx1ZEdWc0lFTnZjbkJ2Y21GMAphVzl1TVJRd0VnWURWUVFIREF0VFlXNTBZU0JEYkdGeVlURUxNQWtHQTFVRUNBd0NRMEV4Q3pBSkJnTlZCQVlUCkFsVlRNRmt3RXdZSEtvWkl6ajBDQVFZSUtvWkl6ajBEQVFjRFFnQUVDNm5Fd01ESVlaT2ovaVBXc0N6YUVLaTcKMU9pT1NMUkZoV0dqYm5CVkpmVm5rWTR1M0lqa0RZWUwwTXhPNG1xc3lZamxCYWxUVll4RlAyc0pCSzV6bEtPQgp1ekNCdURBZkJnTlZIU01FR0RBV2dCUWlaUXpXV3AwMGlmT0R0SlZTdjFBYk9TY0dyREJTQmdOVkhSOEVTekJKCk1FZWdSYUJEaGtGb2RIUndjem92TDJObGNuUnBabWxqWVhSbGN5NTBjblZ6ZEdWa2MyVnlkbWxqWlhNdWFXNTAKWld3dVkyOXRMMGx1ZEdWc1UwZFlVbTl2ZEVOQkxtUmxjakFkQmdOVkhRNEVGZ1FVSW1VTTFscWROSW56ZzdTVgpVcjlRR3prbkJxd3dEZ1lEVlIwUEFRSC9CQVFEQWdFR01CSUdBMVVkRXdFQi93UUlNQVlCQWY4Q0FRRXdDZ1lJCktvWkl6ajBFQXdJRFNRQXdSZ0loQU9XLzVRa1IrUzlDaVNEY05vb3dMdVBSTHNXR2YvWWk3R1NYOTRCZ3dUd2cKQWlFQTRKMGxySG9NcytYbzVvL3NYNk85UVd4SFJBdlpVR09kUlE3Y3ZxUlhhcUk9Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0KAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+diff --git a/ops/attested/testdata/TDX-5fdb825500807c66.attestkey b/ops/attested/testdata/TDX-5fdb825500807c66.attestkey
+new file mode 100644
+index 000000000..ad15dfaa6
+--- /dev/null
++++ b/ops/attested/testdata/TDX-5fdb825500807c66.attestkey
+@@ -0,0 +1,3 @@
++ATTESTED-KEY-BUNDLE 1
++statement=QVRURVNURUQtS0VZLVNUQVRFTUVOVCAxCmtleS1pZD1URFgtNWZkYjgyNTUwMDgwN2M2NgpwdWJsaWM9TUZrd0V3WUhLb1pJemowQ0FRWUlLb1pJemowREFRY0RRZ0FFb2xrR3JTRG1mekY2VGxTL2ZZc25tOEhjb24zUThrR1YxS3EydDJvTFFPREVZZXNRRFhtWkdWSEtsbkFYejJ4NmZCTnYrU3V1RmZwOEpxUmx3cjZJdVE9PQpob3N0PXRkeC1sYWItd29ya2VyCmNyZWF0ZWQ9MjAyNi0xMC0xNlQxMToyODo0OVoKbm9uY2U9N2I5M2U5OGVmMGRiNWE3MmViY2JhMzM3NzJjYTllNzkK
++quote=BAACAIEAAAAAAAAAk5pyM/ecTKmUCg2zlX8GBwAAAAAAAAAAAAAAAAAAAAAAAAAADwEKAAAAAAAAAAAAAAAAAKtiVhoXOsvRjuUP83dQ20QYTGz16IbfdCR8xXXhY7BMNLnhg3R1fCNa/6YU1BJ/awAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAADnAgYAAAAAAMHunBbjr8UGz+BCxbhGo2hSjzs3YY6vsnRpvBFM+RTpIiyRYYRw5/KyisNgloJwpQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADYDQUqvH0CyYu1W603VsIe0t7TbKUZJjp80onFjpczeSpsTdCbpaiZg9WQAPlTXRQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAF4nbc9oZ5U13uIXpMMvL5FZulk1JReaZFc+/DR2/SkgmFJrkDD191E9jMBNjSW+eLiDeCECLlsFNUHCgT95nFOpFEMV/sJ1887gPSxRNSq7grFyXwRDi88iGrdhPK7xt2h5x/W9ExEMiywtse8LAgAjiOPZtEJ7fOj3RPY2kPU3mnf5ma/yW81HyGaeAYMuLA8duV/LGkk66ppLOCaSRvVD4anMdCgMs7UosnISFmOiRPw+zUYMtD6iktXMaZfI5WyT0V9qZ7AHkp1BMtT1UjZv7u+MJkp8Vw4N9dY9k5wN9jylrcSx8LNexobXaMj3orNPA49s2UnqRVSb1EuQIJ/LEAAA86xFMWv5f8gI5NdBD1E7vPp61AVTPfrX7Rngyn7bP3KmPuNM5wgkHoWDx3D5ecm22+c7Eiwg7Msu90djymoU/cFUa2fonyKGdhbTerCRkXNRs/Eo7fblSowXiBWk82H4Tzez4szpde4XynfQUtAw3Q2ipWEG8Hjpe9pO0UR5bcgGAEUQAAAKCv8bBv8ABgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAAAAAAAAAOcAAAAAAAAA5aOntdgwwpU7mFNMbFmjo0/cNOkz9/WJjwqFzwiEa8oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAANyeKnxvlI8XR040p/xD7QMPfBVj8bq932NAyC4OVKjFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAGAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMJZTETwrPag6qSjZnt7eTxJyFvEuBrn1zfiT1lc0dN3AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADj8/zOJ7ARNZPEV8zgXlLN3mVVzlQJyzYlGinFAi5z08wc/lamIdD27w2rSe98y1beA/FKSm0uLb5qyxC3qk0lIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAUAXQ4AAC0tLS0tQkVHSU4gQ0VSVElGSUNBVEUtLS0tLQpNSUlFN3pDQ0JKYWdBd0lCQWdJVVpYRjJTemVMeHNUTlNYdnNoVDQxUHNxRGRqMHdDZ1lJS29aSXpqMEVBd0l3CmNERWlNQ0FHQTFVRUF3d1pTVzUwWld3Z1UwZFlJRkJEU3lCUWJHRjBabTl5YlNCRFFURWFNQmdHQTFVRUNnd1IKU1c1MFpXd2dRMjl5Y0c5eVlYUnBiMjR4RkRBU0JnTlZCQWNNQzFOaGJuUmhJRU5zWVhKaE1Rc3dDUVlEVlFRSQpEQUpEUVRFTE1Ba0dBMVVFQmhNQ1ZWTXdIaGNOTWpZd09EQTBNREF6TmpFMldoY05Nek13T0RBME1EQXpOakUyCldqQndNU0l3SUFZRFZRUUREQmxKYm5SbGJDQlRSMWdnVUVOTElFTmxjblJwWm1sallYUmxNUm93R0FZRFZRUUsKREJGSmJuUmxiQ0JEYjNKd2IzSmhkR2x2YmpFVU1CSUdBMVVFQnd3TFUyRnVkR0VnUTJ4aGNtRXhDekFKQmdOVgpCQWdNQWtOQk1Rc3dDUVlEVlFRR0V3SlZVekJaTUJNR0J5cUdTTTQ5QWdFR0NDcUdTTTQ5QXdFSEEwSUFCSmYrCmd0ejd1a1hzaW9WOHo1a0RuRGFRaEs1WXg0eEhkQ2F3N0NLcHo5WE5DZmFKaW5UaXRwUUdEREtyelhSOU03MlEKUy9Sa0RXdDFLcUYwbGRRZXdYS2pnZ01NTUlJRENEQWZCZ05WSFNNRUdEQVdnQlNWYjEzTnZSdmg2VUJKeWRUMApNODRCVnd2ZVZEQnJCZ05WSFI4RVpEQmlNR0NnWHFCY2hscG9kSFJ3Y3pvdkwyRndhUzUwY25WemRHVmtjMlZ5CmRtbGpaWE11YVc1MFpXd3VZMjl0TDNObmVDOWpaWEowYVdacFkyRjBhVzl1TDNZMEwzQmphMk55YkQ5allUMXcKYkdGMFptOXliU1psYm1OdlpHbHVaejFrWlhJd0hRWURWUjBPQkJZRUZPYWxRYzFTaTc1ZHBzL3VmdkFBZ2FiOApUOFNMTUE0R0ExVWREd0VCL3dRRUF3SUd3REFNQmdOVkhSTUJBZjhFQWpBQU1JSUNPUVlKS29aSWh2aE5BUTBCCkJJSUNLakNDQWlZd0hnWUtLb1pJaHZoTkFRMEJBUVFRY2pTVFJzMmFxSjlQd1Z2QXQrNE01VENDQVdNR0NpcUcKU0liNFRRRU5BUUl3Z2dGVE1CQUdDeXFHU0liNFRRRU5BUUlCQWdFSk1CQUdDeXFHU0liNFRRRU5BUUlDQWdFSgpNQkFHQ3lxR1NJYjRUUUVOQVFJREFnRUNNQkFHQ3lxR1NJYjRUUUVOQVFJRUFnRUNNQkFHQ3lxR1NJYjRUUUVOCkFRSUZBZ0VFTUJBR0N5cUdTSWI0VFFFTkFRSUdBZ0VCTUJBR0N5cUdTSWI0VFFFTkFRSUhBZ0VBTUJBR0N5cUcKU0liNFRRRU5BUUlJQWdFR01CQUdDeXFHU0liNFRRRU5BUUlKQWdFQU1CQUdDeXFHU0liNFRRRU5BUUlLQWdFQQpNQkFHQ3lxR1NJYjRUUUVOQVFJTEFnRUFNQkFHQ3lxR1NJYjRUUUVOQVFJTUFnRUFNQkFHQ3lxR1NJYjRUUUVOCkFRSU5BZ0VBTUJBR0N5cUdTSWI0VFFFTkFRSU9BZ0VBTUJBR0N5cUdTSWI0VFFFTkFRSVBBZ0VBTUJBR0N5cUcKU0liNFRRRU5BUUlRQWdFQU1CQUdDeXFHU0liNFRRRU5BUUlSQWdFTE1COEdDeXFHU0liNFRRRU5BUUlTQkJBSgpDUUlDQkFFQUJnQUFBQUFBQUFBQU1CQUdDaXFHU0liNFRRRU5BUU1FQWdBQU1CUUdDaXFHU0liNFRRRU5BUVFFCkJnQ0Fid1VBQURBUEJnb3Foa2lHK0UwQkRRRUZDZ0VCTUI0R0NpcUdTSWI0VFFFTkFRWUVFQmVOMnB1bDVaL1oKQVhyUnhGVkhuUHN3UkFZS0tvWklodmhOQVEwQkJ6QTJNQkFHQ3lxR1NJYjRUUUVOQVFjQkFRSC9NQkFHQ3lxRwpTSWI0VFFFTkFRY0NBUUVBTUJBR0N5cUdTSWI0VFFFTkFRY0RBUUgvTUFvR0NDcUdTTTQ5QkFNQ0EwY0FNRVFDCklFU0tiNnJLNmwzazJvbnpZWWVIZjRPNWw0RUVWbmNJVytTL3FWSzJWdWRjQWlBbXlzWkIvY2R0NW9CYWZIeTMKVDZrSEhSQk5BSnp0OG1teWRtNk01WFZ0Tmc9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCi0tLS0tQkVHSU4gQ0VSVElGSUNBVEUtLS0tLQpNSUlDbGpDQ0FqMmdBd0lCQWdJVkFKVnZYYzI5RytIcFFFbkoxUFF6emdGWEM5NVVNQW9HQ0NxR1NNNDlCQU1DCk1HZ3hHakFZQmdOVkJBTU1FVWx1ZEdWc0lGTkhXQ0JTYjI5MElFTkJNUm93R0FZRFZRUUtEQkZKYm5SbGJDQkQKYjNKd2IzSmhkR2x2YmpFVU1CSUdBMVVFQnd3TFUyRnVkR0VnUTJ4aGNtRXhDekFKQmdOVkJBZ01Ba05CTVFzdwpDUVlEVlFRR0V3SlZVekFlRncweE9EQTFNakV4TURVd01UQmFGdzB6TXpBMU1qRXhNRFV3TVRCYU1IQXhJakFnCkJnTlZCQU1NR1VsdWRHVnNJRk5IV0NCUVEwc2dVR3hoZEdadmNtMGdRMEV4R2pBWUJnTlZCQW9NRVVsdWRHVnMKSUVOdmNuQnZjbUYwYVc5dU1SUXdFZ1lEVlFRSERBdFRZVzUwWVNCRGJHRnlZVEVMTUFrR0ExVUVDQXdDUTBFeApDekFKQmdOVkJBWVRBbFZUTUZrd0V3WUhLb1pJemowQ0FRWUlLb1pJemowREFRY0RRZ0FFTlNCLzd0MjFsWFNPCjJDdXpweHc3NGVKQjcyRXlER2dXNXJYQ3R4MnRWVExxNmhLazZ6K1VpUlpDbnFSN3BzT3ZncUZlU3hsbVRsSmwKZVRtaTJXWXozcU9CdXpDQnVEQWZCZ05WSFNNRUdEQVdnQlFpWlF6V1dwMDBpZk9EdEpWU3YxQWJPU2NHckRCUwpCZ05WSFI4RVN6QkpNRWVnUmFCRGhrRm9kSFJ3Y3pvdkwyTmxjblJwWm1sallYUmxjeTUwY25WemRHVmtjMlZ5CmRtbGpaWE11YVc1MFpXd3VZMjl0TDBsdWRHVnNVMGRZVW05dmRFTkJMbVJsY2pBZEJnTlZIUTRFRmdRVWxXOWQKemIwYjRlbEFTY25VOURQT0FWY0wzbFF3RGdZRFZSMFBBUUgvQkFRREFnRUdNQklHQTFVZEV3RUIvd1FJTUFZQgpBZjhDQVFBd0NnWUlLb1pJemowRUF3SURSd0F3UkFJZ1hzVmtpMHcraTZWWUdXM1VGLzIydWFYZTBZSkRqMVVlCm5BK1RqRDFhaTVjQ0lDWWIxU0FtRDV4a2ZUVnB2bzRVb3lpU1l4ckRXTG1VUjRDSTlOS3lmUE4rCi0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0KLS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUNqekNDQWpTZ0F3SUJBZ0lVSW1VTTFscWROSW56ZzdTVlVyOVFHemtuQnF3d0NnWUlLb1pJemowRUF3SXcKYURFYU1CZ0dBMVVFQXd3UlNXNTBaV3dnVTBkWUlGSnZiM1FnUTBFeEdqQVlCZ05WQkFvTUVVbHVkR1ZzSUVOdgpjbkJ2Y21GMGFXOXVNUlF3RWdZRFZRUUhEQXRUWVc1MFlTQkRiR0Z5WVRFTE1Ba0dBMVVFQ0F3Q1EwRXhDekFKCkJnTlZCQVlUQWxWVE1CNFhEVEU0TURVeU1URXdORFV4TUZvWERUUTVNVEl6TVRJek5UazFPVm93YURFYU1CZ0cKQTFVRUF3d1JTVzUwWld3Z1UwZFlJRkp2YjNRZ1EwRXhHakFZQmdOVkJBb01FVWx1ZEdWc0lFTnZjbkJ2Y21GMAphVzl1TVJRd0VnWURWUVFIREF0VFlXNTBZU0JEYkdGeVlURUxNQWtHQTFVRUNBd0NRMEV4Q3pBSkJnTlZCQVlUCkFsVlRNRmt3RXdZSEtvWkl6ajBDQVFZSUtvWkl6ajBEQVFjRFFnQUVDNm5Fd01ESVlaT2ovaVBXc0N6YUVLaTcKMU9pT1NMUkZoV0dqYm5CVkpmVm5rWTR1M0lqa0RZWUwwTXhPNG1xc3lZamxCYWxUVll4RlAyc0pCSzV6bEtPQgp1ekNCdURBZkJnTlZIU01FR0RBV2dCUWlaUXpXV3AwMGlmT0R0SlZTdjFBYk9TY0dyREJTQmdOVkhSOEVTekJKCk1FZWdSYUJEaGtGb2RIUndjem92TDJObGNuUnBabWxqWVhSbGN5NTBjblZ6ZEdWa2MyVnlkbWxqWlhNdWFXNTAKWld3dVkyOXRMMGx1ZEdWc1UwZFlVbTl2ZEVOQkxtUmxjakFkQmdOVkhRNEVGZ1FVSW1VTTFscWROSW56ZzdTVgpVcjlRR3prbkJxd3dEZ1lEVlIwUEFRSC9CQVFEQWdFR01CSUdBMVVkRXdFQi93UUlNQVlCQWY4Q0FRRXdDZ1lJCktvWkl6ajBFQXdJRFNRQXdSZ0loQU9XLzVRa1IrUzlDaVNEY05vb3dMdVBSTHNXR2YvWWk3R1NYOTRCZ3dUd2cKQWlFQTRKMGxySG9NcytYbzVvL3NYNk85UVd4SFJBdlpVR09kUlE3Y3ZxUlhhcUk9Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0KAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+diff --git a/src/java/org/apache/nutch/attested/AdmissionReference.java b/src/java/org/apache/nutch/attested/AdmissionReference.java
+new file mode 100644
+index 000000000..2526e773f
+--- /dev/null
++++ b/src/java/org/apache/nutch/attested/AdmissionReference.java
+@@ -0,0 +1,124 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.nutch.attested;
++
++import java.io.IOException;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.security.GeneralSecurityException;
++import java.security.MessageDigest;
++import java.util.ArrayList;
++import java.util.HashMap;
++import java.util.List;
++import java.util.Locale;
++import java.util.Map;
++import java.util.regex.Pattern;
++
++/**
++ * The reference measurements that an attested machine must have (step 5.2.1): a plain text file that anybody can read and edit. One line per allowed
++ * value: REGISTER VALUE [HOST], where REGISTER is MRTD or RTMR0 to RTMR3, VALUE is the 96 hex digits of the register, and HOST (optional, default *) is the
++ * host name that the key's statement must carry. Lines that start with # and empty lines are ignored. Several lines for one register mean "any of these".
++ * To allow a new value, add a line; to forbid one, delete its line. The file may be pinned by its SHA-256 in the settings.
++ */
++final class AdmissionReference {
++  private static final Pattern HEX96 = Pattern.compile("[0-9a-fA-F]{96}");
++  private static final Pattern HOST = Pattern.compile("[A-Za-z0-9._-]{1,63}|\\*");
++
++  private final Map<String, List<String[]>> entries = new HashMap<>();
++  final String sha256;
++  final int lines;
++
++  private AdmissionReference(String sha256, int lines) {
++    this.sha256 = sha256;
++    this.lines = lines;
++  }
++
++  /** pin: the expected SHA-256 of the file (lower-case hex), or empty for no pin. */
++  static AdmissionReference load(Path file, String pin) throws IOException {
++    byte[] raw;
++    try {
++      raw = Files.readAllBytes(file);
++    } catch (IOException e) {
++      throw new IOException("the reference measurements file cannot be read: " + file + " (" + e.getMessage() + ")");
++    }
++    String sha;
++    try {
++      sha = MerkleHasher.hex(MessageDigest.getInstance("SHA-256").digest(raw));
++    } catch (GeneralSecurityException e) {
++      throw new IOException("no SHA-256: " + e);
++    }
++    if (pin != null && !pin.isEmpty() && !pin.equalsIgnoreCase(sha)) {
++      throw new IOException("the reference measurements file " + file + " has SHA-256 " + sha.substring(0, 16) + "... but the settings pin " + pin.substring(0, Math.min(16, pin.length())) + "...");
++    }
++    String[] all = new String(raw, StandardCharsets.UTF_8).split("\\r?\\n", -1);
++    AdmissionReference r = new AdmissionReference(sha, all.length);
++    int n = 0;
++    for (String line : all) {
++      n++;
++      String t = line.trim();
++      if (t.isEmpty() || t.startsWith("#")) {
++        continue;
++      }
++      String[] p = t.split("\\s+");
++      if (p.length < 2 || p.length > 3) {
++        throw new IOException("reference line " + n + ": expected REGISTER VALUE [HOST], got " + p.length + " field(s)");
++      }
++      String reg = p[0].toLowerCase(Locale.ROOT);
++      boolean known = false;
++      for (String k : QuoteVerifier.REGISTERS) {
++        known |= k.equals(reg);
++      }
++      if (!known) {
++        throw new IOException("reference line " + n + ": unknown register " + p[0] + " (use MRTD, RTMR0, RTMR1, RTMR2 or RTMR3)");
++      }
++      if (!HEX96.matcher(p[1]).matches()) {
++        throw new IOException("reference line " + n + ": the value of " + p[0] + " must be 96 hex digits");
++      }
++      String host = p.length == 3 ? p[2] : "*";
++      if (!HOST.matcher(host).matches()) {
++        throw new IOException("reference line " + n + ": bad host " + host);
++      }
++      r.entries.computeIfAbsent(reg, k -> new ArrayList<>()).add(new String[] {p[1].toLowerCase(Locale.ROOT), host});
++    }
++    return r;
++  }
++
++  boolean hasRegister(String reg) {
++    return entries.containsKey(reg);
++  }
++
++  boolean allows(String reg, String value, String host) {
++    for (String[] e : entries.getOrDefault(reg, new ArrayList<>())) {
++      if (e[0].equals(value) && (e[1].equals("*") || e[1].equals(host))) {
++        return true;
++      }
++    }
++    return false;
++  }
++
++  /** The first 12 digits of each value that is allowed for this host, for messages. */
++  String allowedFor(String reg, String host) {
++    StringBuilder sb = new StringBuilder();
++    for (String[] e : entries.getOrDefault(reg, new ArrayList<>())) {
++      if (e[1].equals("*") || e[1].equals(host)) {
++        sb.append(sb.length() == 0 ? "" : ", ").append(e[0], 0, 12).append("...");
++      }
++    }
++    return sb.length() == 0 ? "none for this host" : sb.toString();
++  }
++}
+diff --git a/src/java/org/apache/nutch/attested/AttestedKeyFactory.java b/src/java/org/apache/nutch/attested/AttestedKeyFactory.java
+index 48808ea0f..293309567 100644
+--- a/src/java/org/apache/nutch/attested/AttestedKeyFactory.java
++++ b/src/java/org/apache/nutch/attested/AttestedKeyFactory.java
+@@ -21,6 +21,7 @@ import java.nio.charset.StandardCharsets;
+ import java.nio.file.Files;
+ import java.nio.file.Path;
+ import java.nio.file.Paths;
++import java.time.Instant;
+ import java.util.List;
+ import org.apache.hadoop.conf.Configuration;
+ 
+@@ -38,10 +39,42 @@ final class AttestedKeyFactory {
+   static final String LIST_CACHE_KEY = "attested.keys.list.cache.seconds";
+   static final String LIST_ALLOW_UNQUOTED_KEY = "attested.keys.list.allow.unquoted";
+   static final String LIST_CHECK_CLASS_KEY = "attested.keys.list.check.class";
++  static final String LIST_AUDIT_FILE_KEY = "attested.keys.list.audit.file";
++  static final String ADMISSION_ENABLED_KEY = "attested.keys.admission.enabled";
++  static final String ADMISSION_REFERENCE_KEY = "attested.keys.admission.reference.file";
++  static final String ADMISSION_REFERENCE_SHA_KEY = "attested.keys.admission.reference.sha256";
++  static final String ADMISSION_ENFORCE_KEY = "attested.keys.admission.enforce";
++  static final String ADMISSION_ROOT_KEY = "attested.keys.admission.root.sha256";
++  static final String ADMISSION_DATES_KEY = "attested.keys.admission.check.dates";
++
++  /** The clock of the quote admission (the validity dates of the certificates); tests set it. */
++  static java.util.function.Supplier<Instant> clock = Instant::now;
+ 
+   private AttestedKeyFactory() {
+   }
+ 
++  /** Both checks, in order; either may be null. */
++  static BundleCheck both(BundleCheck first, BundleCheck second) {
++    if (second == null) {
++      return first;
++    }
++    if (first == null) {
++      return second;
++    }
++    return new BundleCheck() {
++      @Override
++      public void check(KeyBundle b) throws IOException {
++        first.check(b);
++        second.check(b);
++      }
++
++      @Override
++      public String note(KeyBundle b) {
++        return (first.note(b) + " " + second.note(b)).trim();
++      }
++    };
++  }
++
+   /** "test" (the default) or "service". */
+   static String provider(Configuration conf, List<String> ignored) throws IOException {
+     String p = AttestedSettings.get(conf, PROVIDER_KEY, "test", ignored).trim().toLowerCase();
+@@ -71,7 +104,27 @@ final class AttestedKeyFactory {
+         throw new IOException(LIST_CHECK_CLASS_KEY + " names a class that cannot be used as a bundle check: " + cls + " (" + e + ")");
+       }
+     }
++    if (AttestedSettings.getBoolean(conf, ADMISSION_ENABLED_KEY, false, ignored)) {
++      String ref = AttestedSettings.get(conf, ADMISSION_REFERENCE_KEY, "", ignored).trim();
++      if (ref.isEmpty()) {
++        throw new IOException(ADMISSION_REFERENCE_KEY + " is needed when " + ADMISSION_ENABLED_KEY + " is true");
++      }
++      AdmissionReference reference = AdmissionReference.load(Paths.get(ref), AttestedSettings.get(conf, ADMISSION_REFERENCE_SHA_KEY, "", ignored).trim());
++      BundleCheck admission = new QuoteAdmission(reference, QuoteAdmission.registers(AttestedSettings.get(conf, ADMISSION_ENFORCE_KEY, QuoteAdmission.DEFAULT_ENFORCE, ignored)),
++          QuoteAdmission.rootList(AttestedSettings.get(conf, ADMISSION_ROOT_KEY, QuoteAdmission.INTEL_SGX_ROOT_SHA256, ignored)),
++          AttestedSettings.getBoolean(conf, ADMISSION_DATES_KEY, true, ignored), () -> clock.get());
++      extra = both(admission, extra);
++    }
+     KeyList list = new KeyList(listDir, unquoted, extra, ttl);
++    Path auditFile = Paths.get(AttestedSettings.get(conf, LIST_AUDIT_FILE_KEY, listDir.toAbsolutePath().getParent() == null ? "keylist-audit.log"
++        : listDir.toAbsolutePath().getParent().resolve("keylist-audit.log").toString(), ignored).trim());
++    list.setSink(line -> {
++      try {
++        Files.write(auditFile, (Instant.now() + " " + line + "\n").getBytes(StandardCharsets.UTF_8), java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
++      } catch (IOException e) {
++        // the audit file is for people; the list does not depend on it
++      }
++    });
+     String address = AttestedSettings.get(conf, SERVICE_ADDRESS_KEY, "", ignored).trim();
+     if (address.isEmpty()) {
+       if (signOn) {
+diff --git a/src/java/org/apache/nutch/attested/AttestedKeyTool.java b/src/java/org/apache/nutch/attested/AttestedKeyTool.java
+index 044ac7c2b..39be899f2 100644
+--- a/src/java/org/apache/nutch/attested/AttestedKeyTool.java
++++ b/src/java/org/apache/nutch/attested/AttestedKeyTool.java
+@@ -33,7 +33,10 @@ import java.nio.file.Paths;
+  * java -cp attested-hdfs.jar org.apache.nutch.attested.AttestedKeyTool bundle-info FILE   print what a key bundle says (key id, host, time, quote)
+  * java -cp attested-hdfs.jar org.apache.nutch.attested.AttestedKeyTool bundle-verify FILE [--allow-unquoted]
+  *                                                                             check a key bundle: the key id is the hash of the public key and the quote's REPORTDATA
+- *                                                                             is the SHA-512 of the statement (not the quote's signature chain: step 5.2.1)
++ *                                                                             is the SHA-512 of the statement (not the quote's signature chain: bundle-admit does that)
++ * java -cp attested-hdfs.jar org.apache.nutch.attested.AttestedKeyTool bundle-admit FILE REFERENCE [--no-dates] [--enforce mrtd,rtmr0,...] [--root SHA256]
++ *                                                                             admit a key bundle by its quote (step 5.2.1): the certificate chain, the signatures and the reference measurements; prints ADMIT or REJECT
++ * java -cp attested-hdfs.jar org.apache.nutch.attested.AttestedKeyTool quote-info FILE   print the measurement registers and the certificate chain of a bundle's quote (no verification)
+  * </pre>
+  *
+  * <p>It prints the key id, never the private key. The test key is never to be used in evidence.</p>
+@@ -59,6 +62,37 @@ public final class AttestedKeyTool {
+         out.println("file " + args[1] + "   key id " + k.keyId() + "   can sign: " + (k.signingKeyId() != null));
+         return 0;
+       }
++      if (args.length >= 2 && args[0].equals("quote-info")) {
++        KeyBundle b = KeyBundle.decode(Files.readAllBytes(Paths.get(args[1])));
++        QuoteVerifier.Quote q = QuoteVerifier.parse(b.quote);
++        out.println("key id " + b.keyId + "   host " + b.host + "   quote version " + q.version + "   tee type 0x" + Long.toHexString(q.teeType));
++        for (String reg : QuoteVerifier.REGISTERS) {
++          out.println(String.format("%-6s %s", reg.toUpperCase(), q.register(reg)));
++        }
++        return 0;
++      }
++      if (args.length >= 3 && args[0].equals("bundle-admit")) {
++        KeyBundle b = KeyBundle.decode(Files.readAllBytes(Paths.get(args[1])));
++        b.checkBinding();
++        boolean dates = true;
++        String enforce = QuoteAdmission.DEFAULT_ENFORCE;
++        String root = QuoteAdmission.INTEL_SGX_ROOT_SHA256;
++        for (int i = 3; i < args.length; i++) {
++          if (args[i].equals("--no-dates")) {
++            dates = false;
++          } else if (args[i].equals("--enforce") && i + 1 < args.length) {
++            enforce = args[++i];
++          } else if (args[i].equals("--root") && i + 1 < args.length) {
++            root = args[++i];
++          } else {
++            throw new IOException("unknown option " + args[i]);
++          }
++        }
++        QuoteAdmission adm = new QuoteAdmission(AdmissionReference.load(Paths.get(args[2]), ""), QuoteAdmission.registers(enforce), QuoteAdmission.rootList(root), dates, java.time.Instant::now);
++        adm.check(b);
++        out.println("ADMIT   key id " + b.keyId + "   host " + b.host + "   " + adm.note(b));
++        return 0;
++      }
+       if (args.length >= 2 && args[0].startsWith("bundle-")) {
+         KeyBundle b = KeyBundle.decode(Files.readAllBytes(Paths.get(args[1])));
+         if (args[0].equals("bundle-info") && args.length == 2) {
+diff --git a/src/java/org/apache/nutch/attested/BundleCheck.java b/src/java/org/apache/nutch/attested/BundleCheck.java
+index f5ecfe13f..26cbd00f2 100644
+--- a/src/java/org/apache/nutch/attested/BundleCheck.java
++++ b/src/java/org/apache/nutch/attested/BundleCheck.java
+@@ -27,4 +27,9 @@ import java.io.IOException;
+  */
+ interface BundleCheck {
+   void check(KeyBundle bundle) throws IOException;
++
++  /** A short note for the audit line of an admitted key (for example the measurements that were checked). */
++  default String note(KeyBundle bundle) {
++    return "";
++  }
+ }
+diff --git a/src/java/org/apache/nutch/attested/KeyList.java b/src/java/org/apache/nutch/attested/KeyList.java
+index 0905e5779..23ef8d8e3 100644
+--- a/src/java/org/apache/nutch/attested/KeyList.java
++++ b/src/java/org/apache/nutch/attested/KeyList.java
+@@ -24,8 +24,11 @@ import java.security.PublicKey;
+ import java.util.ArrayList;
+ import java.util.Collections;
+ import java.util.HashMap;
++import java.util.HashSet;
+ import java.util.List;
+ import java.util.Map;
++import java.util.Set;
++import java.util.function.Consumer;
+ 
+ /**
+  * The public keys that this machine trusts for records: a folder of key bundles (*.attestkey), each of which must pass
+@@ -41,6 +44,8 @@ final class KeyList {
+   private volatile Map<String, KeyBundle> keys = Collections.emptyMap();
+   private volatile List<String> rejected = Collections.emptyList();
+   private volatile long loadedAt = -1;
++  private volatile Consumer<String> sink;
++  private final Set<String> reported = new HashSet<>();
+ 
+   KeyList(Path dir, boolean allowUnquoted, BundleCheck extra, long ttlSeconds) {
+     this.dir = dir;
+@@ -49,6 +54,28 @@ final class KeyList {
+     this.ttlMillis = ttlSeconds * 1000L;
+   }
+ 
++  /** Where the list reports each admission and each rejection (once per state), for the audit; null for no report. */
++  void setSink(Consumer<String> sink) {
++    this.sink = sink;
++  }
++
++  private void report(String line) {
++    Consumer<String> s = sink;
++    if (s == null) {
++      return;
++    }
++    synchronized (reported) {
++      if (!reported.add(line)) {
++        return;
++      }
++    }
++    try {
++      s.accept(line);
++    } catch (RuntimeException e) {
++      // the report is for people; the list does not depend on it
++    }
++  }
++
+   /** The public key of a trusted key id, or null. */
+   PublicKey publicKey(String keyId) {
+     KeyBundle b = bundle(keyId);
+@@ -91,8 +118,10 @@ final class KeyList {
+               throw new IOException("the file name does not say the key id " + b.keyId);
+             }
+             found.put(b.keyId, b);
++            report("ADMIT key=" + b.keyId + " host=" + b.host + (extra == null ? "" : " " + extra.note(b)));
+           } catch (IOException e) {
+             bad.add(f.getFileName() + ": " + e.getMessage());
++            report("REJECT file=" + f.getFileName() + " reason=" + String.valueOf(e.getMessage()).replace('\n', ' '));
+           }
+         }
+       } catch (IOException e) {
+diff --git a/src/java/org/apache/nutch/attested/QuoteAdmission.java b/src/java/org/apache/nutch/attested/QuoteAdmission.java
+new file mode 100644
+index 000000000..8dd3f221e
+--- /dev/null
++++ b/src/java/org/apache/nutch/attested/QuoteAdmission.java
+@@ -0,0 +1,119 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.nutch.attested;
++
++import java.io.IOException;
++import java.time.Instant;
++import java.util.Collections;
++import java.util.LinkedHashSet;
++import java.util.Locale;
++import java.util.Set;
++import java.util.function.Supplier;
++
++/**
++ * Admission of a key by its quote (step 5.2.1), the BundleCheck that the key list runs on every bundle: the quote must be a genuine TDX quote (the chain leads
++ * to a pinned Intel root and the signatures verify, QuoteVerifier), and every ENFORCED register (MRTD, RTMR0 to RTMR3; the settings choose which) must have a
++ * value that the reference allows for the host of the key's statement. The binding of the quote to the key (REPORTDATA) is checked by KeyBundle before this
++ * runs. Registers that are not enforced are shown in the audit note and decide nothing.
++ */
++final class QuoteAdmission implements BundleCheck {
++  /** SHA-256 of Intel's SGX Root CA certificate, the root of the PCK chain in a TDX quote. */
++  static final String INTEL_SGX_ROOT_SHA256 = "44a0196b2b99f889b8e149e95b807a350e7424964399e885a7cbb8ccfab674d3";
++  static final String DEFAULT_ENFORCE = "mrtd,rtmr0,rtmr1,rtmr2";
++
++  private final AdmissionReference reference;
++  private final Set<String> enforce;
++  private final Set<String> roots;
++  private final boolean checkDates;
++  private final Supplier<Instant> clock;
++
++  QuoteAdmission(AdmissionReference reference, Set<String> enforce, Set<String> roots, boolean checkDates, Supplier<Instant> clock) {
++    this.reference = reference;
++    this.enforce = enforce;
++    this.roots = roots;
++    this.checkDates = checkDates;
++    this.clock = clock;
++  }
++
++  /** "mrtd,rtmr0" to a set; every name must be a register. */
++  static Set<String> registers(String list) throws IOException {
++    Set<String> out = new LinkedHashSet<>();
++    for (String s : list.split(",")) {
++      String t = s.trim().toLowerCase(Locale.ROOT);
++      if (t.isEmpty()) {
++        continue;
++      }
++      boolean known = false;
++      for (String k : QuoteVerifier.REGISTERS) {
++        known |= k.equals(t);
++      }
++      if (!known) {
++        throw new IOException("unknown register in the enforce list: " + s.trim() + " (use mrtd, rtmr0, rtmr1, rtmr2, rtmr3)");
++      }
++      out.add(t);
++    }
++    return out;
++  }
++
++  static Set<String> rootList(String list) throws IOException {
++    Set<String> out = new LinkedHashSet<>();
++    for (String s : list.split(",")) {
++      String t = s.trim().toLowerCase(Locale.ROOT).replace(":", "");
++      if (t.isEmpty()) {
++        continue;
++      }
++      if (!t.matches("[0-9a-f]{64}")) {
++        throw new IOException("a trusted root must be the SHA-256 of a certificate (64 hex digits), got " + s.trim());
++      }
++      out.add(t);
++    }
++    return Collections.unmodifiableSet(out);
++  }
++
++  @Override
++  public void check(KeyBundle b) throws IOException {
++    if (!b.hasQuote()) {
++      throw new IOException("the key " + b.keyId + " has no quote, so it cannot be admitted");
++    }
++    QuoteVerifier.Quote q = QuoteVerifier.parse(b.quote);
++    QuoteVerifier.verify(q, roots, checkDates, clock.get());
++    for (String reg : enforce) {
++      String v = q.register(reg);
++      if (!reference.hasRegister(reg)) {
++        throw new IOException("the reference has no value for " + reg.toUpperCase(Locale.ROOT) + ", which is enforced");
++      }
++      if (!reference.allows(reg, v, b.host)) {
++        throw new IOException(reg.toUpperCase(Locale.ROOT) + " of " + b.host + " is " + v.substring(0, 12) + "..., which the reference does not allow (allowed: "
++            + reference.allowedFor(reg, b.host) + ")");
++      }
++    }
++  }
++
++  @Override
++  public String note(KeyBundle b) {
++    try {
++      QuoteVerifier.Quote q = QuoteVerifier.parse(b.quote);
++      StringBuilder sb = new StringBuilder("admitted by quote:");
++      for (String reg : QuoteVerifier.REGISTERS) {
++        sb.append(' ').append(reg).append('=').append(q.register(reg), 0, 12).append(enforce.contains(reg) ? "(enforced)" : "(shown only)");
++      }
++      return sb.toString();
++    } catch (IOException e) {
++      return "";
++    }
++  }
++}
+diff --git a/src/java/org/apache/nutch/attested/QuoteVerifier.java b/src/java/org/apache/nutch/attested/QuoteVerifier.java
+new file mode 100644
+index 000000000..74977a17e
+--- /dev/null
++++ b/src/java/org/apache/nutch/attested/QuoteVerifier.java
+@@ -0,0 +1,282 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.nutch.attested;
++
++import java.io.ByteArrayInputStream;
++import java.io.IOException;
++import java.math.BigInteger;
++import java.nio.ByteBuffer;
++import java.nio.ByteOrder;
++import java.security.AlgorithmParameters;
++import java.security.GeneralSecurityException;
++import java.security.KeyFactory;
++import java.security.MessageDigest;
++import java.security.PublicKey;
++import java.security.Signature;
++import java.security.cert.CertificateFactory;
++import java.security.cert.X509Certificate;
++import java.security.spec.ECGenParameterSpec;
++import java.security.spec.ECParameterSpec;
++import java.security.spec.ECPoint;
++import java.security.spec.ECPublicKeySpec;
++import java.time.Instant;
++import java.util.ArrayList;
++import java.util.Arrays;
++import java.util.Collection;
++import java.util.Date;
++import java.util.List;
++import java.util.Set;
++
++/**
++ * Reads and verifies a TDX quote (version 4, ECDSA P-256) without any network access (step 5.2.1). The checks are the offline part of Intel's quote
++ * verification: the certificate chain in the quote leads to a pinned Intel root; the leaf (PCK) certificate's key signed the quoting enclave's report;
++ * that report names the attestation key; and the attestation key signed the quote's header and TD report body. What needs Intel's online collateral
++ * (revocation lists, the TCB status, the quoting enclave's identity) is NOT checked here; go-tdx-guest's check with -get_collateral covers it.
++ *
++ * <p>Layout (little endian): header 48 bytes; TD report body 584 bytes (offsets as in docs/quote-verification.md); then a 4-byte length of the signature data:
++ * the quote signature (64, r then s), the attestation key (64, x then y), the quoting enclave's certification data (type 6: size, then the QE report 384,
++ * its signature 64, the QE authentication data (2-byte size and bytes), and the certification data proper: type 5, the PEM certificate chain).</p>
++ */
++final class QuoteVerifier {
++  static final int HEADER = 48;
++  static final int BODY_END = 632;
++  static final String[] REGISTERS = {"mrtd", "rtmr0", "rtmr1", "rtmr2", "rtmr3"};
++  private static final int[] REGISTER_OFFSET = {184, 376, 424, 472, 520};
++
++  private QuoteVerifier() {
++  }
++
++  /** A quote taken apart. */
++  static final class Quote {
++    final byte[] raw;
++    final int version;
++    final int attKeyType;
++    final long teeType;
++    final byte[] signedData;
++    final byte[] isvSignature;
++    final byte[] attKey;
++    final byte[] qeReport;
++    final byte[] qeSignature;
++    final byte[] qeAuth;
++    final byte[] pemChain;
++
++    private Quote(byte[] raw, int version, int attKeyType, long teeType, byte[] signedData, byte[] isvSignature, byte[] attKey, byte[] qeReport,
++        byte[] qeSignature, byte[] qeAuth, byte[] pemChain) {
++      this.raw = raw;
++      this.version = version;
++      this.attKeyType = attKeyType;
++      this.teeType = teeType;
++      this.signedData = signedData;
++      this.isvSignature = isvSignature;
++      this.attKey = attKey;
++      this.qeReport = qeReport;
++      this.qeSignature = qeSignature;
++      this.qeAuth = qeAuth;
++      this.pemChain = pemChain;
++    }
++
++    /** A measurement register (mrtd, rtmr0 to rtmr3) as 96 lower-case hex digits. */
++    String register(String name) throws IOException {
++      for (int i = 0; i < REGISTERS.length; i++) {
++        if (REGISTERS[i].equals(name)) {
++          return MerkleHasher.hex(Arrays.copyOfRange(raw, REGISTER_OFFSET[i], REGISTER_OFFSET[i] + 48));
++        }
++      }
++      throw new IOException("unknown register " + name);
++    }
++  }
++
++  static Quote parse(byte[] q) throws IOException {
++    if (q == null || q.length < BODY_END + 4) {
++      throw new IOException("the quote is too short (" + (q == null ? 0 : q.length) + " bytes)");
++    }
++    ByteBuffer b = ByteBuffer.wrap(q).order(ByteOrder.LITTLE_ENDIAN);
++    int version = b.getShort(0) & 0xffff;
++    int attKeyType = b.getShort(2) & 0xffff;
++    long teeType = b.getInt(4) & 0xffffffffL;
++    if (version != 4) {
++      throw new IOException("quote version " + version + " is not supported (only 4)");
++    }
++    if (attKeyType != 2) {
++      throw new IOException("attestation key type " + attKeyType + " is not supported (only 2, ECDSA P-256)");
++    }
++    if (teeType != 0x81) {
++      throw new IOException("the quote is not a TDX quote (tee type 0x" + Long.toHexString(teeType) + ")");
++    }
++    long sigLen = b.getInt(BODY_END) & 0xffffffffL;
++    int o = BODY_END + 4;
++    long end = o + sigLen;
++    if (sigLen < 64 + 64 + 6 || end > q.length) {
++      throw new IOException("the signature data length " + sigLen + " does not fit the quote");
++    }
++    for (int i = (int) end; i < q.length; i++) {
++      if (q[i] != 0) {
++        throw new IOException("the quote has non-zero bytes after its signature data (offset " + i + ")");
++      }
++    }
++    byte[] isv = Arrays.copyOfRange(q, o, o + 64);
++    byte[] attKey = Arrays.copyOfRange(q, o + 64, o + 128);
++    o += 128;
++    int outerType = b.getShort(o) & 0xffff;
++    long outerSize = b.getInt(o + 2) & 0xffffffffL;
++    o += 6;
++    if (outerType != 6 || o + outerSize != end) {
++      throw new IOException("the quoting enclave's certification data is not of type 6 or does not fill the signature data (type " + outerType + ")");
++    }
++    if (outerSize < 384 + 64 + 2 + 6) {
++      throw new IOException("the quoting enclave's certification data is too short");
++    }
++    byte[] qeReport = Arrays.copyOfRange(q, o, o + 384);
++    byte[] qeSig = Arrays.copyOfRange(q, o + 384, o + 448);
++    o += 448;
++    int authLen = b.getShort(o) & 0xffff;
++    o += 2;
++    if (o + authLen + 6 > end) {
++      throw new IOException("the quoting enclave's authentication data does not fit");
++    }
++    byte[] auth = Arrays.copyOfRange(q, o, o + authLen);
++    o += authLen;
++    int innerType = b.getShort(o) & 0xffff;
++    long innerSize = b.getInt(o + 2) & 0xffffffffL;
++    o += 6;
++    if (innerType != 5) {
++      throw new IOException("the certification data is of type " + innerType + ", not 5 (a PCK certificate chain)");
++    }
++    if (o + innerSize != end) {
++      throw new IOException("the certificate chain does not fill the rest of the signature data");
++    }
++    byte[] pem = Arrays.copyOfRange(q, o, (int) end);
++    int n = pem.length;
++    while (n > 0 && pem[n - 1] == 0) {
++      n--;
++    }
++    return new Quote(q, version, attKeyType, teeType, Arrays.copyOfRange(q, 0, BODY_END), isv, attKey, qeReport, qeSig, auth, Arrays.copyOf(pem, n));
++  }
++
++  /**
++   * Verifies the quote's signatures and certificate chain. pinnedRoots are SHA-256 fingerprints (lower-case hex, no colons) of the root certificates that
++   * are trusted; the chain must end in one of them. With checkDates the validity of every certificate at 'now' is checked.
++   */
++  static void verify(Quote q, Set<String> pinnedRoots, boolean checkDates, Instant now) throws IOException {
++    if (pinnedRoots == null || pinnedRoots.isEmpty()) {
++      throw new IOException("no trusted root certificate is configured, so no quote can be verified");
++    }
++    List<X509Certificate> chain = new ArrayList<>();
++    try {
++      CertificateFactory cf = CertificateFactory.getInstance("X.509");
++      Collection<?> certs = cf.generateCertificates(new ByteArrayInputStream(q.pemChain));
++      for (Object c : certs) {
++        chain.add((X509Certificate) c);
++      }
++    } catch (GeneralSecurityException | ClassCastException e) {
++      throw new IOException("the certificate chain in the quote cannot be read: " + e.getMessage());
++    }
++    if (chain.size() < 2) {
++      throw new IOException("the certificate chain in the quote has " + chain.size() + " certificate(s): it does not reach a root");
++    }
++    try {
++      for (int i = 0; i < chain.size() - 1; i++) {
++        chain.get(i).verify(chain.get(i + 1).getPublicKey());
++      }
++      X509Certificate root = chain.get(chain.size() - 1);
++      root.verify(root.getPublicKey());
++      String fp = MerkleHasher.hex(MessageDigest.getInstance("SHA-256").digest(root.getEncoded()));
++      if (!pinnedRoots.contains(fp)) {
++        throw new IOException("the root certificate of the chain (" + fp.substring(0, 16) + "...) is not one of the trusted roots");
++      }
++      if (checkDates) {
++        for (X509Certificate c : chain) {
++          c.checkValidity(Date.from(now));
++        }
++      }
++    } catch (GeneralSecurityException e) {
++      throw new IOException("the certificate chain in the quote is not valid: " + e.getMessage());
++    }
++    PublicKey pck = chain.get(0).getPublicKey();
++    if (!verifyEcdsa(pck, q.qeReport, q.qeSignature)) {
++      throw new IOException("the signature of the quoting enclave's report does not verify with the PCK certificate");
++    }
++    byte[] reportData = Arrays.copyOfRange(q.qeReport, 320, 384);
++    byte[] expect;
++    try {
++      MessageDigest md = MessageDigest.getInstance("SHA-256");
++      md.update(q.attKey);
++      md.update(q.qeAuth);
++      expect = md.digest();
++    } catch (GeneralSecurityException e) {
++      throw new IOException("no SHA-256: " + e);
++    }
++    byte[] zeros = new byte[32];
++    if (!MessageDigest.isEqual(Arrays.copyOfRange(reportData, 0, 32), expect) || !MessageDigest.isEqual(Arrays.copyOfRange(reportData, 32, 64), zeros)) {
++      throw new IOException("the quoting enclave's report does not name the attestation key of the quote");
++    }
++    if (!verifyEcdsa(attestationKey(q.attKey), q.signedData, q.isvSignature)) {
++      throw new IOException("the signature of the quote does not verify with its attestation key");
++    }
++  }
++
++  private static PublicKey attestationKey(byte[] xy) throws IOException {
++    try {
++      AlgorithmParameters ap = AlgorithmParameters.getInstance("EC");
++      ap.init(new ECGenParameterSpec("secp256r1"));
++      ECParameterSpec spec = ap.getParameterSpec(ECParameterSpec.class);
++      ECPoint p = new ECPoint(new BigInteger(1, Arrays.copyOfRange(xy, 0, 32)), new BigInteger(1, Arrays.copyOfRange(xy, 32, 64)));
++      return KeyFactory.getInstance("EC").generatePublic(new ECPublicKeySpec(p, spec));
++    } catch (GeneralSecurityException e) {
++      throw new IOException("the attestation key in the quote is not a valid P-256 key: " + e.getMessage());
++    }
++  }
++
++  private static boolean verifyEcdsa(PublicKey key, byte[] data, byte[] rawSig) throws IOException {
++    try {
++      Signature s = Signature.getInstance("SHA256withECDSA");
++      s.initVerify(key);
++      s.update(data);
++      return s.verify(derOf(rawSig));
++    } catch (GeneralSecurityException e) {
++      return false;
++    }
++  }
++
++  /** r and s (32 bytes each) as a DER SEQUENCE of two INTEGERs. */
++  static byte[] derOf(byte[] raw) throws IOException {
++    if (raw.length != 64) {
++      throw new IOException("a raw ECDSA signature has 64 bytes");
++    }
++    byte[] r = derInt(Arrays.copyOfRange(raw, 0, 32));
++    byte[] s = derInt(Arrays.copyOfRange(raw, 32, 64));
++    byte[] out = new byte[2 + r.length + s.length];
++    out[0] = 0x30;
++    out[1] = (byte) (r.length + s.length);
++    System.arraycopy(r, 0, out, 2, r.length);
++    System.arraycopy(s, 0, out, 2 + r.length, s.length);
++    return out;
++  }
++
++  private static byte[] derInt(byte[] v) {
++    int i = 0;
++    while (i < v.length - 1 && v[i] == 0) {
++      i++;
++    }
++    int len = v.length - i + ((v[i] & 0x80) != 0 ? 1 : 0);
++    byte[] out = new byte[2 + len];
++    out[0] = 0x02;
++    out[1] = (byte) len;
++    System.arraycopy(v, i, out, 2 + len - (v.length - i), v.length - i);
++    return out;
++  }
++}
