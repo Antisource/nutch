@@ -52,6 +52,9 @@ Times are UTC.
 | 044 | Records are signed with ECDSA P-256 under a labelled test key in format ATTEST02; everything is off by default and unsigned records stay readable until signatures are required | Accepted (defaults taken by the author; the mentor has not answered these choices) |
 | 045 | A window: a reserved, temporary and fully restored change of the measured stack | Accepted |
 | 046 | Every file is bound to its folder by signed folder identity files and ATTEST03 records | Accepted (the design follows the mentor's note and ADR-035; the settings and the adoption rule are the author's) |
+| 047 | The real key is made per boot inside a separate signing service and kept in memory only | Accepted (the defaults recommended on 15 October, the mentor not having answered) |
+| 048 | Keys are trusted only through a key list of bundles whose quote binds them, with a hook for step 5.2.1 | Accepted |
+| 049 | One switch for the key provider; the test key stays as a labelled option | Accepted |
 
 ---
 
@@ -432,3 +435,27 @@ Times are UTC.
 - **Decision:** (1) every folder that the wrapper makes or adopts has a signed identity file `_attested-folder` (a random folder ID, the folder's own name, and its parent's ID, or for a top folder its full path), hidden from listings and reserved: it cannot be created, renamed or deleted through the wrapper; (2) a record in the format `ATTEST03` is the `ATTEST02` record plus the folder's ID and the file's name, both signed; (3) a read checks the record, the folder ID, the name and the whole chain of identities up to a top folder whose identity is for its own full path; (4) a file rename signs one new record from the old one after checking the old one's signature and binding, so that a forged record is never signed again; a folder rename signs only the folder's identity file again; (5) a folder is a top folder only when no ancestor has an identity; otherwise the unidentified folders in between are adopted as children, so that the shape never depends on timing; (6) when several writers make the same folder, the first identity file wins and the others read it, whatever error the real HDFS gives them; (7) everything is off by default (`attested.folder.binding.enabled`, which needs signing and records, and `attested.folder.binding.required`), a bound record is always checked, and identity files are cached per process for the metadata cache time.
 - **Why:** a top identity bound to a path breaks when an ancestor is renamed, so tops must be the roots of managed trees and never nested in one; a rule that does not depend on timing is the only safe one; the first scratch run on the real master showed that the loser of a race gets "already being created", not "file exists".
 - **Consequences:** the files of step 5.1.1 (`ATTEST02`) are unbound and readable only while binding is not required; a top folder is not re-signed when a folder above it is renamed (limitations row 98); a change behind the wrapper's back is seen within the cache time (row 97); the identity files need `nn_audit_compare.py` to treat them like record files before the combined crawl (row 99); the crawl's top folders are the folders that the driver makes first.
+
+
+## ADR-047: The real key is made per boot inside a separate signing service and kept in memory only
+
+- **Date:** 16 October 2026. **Status:** accepted. It carries out step 5.1.3 of the plan and the mentor's note of 10 October (the key is generated per VM at boot, held by a small signing service outside the fetcher's JVM, and bound to the quote through REPORTDATA).
+- **Context:** the test key of ADR-044 is a file; whoever can read it can sign. A real key must not be a file, and the hardware must vouch for the machine that holds it.
+- **Decision:** (1) a signing service (`KeyService`) is a process of its own on each VM; it makes an ECDSA P-256 key when it starts, keeps it in memory only, and signs on request over a loopback socket protected by a token; (2) it signs only statements that begin with the three tags of the wrapper's signed formats and that name its own key id, so it is not a general signing oracle; every request is logged with a short digest; (3) the key is vouched for by a TDX quote whose REPORTDATA is the SHA-512 of a key statement (key id, public key, host, time, nonce), the rule that `attest/quote.sh` and `attest/verify-binding.sh` already use; (4) it fails closed: a key that claims TDX (`TDX-`) is never made without its quote, and a service key without a quote (`SVC-`) is for tests only; (5) a restart is a new key; the old key stays valid for the records it signed, because its public bundle stays in the key lists.
+- **Why:** a key that was never stored cannot be stolen from a disk; reusing the existing quote rule means no new mechanism to trust.
+- **Consequences:** the first window runs the service under the same user as the fetcher (limitations row 109); a separate user is a later hardening step; a service that dies makes writes fail closed.
+
+## ADR-048: Keys are trusted only through a key list of bundles whose quote binds them, with a hook for step 5.2.1
+
+- **Date:** 16 October 2026. **Status:** accepted.
+- **Context:** a reader must decide which public keys to trust. Step 5.2.1 will admit only keys of attested machines.
+- **Decision:** the wrapper resolves a record's key only through the key list (`attested.keys.list.dir`): a bundle is trusted only if the key id is the hash of the public key and the quote's REPORTDATA is the SHA-512 of the statement; a key without a quote is refused unless `attested.keys.list.allow.unquoted` says otherwise; the file name must say the key id; an optional class (`attested.keys.list.check.class`, an implementation of `BundleCheck`) adds checks. Reading needs only the list.
+- **Why:** the list is the policy: removing a bundle makes its files unreadable (the negative control of run 15 shows it), and step 5.2.1 needs one place to plug in the verification of the quote's signature chain and of the measurements.
+- **Consequences:** the quote's signature chain and the measurements are not verified by the wrapper yet (limitations rows 110 and 111); the chain of both quotes of run 15 was verified on the laptop; the bundles are exchanged between the nodes by a Cloud Shell script until 5.2.1 automates the admission.
+
+## ADR-049: One switch for the key provider; the test key stays as a labelled option
+
+- **Date:** 16 October 2026. **Status:** accepted.
+- **Decision:** a single setting, `attested.keys.provider` (`test` by default, `service` for the real key), read from core-site.xml only (ADR-039); everything the earlier steps verified stays as it was, so no earlier evidence or test breaks; test keys are not accepted in the window of step 5.1.3 (`attested.signature.allow.test.keys` false).
+- **Why:** the wrapper's `AttestedKeys` interface of step 5.1.1 was made for this, so the change in the wrapper is a few lines; the real key is a new implementation behind the same interface.
+- **Consequences:** a later step can add another provider (for example a service on another machine) without changing the signed formats.

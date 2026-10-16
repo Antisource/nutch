@@ -398,3 +398,17 @@ To count what the NodeManager read through the wrapper, on the worker: `cat /tmp
 | Files on the worker | `~/run14-worker.tar.gz` (the wrapper logs of the window, without task logs), the kits in `~/m512ckit` and `~/m512cfixkit` |
 | Current state | **measured stack on both nodes**; the window is closed; the test key `TEST-37c2a6aaa70d55b2` is still on both nodes (delete it at the end of Milestone 5) |
 | Kit | `ops/kits/m512c`; the report is [milestone-5-signed-records.md](milestone-5-signed-records.md) section 5 |
+
+
+## 24. The real-key window (16 October 2026, step 5.1.3, `run15`)
+
+| Item | Value |
+|---|---|
+| What it is | the fourth window of the method of section 21, with the 5.1.3 wrapper jar, the signing service on each node and ten settings: the five of section 22 (test keys not allowed) plus `attested.keys.provider` (service), `attested.keys.service.address` (127.0.0.1:7461), `attested.keys.service.token.file`, `attested.keys.list.dir` and `attested.keys.list.allow.unquoted` (false) |
+| Times | the cluster reserved at 11:17:03, the master opened at 11:17:42 (its service started at 11:18:43), the worker at 11:27:50 (11:28:50), the bundles exchanged at 11:36:43, the crawl from 11:46:59 for 736 s, the master closed at 12:11:27, the worker at 12:14:20 |
+| The keys | master `TDX-428f3734fdb03238`, worker `TDX-5fdb825500807c66`; made at the start of each service, kept in memory only, gone when the services stopped at the close; the bundles (public) are in `~/tc-keys/list` on both nodes and in the evidence |
+| The new jar and job | the wrapper jar `36324a608d9d1a2c…` (32 classes) on both nodes (the worker's copy is `~/m513-new-jar.jar`) and the job `3a55e21d17c07d78…` (134,891,448 bytes) in `~/m513b` on the master |
+| The crawl's data | `/user/rishabsdp17/seeds-run15` and `/user/rishabsdp17/crawl-run15` in HDFS (about 1.3 MB, 55 folders and 60 files); readable with the wrapper of 5.1.3 and the key list that holds the two bundles |
+| Files | state in `~/m513w/window` while open, then `~/m513w/window-closed-<role>-<time>` (it holds `keyservice-dir` with the bundle, the quote and the audit log of the service; its token is deleted); on the master `~/run15`, the kit in `~/m513wkit`, the scratch tree `~/m513/tree` and `~/m513b`; on the worker `~/run15-worker.tar.gz` (made by hand) |
+| Current state | **measured stack on both nodes**; the window is closed; no signing service runs; the test key `TEST-37c2a6aa…` is still in `~/tc-test-key` on both nodes (unused; delete it at the end of Milestone 5) |
+| Kits | `ops/kits/m513-test`, `ops/kits/m513-build`, `ops/kits/m513-window`; the report is [milestone-5-signed-records.md](milestone-5-signed-records.md) section 6 |
