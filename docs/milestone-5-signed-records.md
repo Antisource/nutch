@@ -1,6 +1,6 @@
 # Milestone 5: signed records
 
-Status: **steps 5.1.1 and 5.1.2 are done on 15 October 2026**: every record can be signed with a labelled test key, a file rewritten together with its record, without the key, fails the read (section 3), and every file is bound to its folder and its name, so that a signed file moved or copied elsewhere fails the read too (section 4); both are shown on the real HDFS. The combined crawl, with signing and folder binding on and required, ran on the real cluster the same day and its whole output verifies offline with the public key only (section 5). **Step 5.1.3, the real key, is done on 16 October 2026**: each VM makes its own signing key in the memory of a small signing service, the hardware quote vouches for exactly that key, and a crawl with the real keys verifies offline against a key list (section 6). **Step 5.2.1, the admission of keys by their quote, has run on the master offline on 16 October 2026**: a key is trusted only if its hardware quote verifies in Java and its measurements are in an editable reference file; both real keys of run 15 are admitted and the whole run-15 output verifies with only admitted keys (section 7); its live window on the real VMs is still to come. The rest of step 5.2 and step 5.3 are open ([milestone-plan.md](milestone-plan.md)). It is extended as the later steps close. All times are UTC.
+Status: **steps 5.1.1 and 5.1.2 are done on 15 October 2026**: every record can be signed with a labelled test key, a file rewritten together with its record, without the key, fails the read (section 3), and every file is bound to its folder and its name, so that a signed file moved or copied elsewhere fails the read too (section 4); both are shown on the real HDFS. The combined crawl, with signing and folder binding on and required, ran on the real cluster the same day and its whole output verifies offline with the public key only (section 5). **Step 5.1.3, the real key, is done on 16 October 2026**: each VM makes its own signing key in the memory of a small signing service, the hardware quote vouches for exactly that key, and a crawl with the real keys verifies offline against a key list (section 6). **Step 5.2.1, the admission of keys by their quote, is done on 16 October 2026**: a key is trusted only if its hardware quote verifies in Java and its measurements are in an editable reference file; offline, both real keys of run 15 are admitted and the whole run-15 output verifies with only admitted keys (section 7); live, on the two real VMs, both fresh keys were admitted by their live quotes and a rogue key with a fake quote was refused (section 8). The rest of step 5.2 and step 5.3 are open ([milestone-plan.md](milestone-plan.md)). It is extended as the later steps close. All times are UTC.
 
 ## 1. What this milestone does, in plain words
 
@@ -14,7 +14,7 @@ Until now every file in HDFS has a tamper sticker, its record. The sticker prove
 | 5.1.2 | folder identity files bind each file to its folder (ADR-035) | **Done on 15 October 2026** (section 4) |
 | 5.1.2b | the combined crawl with signing and folder binding on and required (`run14`) | **Done on 15 October 2026** (section 5) |
 | 5.1.3 | the real key: generated per VM at boot, held by a small signing service, bound to the quote through REPORTDATA | **Done on 16 October 2026** (section 6) |
-| 5.2.1 | readers accept only keys of attested machines | **Done offline on 16 October 2026** (section 7); the live window is still to come |
+| 5.2.1 | readers accept only keys of attested machines | **Done on 16 October 2026**, offline (section 7) and live (section 8) |
 | 5.3 | locked image, fixed driver, TLS checking on | Open |
 
 ## 3. Step 5.1.1: signing the records with a test key
@@ -374,7 +374,7 @@ Both quotes are version 4 TDX quotes (tee type 0x81, ECDSA P-256) of 8,000 bytes
 - **Revocation lists, the TCB status and the quoting enclave's identity** need Intel's online collateral and are not checked offline; go-tdx-guest's `check` with the collateral on the laptop remains the second opinion (limitations row 117).
 - **The reference records what these two machines reported.** The firmware is the cloud provider's, so the file is a record, not an independent reference (row 118).
 - **RTMR3 is shown, not enforced:** the measured stack is therefore not yet proved by the quote (row 119).
-- **The admission has run on the real machines only offline** (real quotes, real data, on the master) and in the real-HDFS mode with fake quotes; the live wrapper with admission on the real signing services, and a rogue key refused live, are still to come in a short window (row 121).
+- **At the time of section 7 the admission had run on the real machines only offline**; the live window of section 8 followed, and its file operations ran through the master's wrapper only (row 121).
 - The same-user limits of section 6.6 stay.
 
 ### 7.7 Evidence and commits
@@ -392,3 +392,59 @@ Both quotes are version 4 TDX quotes (tee type 0x81, ECDSA P-256) of 8,000 bytes
 - A script that counts files must list them one by one: `git status` collapses a new folder into one line, and the rehearsal found that 22 had been counted instead of 23 (mistake log 117).
 - A setting is not tested until a test can see it change something: the date setting survived the first planted faults because the clock was not settable (mistake log 118).
 - A tool check in a non-interactive ssh command does not see the path of a login session; the real session was fine (mistake log 119).
+
+
+## 8. Step 5.2.1, the live window (16 October 2026)
+
+### 8.1 What it showed
+
+Section 7 proved the admission on real quotes and real data, offline. This window proved it **live**: the wrapper with the admission switched on ran on both real VMs, with keys and hardware quotes that did not exist an hour earlier. Each node's own key was admitted by its fresh quote before anything restarted; a real file was written and read back through the wrapper; and a rogue signing service with a fake quote, which puts its bundle into the live key list, was refused with its reason. This is the rule that the step exists for: a key whose quote is not a genuine Intel-signed TDX quote is not trusted.
+
+### 8.2 The window
+
+| Time (UTC) | What |
+|---|---|
+| 15:29:13 to 15:31:02 | the self-test of the window kit on the master (nothing on the cluster is touched): the window script rehearsal 47 checks, the live script rehearsal 22, the key list exchange rehearsal 16, both real bundles of run 15 admitted by the built jar, 21 of 21 files identical to the list |
+| 15:32:45 | the master's window opened with 13 settings (the ten of step 5.1.3 plus the admission on, the reference file, and the SHA-256 of that file, all final); the reference file (7 values, SHA-256 `03965e5af0a199c1…`) was put in place and pinned |
+| 15:33:47 | the master's signing service started with the key `TDX-d98a94e537f5282b`; its quote (8,000 bytes) binds the key (our check and `verify-binding.sh` say `MATCH`), and **the node's own bundle was admitted by its fresh live quote** before the daemons restarted |
+| 15:35:37 and 15:36:36 | the worker's window opened and its service started with the key `TDX-775de83fe87625ad`, admitted the same way |
+| 15:39:43 | the two bundles were exchanged in Cloud Shell (`M513-SYNC-OK`); a first attempt had stopped safely because Cloud Shell had lost `xxd` |
+| laptop | go-tdx-guest's `check` verified the Intel signature chain of both fresh quotes |
+| 15:42:22 | the live check (section 8.3) |
+| 15:43:58 and 15:47:12 | the master and the worker were closed: each signing service stopped (its key disappeared with it), the measured jar and settings restored byte for byte, `ALL-UNCHANGED` 9 and 6; the reservation was released after both closes |
+
+**Nothing from the window is covered by the measurement** (ADR-029).
+
+### 8.3 The live check
+
+| Check | Result |
+|---|---|
+| A real file through the wrapper with the admission on | a 20 KB file was written into `/user/rishabsdp17/adm-run16` and read back byte for byte |
+| The key list's audit | an `ADMIT` line for each key of the window, with the registers that were compared: MRTD `c1ee9c16e3af`, RTMR0 `036d0bf4b669` for the master and `5e276dcf6867` for the worker, RTMR3 shown only |
+| The new folder, copied with the plain client | verifies offline with only admitted keys (1 folder, 1 file; the live key list held 4 keys, all admitted: run 15's two and this window's two) |
+| **A rogue key with a fake quote** | a signing service `TDX-31c4d7d14d16cc13` put its bundle into the live key list; the list **refused it and wrote why** (the quote is too short, 632 bytes), the honest file still read, `bundle-admit` refused it too, and the rogue bundle and service were removed |
+| One edit flips the decision on this node's own live quote | an edited reference refused it (the reason names MRTD), taking `mrtd` out of the enforce list admitted it again, and one flipped bit in MRTD of the live quote was refused |
+
+### 8.4 What it does not show
+
+- The file operations of the live check ran through the **master's** wrapper; the worker's own wrapper reading with the admission on, and a MapReduce job with the admission on, were not exercised in this window (limitations row 121).
+- One real file of 20 KB; no timing claim.
+- The checks that need Intel's online collateral, the reference being a record of what the machines reported, and RTMR3 not being enforced are unchanged (rows 117 to 119).
+- A signing service that cannot bind its port has already written its bundle into the key list (row 123), and the live script printed a harmless shell message about an audit file that did not exist yet (row 124).
+
+### 8.5 Evidence and commits
+
+| Item | Value |
+|---|---|
+| Evidence bundle (outside the repository) | `evidence-m521w` (`a474181e…`, 85 files): the consoles of the self-test, both opens, the exchange (with the stopped first attempt), the live check and both closes, the window folders of both nodes (bundles, quotes, audit logs, settings), the key list's audit log, the live results, the laptop's quote check, and the kit zip |
+| The kit | `m521w` (`5cfd9dfd…`, 21 files), committed as it ran under `ops/kits/m521-window` |
+| The kit commit | `feat(ops): add the window kit of the live quote admission (step 5.2.1)` (20 files under `ops/kits/m521-window`) |
+| The dry-run commit | `feat(ops): add a dry run for the gate scripts that checks every source file and fingerprint without PowerShell` (`ops/attested/gate_dryrun.py`: it resolves every source file of a gate the way the gate does, and compares fingerprints) |
+| The documents | the facts list of this window, this section, and the limitations, plan, configuration and lessons |
+
+### 8.6 Lessons
+
+- The facts of a step must be tested against the consoles as they really are, verbatim: a stand-in more generous than the real console hid a failing fact (mistake log 120).
+- A delivery script that cannot be run where it is made needs a faithful dry run: the gate's row without its `zip:` prefix could not be caught by counting braces (mistake log 121).
+- A tool that a step needs must be in the runbook as a command, not only in the mistake log: Cloud Shell forgets installs (mistake log 122).
+- A rehearsal's whole output must be read, not only its last line (mistake log 123), and every upload the runbook needs is its own item (mistake log 124).
