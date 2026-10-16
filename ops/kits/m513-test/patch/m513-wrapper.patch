@@ -1,0 +1,1553 @@
+diff --git a/ops/attested/AttestedFsSmoke.java b/ops/attested/AttestedFsSmoke.java
+index 81e1652b9..9587a3a29 100644
+--- a/ops/attested/AttestedFsSmoke.java
++++ b/ops/attested/AttestedFsSmoke.java
+@@ -248,6 +248,7 @@ public class AttestedFsSmoke {
+     verifyChecks(conf, base, plain);
+     signatureChecks(conf, base, plain);
+     bindingChecks(conf, base, plain);
++    keyServiceChecks(conf, base, plain);
+     metadataChecks(conf, base, plain);
+     fileContext(conf, new Path("hdfs://fake:9000" + tmp + "/fc"));
+     refusalChecks(conf, base, plain);
+@@ -276,6 +277,7 @@ public class AttestedFsSmoke {
+       metadataChecks(conf, base, plain);
+       signatureChecks(conf, base, plain);
+       bindingChecks(conf, base, plain);
++      keyServiceChecks(conf, base, plain);
+       fileContext(conf, new Path("hdfs://" + authority + work + "-fc"));
+       refusalChecks(conf, base, plain);
+       auditLines(conf, tmp + "/audit", DistributedFileSystem.class.getName(),
+@@ -1484,6 +1486,159 @@ public class AttestedFsSmoke {
+    * Step 5.1.2: every file is bound to its folder. Folders have signed identity files, records name the folder and the file, renames sign a
+    * new record (a folder rename only its identity file), and the attacks of the mentor's list that move or copy signed files fail the read.
+    */
++  /** A stand-in for attest/quote.sh: a 632-byte "quote" whose REPORTDATA (offset 568) is the SHA-512 of the statement file. */
++  static java.nio.file.Path fakeQuoteScript(java.nio.file.Path dir) throws IOException {
++    java.nio.file.Path f = dir.resolve("fake-quote.sh");
++    String body = "#!/usr/bin/env bash\n"
++        + "python3 - \"$1\" \"$2\" <<'PY'\n"
++        + "import hashlib, sys\n"
++        + "st = open(sys.argv[1], 'rb').read()\n"
++        + "q = bytearray(b'\\x04\\x00' + b'\\x00' * 630)\n"
++        + "q[568:632] = hashlib.sha512(st).digest()\n"
++        + "open(sys.argv[2], 'wb').write(bytes(q))\n"
++        + "PY\n";
++    Files.write(f, body.getBytes(StandardCharsets.US_ASCII));
++    Files.setPosixFilePermissions(f, java.nio.file.attribute.PosixFilePermissions.fromString("rwxr-xr-x"));
++    return f;
++  }
++
++  static String tokenOf(java.nio.file.Path dir) throws IOException {
++    return new String(Files.readAllBytes(dir.resolve("token")), StandardCharsets.US_ASCII).trim();
++  }
++
++  static Configuration serviceConf(Configuration baseConf, KeyService svc, java.nio.file.Path svcDir, java.nio.file.Path listDir,
++      boolean allowUnquoted) throws Exception {
++    Configuration c = new Configuration(baseConf);
++    c.set(AttestedKeyFactory.PROVIDER_KEY, "service");
++    c.set(AttestedKeyFactory.SERVICE_ADDRESS_KEY, "127.0.0.1:" + svc.port());
++    c.set(AttestedKeyFactory.SERVICE_TOKEN_FILE_KEY, svcDir.resolve("token").toString());
++    c.set(AttestedKeyFactory.LIST_DIR_KEY, listDir.toString());
++    c.setLong(AttestedKeyFactory.LIST_CACHE_KEY, 0);
++    c.setBoolean(AttestedKeyFactory.LIST_ALLOW_UNQUOTED_KEY, allowUnquoted);
++    c.setBoolean(AttestedHdfsFileSystem.SIGN_KEY, true);
++    c.setBoolean(AttestedHdfsFileSystem.SIGN_REQUIRED_KEY, true);
++    c.setBoolean(AttestedHdfsFileSystem.SIGN_ALLOW_TEST_KEY, false);
++    c.setBoolean(AttestedHdfsFileSystem.FOLDER_BIND_KEY, true);
++    c.setBoolean(AttestedHdfsFileSystem.FOLDER_REQUIRED_KEY, true);
++    c.setLong(AttestedHdfsFileSystem.META_CACHE_KEY, 0);
++    return c;
++  }
++
++  /**
++   * Step 5.1.3: the real key. The wrapper signs through the signing service (the private key never enters its JVM) and trusts only the
++   * public keys of the key list, whose bundles hold a quote that vouches for the key. Test keys are not accepted any more.
++   */
++  static void keyServiceChecks(Configuration baseConf, Path base, FileSystem plain) throws Exception {
++    java.nio.file.Path work = Files.createTempDirectory("keysvc");
++    java.nio.file.Path listDir = work.resolve("list");
++    java.nio.file.Path quote = fakeQuoteScript(work);
++    String auditDir = baseConf.get(AttestedAudit.DIR_KEY);
++    KeyService svc = KeyService.start(work.resolve("svc1"), 0, listDir, quote.toString(), "smoke-node");
++    FileSystem fs = FileSystem.newInstance(base.toUri(), serviceConf(baseConf, svc, work.resolve("svc1"), listDir, false));
++    Path top = new Path(base, "realkey");
++    byte[] d = data(45000, 31);
++    Path f = new Path(top, "seg1/a.bin");
++    put(fs, f, d);
++    byte[] rec = readAll(plain, sc(f));
++    AttestedRecordCodec.Decoded genuine = AttestedRecordCodec.decode(rec);
++
++    // 1. a write and a read with the real key
++    check("a file written with the service provider has an ATTEST03 record that names the TDX- key of the service",
++        new String(rec, 0, 8, StandardCharsets.US_ASCII).equals("ATTEST03") && genuine.keyId.equals(svc.keyId()) && svc.keyId().startsWith("TDX-"));
++    check("reading it through the wrapper returns the bytes, and the audit log says sig=ok (a real key, not a test key)",
++        Arrays.equals(d, readAll(fs, f)) && auditHas(auditDir, "verify=ok sig=ok bind=ok"));
++    check("the INIT line says that the keys come from the service, that test keys are not allowed, and names the key",
++        auditHas(auditDir, "testkeys=false key=" + svc.keyId()) && auditHas(auditDir, "keyprovider=service"));
++    check("the folder identities are signed with the same key", identityOf(plain, top).keyId.equals(svc.keyId()) && identityOf(plain, new Path(top, "seg1")).keyId.equals(svc.keyId()));
++    long before = svc.signedCount();
++    Path g = new Path(top, "seg1/b.bin");
++    check("renaming a file signs one new record through the service, and the file reads", fs.rename(f, g) && Arrays.equals(d, readAll(fs, g)) && svc.signedCount() == before + 1);
++    byte[] genuineBytes = readAll(plain, sc(g));
++    AttestedRecordCodec.Decoded gd = AttestedRecordCodec.decode(genuineBytes);
++
++    // 2. the attacks that the real key must stop
++    TestKeys attacker = TestKeys.generate(work.resolve("attacker.txt"));
++    MerkleHasher mh = new MerkleHasher(gd.chunkSize, true);
++    mh.update(d, 0, d.length);
++    mh.finish();
++    byte[] sigA = attacker.sign(AttestedRecordCodec.statementBound(attacker.signingKeyId(), gd.folderId, gd.fileName, gd.chunkSize, gd.length, gd.root));
++    put(plain, sc(g), AttestedRecordCodec.encodeBound(gd.chunkSize, gd.length, gd.root, mh.leaves(), gd.folderId, gd.fileName, attacker.signingKeyId(), sigA));
++    check("attack: the record re-signed with a test key (right folder, name and content): the read FAILS, test keys are not accepted",
++        tryRead(fs, g) == null && lastError.contains("test key"));
++    put(plain, sc(g), genuineBytes);
++    check("undone: the file reads again", Arrays.equals(d, readAll(fs, g)));
++    KeyService rogue = KeyService.start(work.resolve("svc-rogue"), 0, work.resolve("rogue-list"), quote.toString(), "rogue-node");
++    ServiceKeys rogueClient = new ServiceKeys("127.0.0.1", rogue.port(), tokenOf(work.resolve("svc-rogue")), null, 3000);
++    byte[] sigR = rogueClient.sign(AttestedRecordCodec.statementBound(rogue.keyId(), gd.folderId, gd.fileName, gd.chunkSize, gd.length, gd.root));
++    put(plain, sc(g), AttestedRecordCodec.encodeBound(gd.chunkSize, gd.length, gd.root, mh.leaves(), gd.folderId, gd.fileName, rogue.keyId(), sigR));
++    check("attack: the record signed by another machine's real key that is not in this key list: the read FAILS, not trusted here",
++        tryRead(fs, g) == null && lastError.contains("not trusted here"));
++    put(plain, sc(g), genuineBytes);
++    byte[] moved = genuineBytes.clone();
++    moved[moved.length - 4] ^= 1;
++    put(plain, sc(g), moved);
++    check("attack: one bit of the signature changed: the read FAILS", tryRead(fs, g) == null && lastError.contains("does not verify"));
++    put(plain, sc(g), genuineBytes);
++    check("undone: the file reads again", Arrays.equals(d, readAll(fs, g)));
++
++    // 3. the service stops: reading goes on, writing fails closed
++    svc.close();
++    Thread.sleep(100);
++    Path h = new Path(top, "seg1/c.bin");
++    String why = null;
++    try {
++      put(fs, h, d);
++    } catch (IOException e) {
++      why = String.valueOf(e.getMessage());
++    }
++    check("with the service stopped, a write fails and the message names the signing service", why != null && why.contains("signing service"));
++    check("the file that could not be signed has no record, so it cannot be read (fail closed)", plain.exists(h) && tryRead(fs, h) == null);
++    check("existing files still read (verification needs only the key list)", Arrays.equals(d, readAll(fs, g)));
++    String startFail = null;
++    try {
++      FileSystem.newInstance(base.toUri(), serviceConf(baseConf, svc, work.resolve("svc1"), listDir, false));
++    } catch (IOException e) {
++      startFail = String.valueOf(e.getMessage());
++    }
++    check("a wrapper that is told to sign cannot start while the service is down, and says so", startFail != null && startFail.contains("signing service"));
++
++    // 4. a new service is a new key; the old key stays in the list
++    KeyService svc2 = KeyService.start(work.resolve("svc2"), 0, listDir, quote.toString(), "smoke-node");
++    FileSystem fs2 = FileSystem.newInstance(base.toUri(), serviceConf(baseConf, svc2, work.resolve("svc2"), listDir, false));
++    Path k = new Path(top, "seg1/d.bin");
++    put(fs2, k, d);
++    check("after a restart the service has another key, and new files are signed with it", !svc2.keyId().equals(svc.keyId())
++        && AttestedRecordCodec.decode(readAll(plain, sc(k))).keyId.equals(svc2.keyId()));
++    check("the files of the old key and of the new key both read (both bundles are in the list)", Arrays.equals(d, readAll(fs2, g)) && Arrays.equals(d, readAll(fs2, k)));
++    java.nio.file.Path oldBundle = listDir.resolve(svc.keyId() + KeyBundle.FILE_SUFFIX);
++    byte[] oldBundleBytes = Files.readAllBytes(oldBundle);
++    Files.delete(oldBundle);
++    check("when the old key's bundle is removed from the list, its files fail: not trusted here (the list is the policy)", tryRead(fs2, g) == null && lastError.contains("not trusted here"));
++    Files.write(oldBundle, oldBundleBytes);
++    check("put back, they read again", Arrays.equals(d, readAll(fs2, g)));
++
++    // 5. a machine without hardware proof: its records are not accepted unless the list says so
++    java.nio.file.Path listSvc = work.resolve("list-svc");
++    KeyService soft = KeyService.start(work.resolve("svc3"), 0, listSvc, null, "no-tdx");
++    FileSystem fs3 = FileSystem.newInstance(base.toUri(), serviceConf(baseConf, soft, work.resolve("svc3"), listSvc, false));
++    Path m = new Path(new Path(base, "softkey"), "seg1/e.bin");   // its own tree: the folders of the other tree are signed by another key
++    String softWhy = null;
++    try {
++      put(fs3, m, d);
++    } catch (IOException e) {
++      softWhy = String.valueOf(e.getMessage());
++    }
++    check("a service key without a quote (SVC-) can sign, but a list that wants quotes does not trust it: even its own writer refuses (not trusted here)",
++        soft.keyId().startsWith("SVC-") && softWhy != null && softWhy.contains("not trusted here"));
++    FileSystem fs4 = FileSystem.newInstance(base.toUri(), serviceConf(baseConf, soft, work.resolve("svc3"), listSvc, true));
++    put(fs4, m, d);
++    check("with allow.unquoted on, the same machine writes and reads (a service key is accepted only when the list says so)", Arrays.equals(d, readAll(fs4, m)));
++    check("... and a reader whose list wants quotes refuses that file", tryRead(fs3, m) == null && lastError.contains("not trusted here"));
++    soft.close();
++    rogue.close();
++    svc2.close();
++  }
++
+   static void bindingChecks(Configuration baseConf, Path base, FileSystem plain) throws Exception {
+     java.nio.file.Path keyDir = Files.createTempDirectory("bindkeys");
+     java.nio.file.Path keyFile = keyDir.resolve("test-key.txt");
+diff --git a/ops/attested/KeyCoreTest.java b/ops/attested/KeyCoreTest.java
+new file mode 100644
+index 000000000..31b6c0d25
+--- /dev/null
++++ b/ops/attested/KeyCoreTest.java
+@@ -0,0 +1,292 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.nutch.attested;
++
++import java.io.BufferedReader;
++import java.io.IOException;
++import java.io.InputStreamReader;
++import java.io.OutputStreamWriter;
++import java.io.Writer;
++import java.net.Socket;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.DirectoryStream;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.nio.file.attribute.PosixFilePermissions;
++import java.util.ArrayList;
++import java.util.Arrays;
++import java.util.Base64;
++import java.util.List;
++import java.util.concurrent.atomic.AtomicInteger;
++
++/** Tests of step 5.1.3: the key bundle, the key list, the signing service, the provider and the signed formats with the real key. */
++public final class KeyCoreTest {
++  static int pass = 0;
++  static int fail = 0;
++
++  static void chk(String what, boolean ok) {
++    if (ok) { pass++; System.out.println("  pass: " + what); } else { fail++; System.out.println("  FAIL: " + what); }
++  }
++
++  interface Thrower { void run() throws Exception; }
++
++  static boolean refuses(Thrower t, String text) {
++    try { t.run(); return false; } catch (Exception e) { return e.getMessage() != null && e.getMessage().contains(text); }
++  }
++
++  static byte[] bytes(int n, int seed) { byte[] b = new byte[n]; for (int i = 0; i < n; i++) b[i] = (byte) (i * 31 + seed); return b; }
++
++  static Path fakeQuote(Path dir, boolean works) throws IOException {
++    Path f = dir.resolve(works ? "fake-quote.sh" : "broken-quote.sh");
++    String body = works
++        ? "#!/usr/bin/env bash\n"
++        + "python3 - \"$1\" \"$2\" <<'PY'\n"
++        + "import hashlib, sys\n"
++        + "st = open(sys.argv[1], 'rb').read()\n"
++        + "q = bytearray(b'\\x04\\x00' + b'\\x00' * 630)\n"
++        + "q[568:632] = hashlib.sha512(st).digest()\n"
++        + "open(sys.argv[2], 'wb').write(bytes(q))\n"
++        + "PY\n"
++        : "#!/usr/bin/env bash\necho 'no TDX here' >&2\nexit 3\n";
++    Files.write(f, body.getBytes(StandardCharsets.US_ASCII));
++    Files.setPosixFilePermissions(f, PosixFilePermissions.fromString("rwxr-xr-x"));
++    return f;
++  }
++
++  static List<String> raw(int port, String... lines) throws IOException {
++    List<String> out = new ArrayList<>();
++    try (Socket s = new Socket("127.0.0.1", port)) {
++      s.setSoTimeout(5000);
++      Writer w = new OutputStreamWriter(s.getOutputStream(), StandardCharsets.US_ASCII);
++      for (String l : lines) { w.write(l + "\n"); }
++      w.flush();
++      BufferedReader r = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.US_ASCII));
++      String x;
++      while ((x = r.readLine()) != null) { out.add(x); }
++    }
++    return out;
++  }
++
++  static String token(Path dir) throws IOException { return new String(Files.readAllBytes(dir.resolve("token")), StandardCharsets.US_ASCII).trim(); }
++
++  static boolean anyFileHolds(Path root, byte[] needle) throws IOException {
++    String b64 = Base64.getEncoder().encodeToString(needle);
++    final boolean[] found = {false};
++    Files.walk(root).filter(Files::isRegularFile).forEach(p -> {
++      try {
++        byte[] c = Files.readAllBytes(p);
++        if (indexOf(c, needle) >= 0 || new String(c, StandardCharsets.ISO_8859_1).contains(b64)) { found[0] = true; }
++      } catch (IOException e) { found[0] = true; }
++    });
++    return found[0];
++  }
++
++  static int indexOf(byte[] hay, byte[] n) {
++    outer:
++    for (int i = 0; i + n.length <= hay.length; i++) {
++      for (int j = 0; j < n.length; j++) { if (hay[i + j] != n[j]) continue outer; }
++      return i;
++    }
++    return -1;
++  }
++
++  public static void main(String[] args) throws Exception {
++    Path tmp = Files.createTempDirectory("keycore");
++    Path quoteCmd = fakeQuote(tmp, true);
++    Path badCmd = fakeQuote(tmp, false);
++
++    System.out.println("== 1. the key bundle: well formed, bound to its statement, and refused when it is not");
++    Path d1 = tmp.resolve("svc1"); Path l1 = tmp.resolve("list1");
++    KeyService s1 = KeyService.start(d1, 0, l1, quoteCmd.toString(), "node-a");
++    KeyBundle b = KeyBundle.decode(Files.readAllBytes(s1.bundleFile()));
++    chk("the service of a TDX machine (with a quote command) makes a TDX- key", b.keyId.startsWith("TDX-") && b.keyId.equals(s1.keyId()));
++    chk("the key id is TDX- and 16 hex digits of the SHA-256 of the public key", b.keyId.equals(KeyBundle.idOf("TDX-", b.publicEncoded)) && b.keyId.length() == 4 + 16);
++    chk("the bundle has the quote and its REPORTDATA is the SHA-512 of the statement", b.hasQuote() && refuses(() -> { throw new IOException("x"); }, "x"));
++    b.checkBinding();
++    chk("the binding check passes for the genuine bundle", true);
++    chk("the same bundle is written into the key list folder", Files.exists(l1.resolve(b.keyId + ".attestkey")));
++    byte[] file = Files.readAllBytes(s1.bundleFile());
++    chk("a bundle decodes and encodes to the same bytes", Arrays.equals(file, KeyBundle.decode(file).encode()));
++    String text = new String(file, StandardCharsets.US_ASCII);
++    chk("a wrong header is refused", refuses(() -> KeyBundle.decode(text.replace("ATTESTED-KEY-BUNDLE 1", "ATTESTED-KEY-BUNDLE 2").getBytes()), "not a key bundle"));
++    chk("an extra line is refused", refuses(() -> KeyBundle.decode((text + "x=1\n").getBytes()), "not a key bundle"));
++    chk("bad base64 is refused", refuses(() -> KeyBundle.decode(text.replace("statement=", "statement=!!").getBytes()), "bad base64"));
++    byte[] statement = b.statement;
++    byte[] hostChanged = new String(statement, StandardCharsets.US_ASCII).replace("host=node-a", "host=node-b").getBytes(StandardCharsets.US_ASCII);
++    KeyBundle changed = KeyBundle.decode(("ATTESTED-KEY-BUNDLE 1\nstatement=" + Base64.getEncoder().encodeToString(hostChanged) + "\nquote=" + Base64.getEncoder().encodeToString(b.quote) + "\n").getBytes());
++    chk("a statement changed after the quote was made (the host) no longer matches the quote's REPORTDATA", refuses(changed::checkBinding, "did not vouch for this key"));
++    java.security.KeyPairGenerator gen = java.security.KeyPairGenerator.getInstance("EC"); gen.initialize(new java.security.spec.ECGenParameterSpec("secp256r1"));
++    byte[] otherPub = gen.generateKeyPair().getPublic().getEncoded();
++    byte[] otherKeyStatement = new String(statement, StandardCharsets.US_ASCII).replaceFirst("public=[A-Za-z0-9+/=]+", "public=" + Base64.getEncoder().encodeToString(otherPub)).getBytes(StandardCharsets.US_ASCII);
++    chk("a statement with another, valid public key under the old key id is refused (the key id is not the hash of that key)", refuses(() -> KeyBundle.decode(("ATTESTED-KEY-BUNDLE 1\nstatement=" + Base64.getEncoder().encodeToString(otherKeyStatement) + "\nquote=none\n").getBytes()), "is not the hash of the public key"));
++    byte[] badQuote = b.quote.clone(); badQuote[600] ^= 1;
++    KeyBundle tq = KeyBundle.decode(("ATTESTED-KEY-BUNDLE 1\nstatement=" + Base64.getEncoder().encodeToString(statement) + "\nquote=" + Base64.getEncoder().encodeToString(badQuote) + "\n").getBytes());
++    chk("a quote whose REPORTDATA was changed by one bit is refused", refuses(tq::checkBinding, "did not vouch for this key"));
++    KeyBundle sq = KeyBundle.decode(("ATTESTED-KEY-BUNDLE 1\nstatement=" + Base64.getEncoder().encodeToString(statement) + "\nquote=" + Base64.getEncoder().encodeToString(Arrays.copyOf(b.quote, 100)) + "\n").getBytes());
++    chk("a quote that is too short is refused", refuses(sq::checkBinding, "too short"));
++    KeyBundle nq = KeyBundle.decode(("ATTESTED-KEY-BUNDLE 1\nstatement=" + Base64.getEncoder().encodeToString(statement) + "\nquote=none\n").getBytes());
++    chk("a TDX- key with no quote is refused", refuses(nq::checkBinding, "no quote"));
++    chk("the bundle tool accepts the genuine bundle", AttestedKeyTool.run(new String[]{"bundle-verify", s1.bundleFile().toString()}, new java.io.PrintStream(new java.io.ByteArrayOutputStream()), new java.io.PrintStream(new java.io.ByteArrayOutputStream())) == 0);
++    java.io.ByteArrayOutputStream tOut = new java.io.ByteArrayOutputStream();
++    Path tamperedFile = tmp.resolve("tampered.attestkey"); Files.write(tamperedFile, ("ATTESTED-KEY-BUNDLE 1\nstatement=" + Base64.getEncoder().encodeToString(hostChanged) + "\nquote=" + Base64.getEncoder().encodeToString(b.quote) + "\n").getBytes());
++    chk("the bundle tool refuses the tampered bundle with the reason", AttestedKeyTool.run(new String[]{"bundle-verify", tamperedFile.toString()}, new java.io.PrintStream(new java.io.ByteArrayOutputStream()), new java.io.PrintStream(tOut)) == 1 && tOut.toString().contains("did not vouch"));
++
++    System.out.println("== 2. the service: the key never leaves, only wrapper statements are signed, and only for its own key");
++    int p1 = s1.port(); String t1 = token(d1);
++    chk("the token file is private (mode 600)", Files.getPosixFilePermissions(d1.resolve("token")).equals(PosixFilePermissions.fromString("rw-------")));
++    chk("the private key is not in any file of the service or of the list (raw bytes or base64)", !anyFileHolds(tmp, s1.privateEncodedForTest()));
++    chk("ID answers the key id", raw(p1, "AUTH " + t1, "ID").equals(Arrays.asList("OK", "OK " + s1.keyId())));
++    chk("PUBLIC answers the public key", raw(p1, "AUTH " + t1, "PUBLIC").get(1).equals("OK " + Base64.getEncoder().encodeToString(b.publicEncoded)));
++    chk("no token: refused", raw(p1, "ID").get(0).startsWith("ERR"));
++    chk("a wrong token: refused", raw(p1, "AUTH wrong", "ID").get(0).startsWith("ERR"));
++    byte[] root = bytes(32, 5);
++    byte[] st02 = AttestedRecordCodec.statement(s1.keyId(), 16384, 50000, root);
++    List<String> ok = raw(p1, "AUTH " + t1, "SIGN " + Base64.getEncoder().encodeToString(st02));
++    java.security.Signature v = java.security.Signature.getInstance("SHA256withECDSA"); v.initVerify(b.publicKey); v.update(st02);
++    chk("a record statement is signed, and the signature verifies with the public key of the bundle", ok.get(1).startsWith("OK ") && v.verify(Base64.getDecoder().decode(ok.get(1).substring(3))));
++    byte[] folder = new byte[16];
++    byte[] st03 = AttestedRecordCodec.statementBound(s1.keyId(), folder, "part-r-00000", 16384, 50000, root);
++    byte[] stfd = AttestedFolderCodec.statement(s1.keyId(), folder, "seg1", new byte[16], null);
++    chk("a bound record statement and a folder identity statement are signed too",
++        raw(p1, "AUTH " + t1, "SIGN " + Base64.getEncoder().encodeToString(st03)).get(1).startsWith("OK ")
++        && raw(p1, "AUTH " + t1, "SIGN " + Base64.getEncoder().encodeToString(stfd)).get(1).startsWith("OK "));
++    chk("an arbitrary text is not signed (no wrapper tag)", raw(p1, "AUTH " + t1, "SIGN " + Base64.getEncoder().encodeToString("hello".getBytes())).get(1).contains("unknown tag"));
++    chk("a statement of the wrapper for ANOTHER key id is not signed", raw(p1, "AUTH " + t1, "SIGN " + Base64.getEncoder().encodeToString(AttestedRecordCodec.statement("TDX-0123456789abcdef", 16384, 50000, root))).get(1).contains("another key id"));
++    chk("a statement of the wrapper for a key id of another length is not signed", raw(p1, "AUTH " + t1, "SIGN " + Base64.getEncoder().encodeToString(AttestedRecordCodec.statement("TDX-01", 16384, 50000, root))).get(1).contains("another key id")
++        && raw(p1, "AUTH " + t1, "SIGN " + Base64.getEncoder().encodeToString(AttestedRecordCodec.statement(s1.keyId() + "0", 16384, 50000, root))).get(1).contains("another key id"));
++    chk("a statement of a test key (TEST-) is not signed either", raw(p1, "AUTH " + t1, "SIGN " + Base64.getEncoder().encodeToString(AttestedRecordCodec.statement("TEST-0123456789abcdef", 16384, 50000, root))).get(1).contains("another key id"));
++    chk("a statement that is too long is refused", raw(p1, "AUTH " + t1, "SIGN " + Base64.getEncoder().encodeToString(new byte[KeyService.MAX_STATEMENT + 1])).get(1).contains("too long"));
++    chk("bad base64 is refused", raw(p1, "AUTH " + t1, "SIGN !!!").get(1).contains("bad base64"));
++    chk("an unknown command is refused", raw(p1, "AUTH " + t1, "DELETE").get(1).contains("unknown command"));
++    String log = new String(Files.readAllBytes(d1.resolve("audit.log")), StandardCharsets.UTF_8);
++    chk("the audit log has a line for the start, for every signature and for every refusal", log.contains(" START key=" + s1.keyId()) && log.contains(" SIGNED ") && log.contains(" REFUSED "));
++    chk("the audit log never holds a statement or a signature, only a short digest", !log.contains(Base64.getEncoder().encodeToString(st02)));
++    chk("the counts agree with the log", s1.signedCount() == 3 && s1.refusedCount() >= 8);
++
++    System.out.println("== 3. a service without a quote command makes an SVC- key; a failing quote command makes no key at all");
++    Path d2 = tmp.resolve("svc2"); Path l2 = tmp.resolve("list2");
++    KeyService s2 = KeyService.start(d2, 0, l2, null, "node-b");
++    chk("an SVC- key, with a bundle that has no quote", s2.keyId().startsWith("SVC-") && !s2.bundle().hasQuote());
++    chk("the bundle tool refuses it unless --allow-unquoted is given", AttestedKeyTool.run(new String[]{"bundle-verify", s2.bundleFile().toString()}, new java.io.PrintStream(new java.io.ByteArrayOutputStream()), new java.io.PrintStream(new java.io.ByteArrayOutputStream())) == 1
++        && AttestedKeyTool.run(new String[]{"bundle-verify", s2.bundleFile().toString(), "--allow-unquoted"}, new java.io.PrintStream(new java.io.ByteArrayOutputStream()), new java.io.PrintStream(new java.io.ByteArrayOutputStream())) == 0);
++    chk("a quote command that fails: the service does not start (fail closed)", refuses(() -> KeyService.start(tmp.resolve("svc3"), 0, null, badCmd.toString(), "node-c"), "quote command failed"));
++    chk("every start makes a new key (the key of a restarted service is another key)", !KeyService.start(tmp.resolve("svc4"), 0, null, null, "node-b").keyId().equals(s2.keyId()));
++
++    System.out.println("== 4. the key list trusts only the bundles that pass");
++    Path list = tmp.resolve("list-main"); Files.createDirectories(list);
++    Files.copy(s1.bundleFile(), list.resolve(s1.keyId() + ".attestkey"));
++    Files.copy(s2.bundleFile(), list.resolve(s2.keyId() + ".attestkey"));
++    Files.copy(tamperedFile, list.resolve(b.keyId.replace("TDX-", "TDX-0") + ".attestkey"));
++    Files.write(list.resolve("garbage.attestkey"), "hello".getBytes());
++    Files.write(list.resolve("note.txt"), "not a bundle file".getBytes());
++    KeyList strict = new KeyList(list, false, null, 0);
++    chk("a TDX bundle with a valid binding is trusted", strict.publicKey(s1.keyId()) != null);
++    chk("a service key without a quote is not trusted by default", strict.publicKey(s2.keyId()) == null);
++    chk("... and the list says why", strict.rejected().stream().anyMatch(r -> r.contains(s2.keyId()) && r.contains("without a quote")));
++    Path tlist = tmp.resolve("list-tampered"); Files.createDirectories(tlist);
++    Files.copy(tamperedFile, tlist.resolve(b.keyId + ".attestkey"));
++    KeyList tl = new KeyList(tlist, true, null, 0);
++    chk("a tampered bundle (right file name, but the statement was changed after the quote) is not trusted, and the list says why", tl.publicKey(b.keyId) == null && tl.rejected().stream().anyMatch(r -> r.contains("did not vouch")));
++    chk("garbage in the folder is rejected, other files are ignored", strict.rejected().stream().anyMatch(r -> r.startsWith("garbage.attestkey")) && strict.rejected().stream().noneMatch(r -> r.startsWith("note.txt")));
++    chk("an unknown key id is not trusted", strict.publicKey("TDX-ffffffffffffffff") == null);
++    KeyList lenient = new KeyList(list, true, null, 0);
++    chk("with allow.unquoted the service key is trusted too", lenient.publicKey(s2.keyId()) != null);
++    Files.copy(s1.bundleFile(), list.resolve("TDX-aaaaaaaaaaaaaaaa.attestkey"));
++    KeyList renamed = new KeyList(list, false, null, 0);
++    chk("a genuine bundle under the name of another key id is refused (the file name must say the id)", renamed.publicKey("TDX-aaaaaaaaaaaaaaaa") == null
++        && renamed.rejected().stream().anyMatch(r -> r.startsWith("TDX-aaaaaaaaaaaaaaaa.attestkey") && r.contains("file name")));
++    Files.delete(list.resolve("TDX-aaaaaaaaaaaaaaaa.attestkey"));
++    BundleCheck deny = bundle -> { throw new IOException("the admission says no to " + bundle.keyId); };
++    KeyList denied = new KeyList(list, true, deny, 0);
++    chk("the extra check (the hook of step 5.2.1) can refuse a bundle that passes the binding", denied.publicKey(s1.keyId()) == null && denied.rejected().stream().anyMatch(r -> r.contains("admission says no")));
++    Files.delete(list.resolve(s1.keyId() + ".attestkey"));
++    chk("a bundle that is removed from the folder is no longer trusted at the next reading", strict.publicKey(s1.keyId()) == null);
++    Files.copy(s1.bundleFile(), list.resolve(s1.keyId() + ".attestkey"));
++    KeyList cached = new KeyList(list, false, null, 3600);
++    chk("with a cache time the list is read once", cached.publicKey(s1.keyId()) != null);
++    Files.delete(list.resolve(s1.keyId() + ".attestkey"));
++    chk("... and a change inside the cache time is not seen yet (limitations: the list is read again after the cache time)", cached.publicKey(s1.keyId()) != null);
++    Files.copy(s1.bundleFile(), list.resolve(s1.keyId() + ".attestkey"));
++    chk("a missing folder trusts nothing and says so", new KeyList(tmp.resolve("nowhere"), true, null, 0).rejected().isEmpty() && new KeyList(tmp.resolve("nowhere"), true, null, 0).publicKey("x") == null);
++
++    System.out.println("== 5. the wrapper's signed formats with the real key");
++    ServiceKeys keys = new ServiceKeys("127.0.0.1", s1.port(), t1, new KeyList(list, false, null, 0), 3000);
++    AttestedSignatures sig = new AttestedSignatures(keys, true, true, false);
++    MerkleHasher h = new MerkleHasher(16384, true); byte[] content = bytes(50000, 9); h.update(content, 0, content.length);
++    byte[] r1 = h.finish();
++    byte[] rec = sig.encode(16384, content.length, r1, h.leaves());
++    AttestedRecordCodec.Decoded dec = AttestedRecordCodec.decode(rec);
++    chk("a record signed through the service names the TDX- key", dec.keyId.equals(s1.keyId()));
++    chk("it verifies, and the status is ok (not ok-test)", sig.check(dec).equals("ok"));
++    byte[] fid = bytes(16, 3);
++    byte[] bound = sig.encodeBound(16384, content.length, r1, h.leaves(), fid, "part-r-00000");
++    chk("a bound record verifies with status ok", sig.check(AttestedRecordCodec.decode(bound)).equals("ok"));
++    byte[] fd = sig.encodeFolder(fid, "seg1", null, "/user/x/seg1");
++    chk("a folder identity verifies with status ok", sig.checkFolder(AttestedFolderCodec.decode(fd)).equals("ok"));
++    byte[] flipped = rec.clone(); flipped[flipped.length - 3] ^= 1;
++    chk("a flipped bit in the signature is refused", refuses(() -> sig.check(AttestedRecordCodec.decode(flipped)), "does not verify"));
++    ServiceKeys reader = new ServiceKeys(null, 0, null, new KeyList(list, false, null, 0), 3000);
++    AttestedSignatures readerSig = new AttestedSignatures(reader, false, true, false);
++    chk("a reader that has only the key list (no service) verifies the same record", readerSig.check(AttestedRecordCodec.decode(rec)).equals("ok"));
++    ServiceKeys stranger = new ServiceKeys(null, 0, null, new KeyList(tmp.resolve("empty-list"), false, null, 0), 3000);
++    chk("a reader whose list does not hold the key refuses the record: not trusted here", refuses(() -> new AttestedSignatures(stranger, false, true, false).check(AttestedRecordCodec.decode(rec)), "not trusted here"));
++    chk("a JVM that has no signing service cannot be set to sign", refuses(() -> new AttestedSignatures(reader, true, true, false), "sign"));
++    TestKeys attacker = TestKeys.generate(tmp.resolve("attacker.txt"));
++    byte[] forged = new AttestedSignatures(attacker, true, true, true).encode(16384, content.length, r1, h.leaves());
++    chk("a record signed with a test key is refused when test keys are not allowed", refuses(() -> sig.check(AttestedRecordCodec.decode(forged)), "test key"));
++    ServiceKeys other = new ServiceKeys(null, 0, null, new KeyList(list, false, null, 0), 3000);
++    byte[] forgedId = AttestedRecordCodec.encodeSigned(16384, content.length, r1, h.leaves(), s1.keyId(), AttestedRecordCodec.decode(rec).signature);
++    byte[] forgedLen = AttestedRecordCodec.encodeSigned(16384, content.length + 1, r1, h.leaves(), s1.keyId(), AttestedRecordCodec.decode(rec).signature);
++    chk("the signature of a record cannot be moved to a record with another length (it does not verify)", refuses(() -> new AttestedSignatures(other, false, true, false).check(AttestedRecordCodec.decode(forgedLen)), "does not verify") || refuses(() -> new AttestedSignatures(other, false, true, false).check(AttestedRecordCodec.decode(forgedLen)), "impossible"));
++    chk("... and the record with the right values still verifies", new AttestedSignatures(other, false, true, false).check(AttestedRecordCodec.decode(forgedId)).equals("ok"));
++
++    System.out.println("== 6. when the service stops, reading goes on and writing says why; a new service means a new key");
++    int oldPort = s1.port(); s1.close(); Thread.sleep(100);
++    chk("the service is gone: signing fails with a message that names the service", refuses(() -> keys.sign(st02), "signing service"));
++    chk("... but a reader still verifies the record that the old key signed", sig.check(AttestedRecordCodec.decode(rec)).equals("ok"));
++    KeyService s5 = KeyService.start(tmp.resolve("svc5"), 0, list, quoteCmd.toString(), "node-a");
++    chk("a restarted service has another key, written to the key list as well", !s5.keyId().equals(s1.keyId()) && Files.exists(list.resolve(s5.keyId() + ".attestkey")));
++    chk("the old key stays in the list, so the records that it signed still verify", new KeyList(list, false, null, 0).publicKey(s1.keyId()) != null && new KeyList(list, false, null, 0).publicKey(s5.keyId()) != null);
++
++    System.out.println("== 7. many callers at once");
++    ServiceKeys many = new ServiceKeys("127.0.0.1", s5.port(), token(tmp.resolve("svc5")), new KeyList(list, false, null, 0), 5000);
++    AtomicInteger good = new AtomicInteger(); AtomicInteger bad = new AtomicInteger();
++    Thread[] ts = new Thread[8];
++    for (int i = 0; i < ts.length; i++) {
++      final int n = i;
++      ts[i] = new Thread(() -> {
++        for (int k = 0; k < 25; k++) {
++          try {
++            byte[] st = AttestedRecordCodec.statement(s5.keyId(), 16384, n * 1000L + k, bytes(32, n + k));
++            byte[] sg = many.sign(st);
++            java.security.Signature vv = java.security.Signature.getInstance("SHA256withECDSA"); vv.initVerify(s5.bundle().publicKey); vv.update(st);
++            if (vv.verify(sg)) good.incrementAndGet(); else bad.incrementAndGet();
++          } catch (Exception e) { bad.incrementAndGet(); }
++        }
++      });
++      ts[i].start();
++    }
++    for (Thread t : ts) t.join();
++    chk("8 threads signed 25 statements each and all 200 signatures verify", good.get() == 200 && bad.get() == 0);
++    chk("the audit log counted them", s5.signedCount() == 200);
++    s5.close(); s2.close();
++
++    System.out.println("\npass: " + pass + "   fail: " + fail);
++    System.out.println(fail == 0 ? "KEYCORE-PASS" : "KEYCORE-FAIL");
++    if (fail != 0) System.exit(1);
++  }
++}
+diff --git a/src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java b/src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java
+index b8038f2cc..b8f36eeb8 100644
+--- a/src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java
++++ b/src/java/org/apache/nutch/attested/AttestedHdfsFileSystem.java
+@@ -180,6 +180,7 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+   private String missingPolicy = "fail";
+   private String metaMissingPolicy = "warn";
+   private AttestedSignatures signatures;
++  private String keyProvider = "test";
+   private AttestedFolders folders;
+   private boolean bindOn = false;
+   private boolean bindRequired = false;
+@@ -243,12 +244,17 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+           + SIDECAR_KEY + " and " + HASH_ENABLED_KEY + " must be true");
+     }
+     AttestedKeys keys = null;
+-    java.nio.file.Path keyPath = java.nio.file.Paths.get(keyFile);
+-    if (java.nio.file.Files.isReadable(keyPath)) {
+-      keys = TestKeys.load(keyPath);
+-    } else if (signOn) {
+-      throw new IOException(SIGN_KEY + " is true but the test key file is missing or unreadable: "
+-          + keyFile);
++    this.keyProvider = AttestedKeyFactory.provider(conf, ignored);
++    if (keyProvider.equals("service")) {
++      keys = AttestedKeyFactory.service(conf, signOn, ignored);
++    } else {
++      java.nio.file.Path keyPath = java.nio.file.Paths.get(keyFile);
++      if (java.nio.file.Files.isReadable(keyPath)) {
++        keys = TestKeys.load(keyPath);
++      } else if (signOn) {
++        throw new IOException(SIGN_KEY + " is true but the test key file is missing or unreadable: "
++            + keyFile);
++      }
+     }
+     this.signatures = new AttestedSignatures(keys, signOn, signRequired, allowTestKeys);
+     this.bindOn = AttestedSettings.getBoolean(conf, FOLDER_BIND_KEY, false, ignored);
+@@ -287,7 +293,7 @@ public class AttestedHdfsFileSystem extends FilterFileSystem {
+         + " sign=" + signatures.signing() + " sigrequired=" + signatures.required()
+         + " testkeys=" + signatures.allowTestKeys() + " key="
+         + (signatures.signingKeyId() == null ? "none" : signatures.signingKeyId())
+-        + " bind=" + bindOn + " bindrequired=" + bindRequired
++        + " bind=" + bindOn + " bindrequired=" + bindRequired + " keyprovider=" + keyProvider
+         + " from=" + where()
+         + (ignored.isEmpty() ? "" : " ignored=" + String.join(",", ignored)));
+   }
+diff --git a/src/java/org/apache/nutch/attested/AttestedKeyFactory.java b/src/java/org/apache/nutch/attested/AttestedKeyFactory.java
+new file mode 100644
+index 000000000..48808ea0f
+--- /dev/null
++++ b/src/java/org/apache/nutch/attested/AttestedKeyFactory.java
+@@ -0,0 +1,104 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.nutch.attested;
++
++import java.io.IOException;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.nio.file.Paths;
++import java.util.List;
++import org.apache.hadoop.conf.Configuration;
++
++/**
++ * Chooses where the wrapper's keys come from (step 5.1.3). The default is the test key of step 5.1.1, read by the file system
++ * as before. With attested.keys.provider=service, signing is done by the signing service on this machine (KeyService) and the
++ * public keys that are trusted come from the key list. All these settings are read from core-site.xml only (ADR-039).
++ */
++final class AttestedKeyFactory {
++  static final String PROVIDER_KEY = "attested.keys.provider";
++  static final String SERVICE_ADDRESS_KEY = "attested.keys.service.address";
++  static final String SERVICE_TOKEN_FILE_KEY = "attested.keys.service.token.file";
++  static final String SERVICE_TIMEOUT_KEY = "attested.keys.service.timeout.millis";
++  static final String LIST_DIR_KEY = "attested.keys.list.dir";
++  static final String LIST_CACHE_KEY = "attested.keys.list.cache.seconds";
++  static final String LIST_ALLOW_UNQUOTED_KEY = "attested.keys.list.allow.unquoted";
++  static final String LIST_CHECK_CLASS_KEY = "attested.keys.list.check.class";
++
++  private AttestedKeyFactory() {
++  }
++
++  /** "test" (the default) or "service". */
++  static String provider(Configuration conf, List<String> ignored) throws IOException {
++    String p = AttestedSettings.get(conf, PROVIDER_KEY, "test", ignored).trim().toLowerCase();
++    if (!p.equals("test") && !p.equals("service")) {
++      throw new IOException(PROVIDER_KEY + " must be test or service, got " + p);
++    }
++    return p;
++  }
++
++  /** The keys of the service provider; signing is possible only when an address is set. */
++  static ServiceKeys service(Configuration conf, boolean signOn, List<String> ignored) throws IOException {
++    String home = System.getProperty("user.home");
++    Path listDir = Paths.get(AttestedSettings.get(conf, LIST_DIR_KEY, home + "/tc-keys/list", ignored).trim());
++    long ttl = AttestedSettings.getLong(conf, LIST_CACHE_KEY, 10, ignored);
++    if (ttl < 0) {
++      throw new IOException(LIST_CACHE_KEY + " must not be negative, got " + ttl);
++    }
++    boolean unquoted = AttestedSettings.getBoolean(conf, LIST_ALLOW_UNQUOTED_KEY, false, ignored);
++    BundleCheck extra = null;
++    String cls = AttestedSettings.get(conf, LIST_CHECK_CLASS_KEY, "", ignored).trim();
++    if (!cls.isEmpty()) {
++      try {
++        java.lang.reflect.Constructor<?> c = Class.forName(cls).getDeclaredConstructor();
++        c.setAccessible(true);
++        extra = (BundleCheck) c.newInstance();
++      } catch (ReflectiveOperationException | ClassCastException e) {
++        throw new IOException(LIST_CHECK_CLASS_KEY + " names a class that cannot be used as a bundle check: " + cls + " (" + e + ")");
++      }
++    }
++    KeyList list = new KeyList(listDir, unquoted, extra, ttl);
++    String address = AttestedSettings.get(conf, SERVICE_ADDRESS_KEY, "", ignored).trim();
++    if (address.isEmpty()) {
++      if (signOn) {
++        throw new IOException(SERVICE_ADDRESS_KEY + " is needed for signing with the service provider");
++      }
++      return new ServiceKeys(null, 0, null, list, 0);
++    }
++    int colon = address.lastIndexOf(':');
++    if (colon <= 0 || colon == address.length() - 1) {
++      throw new IOException(SERVICE_ADDRESS_KEY + " must be HOST:PORT, got " + address);
++    }
++    int port;
++    try {
++      port = Integer.parseInt(address.substring(colon + 1));
++    } catch (NumberFormatException e) {
++      throw new IOException(SERVICE_ADDRESS_KEY + " has a bad port: " + address);
++    }
++    Path tokenFile = Paths.get(AttestedSettings.get(conf, SERVICE_TOKEN_FILE_KEY, home + "/tc-keyservice/token", ignored).trim());
++    if (!Files.isReadable(tokenFile)) {
++      throw new IOException("the token file of the signing service is missing or unreadable: " + tokenFile);
++    }
++    String token = new String(Files.readAllBytes(tokenFile), StandardCharsets.US_ASCII).trim();
++    int timeout = (int) AttestedSettings.getLong(conf, SERVICE_TIMEOUT_KEY, 5000, ignored);
++    ServiceKeys keys = new ServiceKeys(address.substring(0, colon), port, token, list, timeout);
++    if (signOn && keys.signingKeyId() == null) {
++      throw new IOException("signing is on but the signing service does not answer: " + keys.lastError());
++    }
++    return keys;
++  }
++}
+diff --git a/src/java/org/apache/nutch/attested/AttestedKeyTool.java b/src/java/org/apache/nutch/attested/AttestedKeyTool.java
+index c70fa89b7..044ac7c2b 100644
+--- a/src/java/org/apache/nutch/attested/AttestedKeyTool.java
++++ b/src/java/org/apache/nutch/attested/AttestedKeyTool.java
+@@ -30,6 +30,10 @@ import java.nio.file.Paths;
+  * java -cp attested-hdfs.jar org.apache.nutch.attested.AttestedKeyTool generate FILE   make a new test key file (mode 600; never overwrites)
+  * java -cp attested-hdfs.jar org.apache.nutch.attested.AttestedKeyTool info FILE       print the key id and whether the file can sign
+  * java -cp attested-hdfs.jar org.apache.nutch.attested.AttestedKeyTool public FILE OUT write a public-only copy (it can verify, not sign)
++ * java -cp attested-hdfs.jar org.apache.nutch.attested.AttestedKeyTool bundle-info FILE   print what a key bundle says (key id, host, time, quote)
++ * java -cp attested-hdfs.jar org.apache.nutch.attested.AttestedKeyTool bundle-verify FILE [--allow-unquoted]
++ *                                                                             check a key bundle: the key id is the hash of the public key and the quote's REPORTDATA
++ *                                                                             is the SHA-512 of the statement (not the quote's signature chain: step 5.2.1)
+  * </pre>
+  *
+  * <p>It prints the key id, never the private key. The test key is never to be used in evidence.</p>
+@@ -55,6 +59,24 @@ public final class AttestedKeyTool {
+         out.println("file " + args[1] + "   key id " + k.keyId() + "   can sign: " + (k.signingKeyId() != null));
+         return 0;
+       }
++      if (args.length >= 2 && args[0].startsWith("bundle-")) {
++        KeyBundle b = KeyBundle.decode(Files.readAllBytes(Paths.get(args[1])));
++        if (args[0].equals("bundle-info") && args.length == 2) {
++          out.println("key id " + b.keyId + "   host " + b.host + "   created " + b.created + "   quote "
++              + (b.hasQuote() ? b.quote.length + " bytes" : "none"));
++          return 0;
++        }
++        if (args[0].equals("bundle-verify") && (args.length == 2 || (args.length == 3 && args[2].equals("--allow-unquoted")))) {
++          b.checkBinding();
++          if (!b.hasQuote() && args.length == 2) {
++            throw new IOException("the bundle has no quote (" + b.keyId + "): it is accepted only with --allow-unquoted");
++          }
++          out.println("BUNDLE-OK   key id " + b.keyId + "   host " + b.host + "   "
++              + (b.hasQuote() ? "the quote's REPORTDATA is the SHA-512 of the statement (the quote's own signature is not checked here)"
++                  : "no quote (a service key)"));
++          return 0;
++        }
++      }
+       if (args.length == 3 && args[0].equals("public")) {
+         TestKeys k = TestKeys.load(Paths.get(args[1]));
+         Path outFile = Paths.get(args[2]);
+diff --git a/src/java/org/apache/nutch/attested/BundleCheck.java b/src/java/org/apache/nutch/attested/BundleCheck.java
+new file mode 100644
+index 000000000..f5ecfe13f
+--- /dev/null
++++ b/src/java/org/apache/nutch/attested/BundleCheck.java
+@@ -0,0 +1,30 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.nutch.attested;
++
++import java.io.IOException;
++
++/**
++ * An extra rule that a key bundle must pass before its public key is trusted (step 5.1.3 hook for step 5.2.1).
++ * The key list always checks the bundle's own consistency (the key id is the hash of the public key, and the
++ * quote's REPORTDATA is the hash of the statement). A class named by attested.keys.list.check.class adds more,
++ * for example the verification of the quote's signature chain and of the measurements; it throws an
++ * IOException saying why when the bundle must be refused.
++ */
++interface BundleCheck {
++  void check(KeyBundle bundle) throws IOException;
++}
+diff --git a/src/java/org/apache/nutch/attested/KeyBundle.java b/src/java/org/apache/nutch/attested/KeyBundle.java
+new file mode 100644
+index 000000000..da5ebbd3d
+--- /dev/null
++++ b/src/java/org/apache/nutch/attested/KeyBundle.java
+@@ -0,0 +1,199 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.nutch.attested;
++
++import java.io.IOException;
++import java.nio.charset.StandardCharsets;
++import java.security.GeneralSecurityException;
++import java.security.KeyFactory;
++import java.security.MessageDigest;
++import java.security.PublicKey;
++import java.security.interfaces.ECPublicKey;
++import java.security.spec.X509EncodedKeySpec;
++import java.util.Arrays;
++import java.util.Base64;
++import java.util.regex.Pattern;
++
++/**
++ * A machine's public signing key together with the statement that names it and, on a TDX machine, the quote that
++ * vouches for it (step 5.1.3). The quote's REPORTDATA field holds the SHA-512 of the statement, exactly as
++ * attest/quote.sh writes it and attest/verify-binding.sh checks it, so the statement (the key id, the public key,
++ * the host, the time and a random nonce) is what the hardware vouched for.
++ *
++ * <p>File format (text): ATTESTED-KEY-BUNDLE 1, then statement=BASE64 and quote=BASE64 (or none).
++ * Key ids: TDX- plus 16 hex digits of the SHA-256 of the public key, for a key that has a quote; SVC- plus the same,
++ * for a service key without a quote (tests, never accepted unless the key list allows unquoted keys).</p>
++ */
++final class KeyBundle {
++  static final String FILE_SUFFIX = ".attestkey";
++  static final String TDX = "TDX-";
++  static final String SVC = "SVC-";
++  /** Where REPORTDATA starts in a TDX quote: the 48-byte header and 520 bytes into the TD report body. */
++  static final int REPORTDATA_OFFSET = 568;
++  static final int REPORTDATA_LENGTH = 64;
++  private static final String STATEMENT_HEAD = "ATTESTED-KEY-STATEMENT 1";
++  private static final String BUNDLE_HEAD = "ATTESTED-KEY-BUNDLE 1";
++  private static final Pattern HOST = Pattern.compile("[A-Za-z0-9._-]{1,63}");
++  private static final Pattern TIME = Pattern.compile("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z");
++  private static final Pattern NONCE = Pattern.compile("[0-9a-f]{32}");
++
++  final String keyId;
++  final String host;
++  final String created;
++  final String nonce;
++  final byte[] publicEncoded;
++  final PublicKey publicKey;
++  final byte[] statement;
++  /** The quote, or null for a key without one. */
++  final byte[] quote;
++
++  private KeyBundle(String keyId, String host, String created, String nonce, byte[] publicEncoded,
++      PublicKey publicKey, byte[] statement, byte[] quote) {
++    this.keyId = keyId;
++    this.host = host;
++    this.created = created;
++    this.nonce = nonce;
++    this.publicEncoded = publicEncoded;
++    this.publicKey = publicKey;
++    this.statement = statement;
++    this.quote = quote;
++  }
++
++  static String idOf(String prefix, byte[] publicEncoded) throws IOException {
++    try {
++      byte[] h = MessageDigest.getInstance("SHA-256").digest(publicEncoded);
++      return prefix + MerkleHasher.hex(h).substring(0, 16);
++    } catch (GeneralSecurityException e) {
++      throw new IOException("no SHA-256: " + e);
++    }
++  }
++
++  static byte[] sha512(byte[] data) throws IOException {
++    try {
++      return MessageDigest.getInstance("SHA-512").digest(data);
++    } catch (GeneralSecurityException e) {
++      throw new IOException("no SHA-512: " + e);
++    }
++  }
++
++  /** The statement text that the quote vouches for. */
++  static byte[] statementBytes(String keyId, byte[] publicEncoded, String host, String created, String nonce)
++      throws IOException {
++    if (!HOST.matcher(host).matches() || !TIME.matcher(created).matches() || !NONCE.matcher(nonce).matches()) {
++      throw new IOException("bad host, time or nonce in a key statement");
++    }
++    String text = STATEMENT_HEAD + "\nkey-id=" + keyId + "\npublic=" + Base64.getEncoder().encodeToString(publicEncoded)
++        + "\nhost=" + host + "\ncreated=" + created + "\nnonce=" + nonce + "\n";
++    return text.getBytes(StandardCharsets.US_ASCII);
++  }
++
++  /** Builds a bundle from its parts (the service does this once, at start). */
++  static KeyBundle of(String prefix, byte[] publicEncoded, String host, String created, String nonce, byte[] quote)
++      throws IOException {
++    String id = idOf(prefix, publicEncoded);
++    return parse(statementBytes(id, publicEncoded, host, created, nonce), quote);
++  }
++
++  byte[] encode() {
++    String text = BUNDLE_HEAD + "\nstatement=" + Base64.getEncoder().encodeToString(statement) + "\nquote="
++        + (quote == null ? "none" : Base64.getEncoder().encodeToString(quote)) + "\n";
++    return text.getBytes(StandardCharsets.US_ASCII);
++  }
++
++  /** Reads a bundle file and checks that it is well formed and that the key id is the hash of the public key. */
++  static KeyBundle decode(byte[] file) throws IOException {
++    String[] lines = new String(file, StandardCharsets.US_ASCII).split("\n", -1);
++    if (lines.length != 4 || !lines[3].isEmpty() || !BUNDLE_HEAD.equals(lines[0])
++        || !lines[1].startsWith("statement=") || !lines[2].startsWith("quote=")) {
++      throw new IOException("not a key bundle (wrong header or lines)");
++    }
++    try {
++      byte[] statement = Base64.getDecoder().decode(lines[1].substring("statement=".length()));
++      String q = lines[2].substring("quote=".length());
++      byte[] quote = q.equals("none") ? null : Base64.getDecoder().decode(q);
++      return parse(statement, quote);
++    } catch (IllegalArgumentException e) {
++      throw new IOException("the key bundle holds bad base64: " + e.getMessage());
++    }
++  }
++
++  private static KeyBundle parse(byte[] statement, byte[] quote) throws IOException {
++    String[] lines = new String(statement, StandardCharsets.US_ASCII).split("\n", -1);
++    if (lines.length != 7 || !lines[6].isEmpty() || !STATEMENT_HEAD.equals(lines[0])) {
++      throw new IOException("the key statement is malformed");
++    }
++    String id = field(lines[1], "key-id=");
++    String pub = field(lines[2], "public=");
++    String host = field(lines[3], "host=");
++    String created = field(lines[4], "created=");
++    String nonce = field(lines[5], "nonce=");
++    if (!HOST.matcher(host).matches() || !TIME.matcher(created).matches() || !NONCE.matcher(nonce).matches()) {
++      throw new IOException("the key statement has a bad host, time or nonce");
++    }
++    byte[] pubBytes;
++    PublicKey key;
++    try {
++      pubBytes = Base64.getDecoder().decode(pub);
++      key = KeyFactory.getInstance("EC").generatePublic(new X509EncodedKeySpec(pubBytes));
++      if (!(key instanceof ECPublicKey) || ((ECPublicKey) key).getParams().getOrder().bitLength() != 256) {
++        throw new IOException("the public key is not an EC P-256 key");
++      }
++    } catch (GeneralSecurityException | IllegalArgumentException e) {
++      throw new IOException("the public key in the statement cannot be read: " + e.getMessage());
++    }
++    String prefix = id.startsWith(TDX) ? TDX : id.startsWith(SVC) ? SVC : null;
++    if (prefix == null || !id.equals(idOf(prefix, pubBytes))) {
++      throw new IOException("the key id " + id + " is not the hash of the public key in the statement");
++    }
++    return new KeyBundle(id, host, created, nonce, pubBytes, key, statement, quote);
++  }
++
++  private static String field(String line, String name) throws IOException {
++    if (!line.startsWith(name) || line.length() == name.length()) {
++      throw new IOException("the key statement lacks " + name);
++    }
++    return line.substring(name.length());
++  }
++
++  boolean hasQuote() {
++    return quote != null;
++  }
++
++  /**
++   * Checks what can be checked without the quote's signature chain: a TDX- key needs a quote, and the quote's
++   * REPORTDATA must be the SHA-512 of the statement (so the hardware vouched for exactly this key).
++   */
++  void checkBinding() throws IOException {
++    if (keyId.startsWith(TDX) && quote == null) {
++      throw new IOException("the key " + keyId + " claims a TDX machine but the bundle has no quote");
++    }
++    if (keyId.startsWith(SVC) && quote != null) {
++      throw new IOException("the key " + keyId + " is a service key without a quote, but the bundle carries one");
++    }
++    if (quote == null) {
++      return;
++    }
++    if (quote.length < REPORTDATA_OFFSET + REPORTDATA_LENGTH) {
++      throw new IOException("the quote of " + keyId + " is too short (" + quote.length + " bytes)");
++    }
++    byte[] embedded = Arrays.copyOfRange(quote, REPORTDATA_OFFSET, REPORTDATA_OFFSET + REPORTDATA_LENGTH);
++    if (!MessageDigest.isEqual(embedded, sha512(statement))) {
++      throw new IOException("the REPORTDATA of the quote is not the SHA-512 of the key statement of " + keyId
++          + ": the hardware did not vouch for this key");
++    }
++  }
++}
+diff --git a/src/java/org/apache/nutch/attested/KeyList.java b/src/java/org/apache/nutch/attested/KeyList.java
+new file mode 100644
+index 000000000..0905e5779
+--- /dev/null
++++ b/src/java/org/apache/nutch/attested/KeyList.java
+@@ -0,0 +1,108 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.nutch.attested;
++
++import java.io.IOException;
++import java.nio.file.DirectoryStream;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.security.PublicKey;
++import java.util.ArrayList;
++import java.util.Collections;
++import java.util.HashMap;
++import java.util.List;
++import java.util.Map;
++
++/**
++ * The public keys that this machine trusts for records: a folder of key bundles (*.attestkey), each of which must pass
++ * the binding check of KeyBundle and the extra BundleCheck, if any. A key without a quote (SVC-) is accepted only when
++ * allowed. The folder is read again when it is older than the cache time. Step 5.2.1 replaces the manual filling of the
++ * folder by an admission that verifies the quotes; the extra check is where that verification plugs in.
++ */
++final class KeyList {
++  private final Path dir;
++  private final boolean allowUnquoted;
++  private final BundleCheck extra;
++  private final long ttlMillis;
++  private volatile Map<String, KeyBundle> keys = Collections.emptyMap();
++  private volatile List<String> rejected = Collections.emptyList();
++  private volatile long loadedAt = -1;
++
++  KeyList(Path dir, boolean allowUnquoted, BundleCheck extra, long ttlSeconds) {
++    this.dir = dir;
++    this.allowUnquoted = allowUnquoted;
++    this.extra = extra;
++    this.ttlMillis = ttlSeconds * 1000L;
++  }
++
++  /** The public key of a trusted key id, or null. */
++  PublicKey publicKey(String keyId) {
++    KeyBundle b = bundle(keyId);
++    return b == null ? null : b.publicKey;
++  }
++
++  KeyBundle bundle(String keyId) {
++    long now = System.currentTimeMillis();
++    if (loadedAt < 0 || now - loadedAt >= ttlMillis) {
++      refresh();
++    }
++    return keys.get(keyId);
++  }
++
++  /** Why the files that were not accepted were refused (file name and reason), after the last reading. */
++  List<String> rejected() {
++    return rejected;
++  }
++
++  int size() {
++    return keys.size();
++  }
++
++  synchronized void refresh() {
++    Map<String, KeyBundle> found = new HashMap<>();
++    List<String> bad = new ArrayList<>();
++    if (Files.isDirectory(dir)) {
++      try (DirectoryStream<Path> files = Files.newDirectoryStream(dir, "*" + KeyBundle.FILE_SUFFIX)) {
++        for (Path f : files) {
++          try {
++            KeyBundle b = KeyBundle.decode(Files.readAllBytes(f));
++            b.checkBinding();
++            if (!b.hasQuote() && !allowUnquoted) {
++              throw new IOException("a key without a quote is not accepted here (" + b.keyId + ")");
++            }
++            if (extra != null) {
++              extra.check(b);
++            }
++            if (!f.getFileName().toString().equals(b.keyId + KeyBundle.FILE_SUFFIX)) {
++              throw new IOException("the file name does not say the key id " + b.keyId);
++            }
++            found.put(b.keyId, b);
++          } catch (IOException e) {
++            bad.add(f.getFileName() + ": " + e.getMessage());
++          }
++        }
++      } catch (IOException e) {
++        bad.add(dir + ": " + e.getMessage());
++      }
++    } else {
++      bad.add(dir + ": the key list folder does not exist");
++    }
++    keys = found;
++    rejected = bad;
++    loadedAt = System.currentTimeMillis();
++  }
++}
+diff --git a/src/java/org/apache/nutch/attested/KeyService.java b/src/java/org/apache/nutch/attested/KeyService.java
+new file mode 100644
+index 000000000..b7a723886
+--- /dev/null
++++ b/src/java/org/apache/nutch/attested/KeyService.java
+@@ -0,0 +1,386 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.nutch.attested;
++
++import java.io.BufferedReader;
++import java.io.Closeable;
++import java.io.File;
++import java.io.IOException;
++import java.io.InputStreamReader;
++import java.io.OutputStreamWriter;
++import java.io.Writer;
++import java.net.InetAddress;
++import java.net.ServerSocket;
++import java.net.Socket;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.nio.file.Paths;
++import java.nio.file.StandardOpenOption;
++import java.nio.file.attribute.PosixFilePermissions;
++import java.security.GeneralSecurityException;
++import java.security.KeyPair;
++import java.security.KeyPairGenerator;
++import java.security.MessageDigest;
++import java.security.PrivateKey;
++import java.security.SecureRandom;
++import java.security.Signature;
++import java.security.spec.ECGenParameterSpec;
++import java.time.Instant;
++import java.time.temporal.ChronoUnit;
++import java.util.Base64;
++import java.util.concurrent.CountDownLatch;
++import java.util.concurrent.TimeUnit;
++import java.util.concurrent.atomic.AtomicLong;
++
++/**
++ * The small signing service of step 5.1.3. It runs as its own process on each machine: it makes the machine's signing key when it
++ * starts, keeps it in memory only (the key is never written anywhere and dies with the process), and signs on request over a
++ * loopback socket. When it is given a quote command it asks the hardware for a quote whose REPORTDATA is the SHA-512 of the key's
++ * statement (attest/quote.sh does that), and writes the key bundle (statement and quote) for the key lists of the machines.
++ *
++ * <p>It signs only the statements that the wrapper builds (the three signed formats), and only for its own key id, so it is not a
++ * general signing oracle. Every request is logged. A caller must know the token. The wrapper's JVM asks it; it cannot take the key.</p>
++ *
++ * <pre>
++ * java -cp attested-hdfs.jar org.apache.nutch.attested.KeyService --dir DIR [--port N] [--list-dir DIR] [--quote-cmd CMD] [--host NAME]
++ * </pre>
++ */
++public final class KeyService implements Closeable {
++  static final int MAX_STATEMENT = 16384;
++  private static final byte[][] TAGS = {
++    "ATTEST02-SIGNED\n".getBytes(StandardCharsets.US_ASCII),
++    "ATTEST03-SIGNED\n".getBytes(StandardCharsets.US_ASCII),
++    "ATTESTFD-SIGNED\n".getBytes(StandardCharsets.US_ASCII)};
++
++  private final PrivateKey priv;
++  private final String keyId;
++  private final KeyBundle bundle;
++  private final ServerSocket server;
++  private final byte[] token;
++  private final Path dir;
++  private final Path bundleFile;
++  private final Object auditLock = new Object();
++  private final AtomicLong signed = new AtomicLong();
++  private final AtomicLong refused = new AtomicLong();
++  private volatile boolean closed;
++
++  /**
++   * Starts the service. quoteCommand may be null (a service key without a quote, SVC-, for tests); otherwise it is run as
++   * "COMMAND statementFile quoteFile" and must succeed (a TDX- key without its quote is never made).
++   */
++  static KeyService start(Path dir, int port, Path listDir, String quoteCommand, String host) throws IOException {
++    try {
++      Files.createDirectories(dir);
++      KeyPairGenerator g = KeyPairGenerator.getInstance("EC");
++      g.initialize(new ECGenParameterSpec("secp256r1"));
++      KeyPair kp = g.generateKeyPair();
++      byte[] pub = kp.getPublic().getEncoded();
++      String prefix = quoteCommand == null ? KeyBundle.SVC : KeyBundle.TDX;
++      String id = KeyBundle.idOf(prefix, pub);
++      byte[] nonceBytes = new byte[16];
++      new SecureRandom().nextBytes(nonceBytes);
++      String created = Instant.now().truncatedTo(ChronoUnit.SECONDS).toString();
++      byte[] statement = KeyBundle.statementBytes(id, pub, host, created, MerkleHasher.hex(nonceBytes));
++      byte[] quote = null;
++      if (quoteCommand != null) {
++        quote = obtainQuote(quoteCommand, dir, statement);
++      }
++      KeyBundle b = KeyBundle.of(prefix, pub, host, created, MerkleHasher.hex(nonceBytes), quote);
++      b.checkBinding();
++      Path token = dir.resolve("token");
++      if (!Files.exists(token)) {
++        byte[] t = new byte[24];
++        new SecureRandom().nextBytes(t);
++        writePrivate(token, (Base64.getUrlEncoder().withoutPadding().encodeToString(t) + "\n").getBytes(StandardCharsets.US_ASCII));
++      }
++      String tokenText = new String(Files.readAllBytes(token), StandardCharsets.US_ASCII).trim();
++      Path bundleFile = dir.resolve(id + KeyBundle.FILE_SUFFIX);
++      Files.write(bundleFile, b.encode());
++      if (listDir != null) {
++        Files.createDirectories(listDir);
++        Files.write(listDir.resolve(id + KeyBundle.FILE_SUFFIX), b.encode());
++      }
++      ServerSocket s = new ServerSocket(port, 50, InetAddress.getByName("127.0.0.1"));
++      KeyService svc = new KeyService(kp.getPrivate(), id, b, s, tokenText.getBytes(StandardCharsets.US_ASCII), dir, bundleFile);
++      Files.write(dir.resolve("port"), (s.getLocalPort() + "\n").getBytes(StandardCharsets.US_ASCII));
++      svc.audit("START", "key=" + id + " quote=" + (quote == null ? "none" : "yes") + " port=" + s.getLocalPort());
++      svc.acceptLoop();
++      return svc;
++    } catch (GeneralSecurityException e) {
++      throw new IOException("cannot start the signing service: " + e);
++    }
++  }
++
++  private KeyService(PrivateKey priv, String keyId, KeyBundle bundle, ServerSocket server, byte[] token, Path dir, Path bundleFile) {
++    this.priv = priv;
++    this.keyId = keyId;
++    this.bundle = bundle;
++    this.server = server;
++    this.token = token;
++    this.dir = dir;
++    this.bundleFile = bundleFile;
++  }
++
++  private static byte[] obtainQuote(String command, Path dir, byte[] statement) throws IOException {
++    Path st = dir.resolve("statement.txt");
++    Path q = dir.resolve("quote.bin");
++    Files.write(st, statement);
++    Files.deleteIfExists(q);
++    String[] parts = command.trim().split("\\s+");
++    String[] cmd = new String[parts.length + 2];
++    System.arraycopy(parts, 0, cmd, 0, parts.length);
++    cmd[parts.length] = st.toString();
++    cmd[parts.length + 1] = q.toString();
++    try {
++      Process p = new ProcessBuilder(cmd).redirectErrorStream(true).redirectOutput(dir.resolve("quote.log").toFile()).start();
++      if (!p.waitFor(60, TimeUnit.SECONDS)) {
++        p.destroyForcibly();
++        throw new IOException("the quote command did not finish in 60 seconds");
++      }
++      if (p.exitValue() != 0 || !Files.isRegularFile(q)) {
++        throw new IOException("the quote command failed (exit " + p.exitValue() + "; see " + dir.resolve("quote.log") + ")");
++      }
++      return Files.readAllBytes(q);
++    } catch (InterruptedException e) {
++      Thread.currentThread().interrupt();
++      throw new IOException("interrupted while asking for the quote");
++    }
++  }
++
++  private static void writePrivate(Path file, byte[] content) throws IOException {
++    try {
++      Files.createFile(file, java.nio.file.attribute.PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
++    } catch (UnsupportedOperationException e) {
++      Files.createFile(file);
++    }
++    Files.write(file, content, StandardOpenOption.WRITE);
++  }
++
++  String keyId() {
++    return keyId;
++  }
++
++  int port() {
++    return server.getLocalPort();
++  }
++
++  Path bundleFile() {
++    return bundleFile;
++  }
++
++  KeyBundle bundle() {
++    return bundle;
++  }
++
++  long signedCount() {
++    return signed.get();
++  }
++
++  long refusedCount() {
++    return refused.get();
++  }
++
++  /** For the test that the private key is never written anywhere: the key's encoding. */
++  byte[] privateEncodedForTest() {
++    return priv.getEncoded();
++  }
++
++  private void acceptLoop() {
++    Thread t = new Thread(() -> {
++      while (!closed) {
++        try {
++          Socket c = server.accept();
++          Thread h = new Thread(() -> handle(c), "key-service-client");
++          h.setDaemon(true);
++          h.start();
++        } catch (IOException e) {
++          if (!closed) {
++            audit("ERROR", "accept: " + e.getMessage());
++          }
++        }
++      }
++    }, "key-service-accept");
++    t.setDaemon(true);
++    t.start();
++  }
++
++  private void handle(Socket c) {
++    String peer = String.valueOf(c.getPort());
++    try (Socket s = c) {
++      s.setSoTimeout(5000);
++      BufferedReader r = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.US_ASCII), 4096);
++      Writer w = new OutputStreamWriter(s.getOutputStream(), StandardCharsets.US_ASCII);
++      String auth = readLine(r);
++      if (auth == null || !auth.startsWith("AUTH ")
++          || !MessageDigest.isEqual(auth.substring(5).getBytes(StandardCharsets.US_ASCII), token)) {
++        refused.incrementAndGet();
++        audit("REFUSED", "peer=" + peer + " reason=bad or missing token");
++        w.write("ERR not authorized\n");
++        w.flush();
++        return;
++      }
++      w.write("OK\n");
++      String line = readLine(r);
++      if (line == null) {
++        w.write("ERR no command\n");
++      } else if (line.equals("ID")) {
++        w.write("OK " + keyId + "\n");
++      } else if (line.equals("PUBLIC")) {
++        w.write("OK " + Base64.getEncoder().encodeToString(bundle.publicEncoded) + "\n");
++      } else if (line.startsWith("SIGN ")) {
++        w.write(sign(line.substring(5), peer) + "\n");
++      } else {
++        refused.incrementAndGet();
++        audit("REFUSED", "peer=" + peer + " reason=unknown command");
++        w.write("ERR unknown command\n");
++      }
++      w.flush();
++    } catch (IOException e) {
++      audit("ERROR", "peer=" + peer + " " + e.getMessage());
++    }
++  }
++
++  private static String readLine(BufferedReader r) throws IOException {
++    StringBuilder sb = new StringBuilder();
++    int ch;
++    while ((ch = r.read()) >= 0) {
++      if (ch == '\n') {
++        return sb.toString();
++      }
++      sb.append((char) ch);
++      if (sb.length() > MAX_STATEMENT * 2) {
++        throw new IOException("a line is too long");
++      }
++    }
++    return sb.length() == 0 ? null : sb.toString();
++  }
++
++  private String sign(String b64, String peer) {
++    byte[] st;
++    try {
++      st = Base64.getDecoder().decode(b64);
++    } catch (IllegalArgumentException e) {
++      return refuse(peer, "bad base64", null);
++    }
++    if (st.length > MAX_STATEMENT) {
++      return refuse(peer, "statement too long", null);
++    }
++    byte[] tag = null;
++    for (byte[] t : TAGS) {
++      if (startsWith(st, t)) {
++        tag = t;
++      }
++    }
++    if (tag == null) {
++      return refuse(peer, "not a statement of the wrapper (unknown tag)", st);
++    }
++    byte[] id = keyId.getBytes(StandardCharsets.US_ASCII);
++    int at = tag.length;
++    if (st.length < at + 1 + id.length || (st[at] & 0xff) != id.length) {
++      return refuse(peer, "the statement names another key id", st);
++    }
++    for (int i = 0; i < id.length; i++) {
++      if (st[at + 1 + i] != id[i]) {
++        return refuse(peer, "the statement names another key id", st);
++      }
++    }
++    try {
++      Signature sig = Signature.getInstance("SHA256withECDSA");
++      sig.initSign(priv);
++      sig.update(st);
++      byte[] out = sig.sign();
++      signed.incrementAndGet();
++      audit("SIGNED", "peer=" + peer + " tag=" + new String(tag, StandardCharsets.US_ASCII).trim() + " statement=" + digest(st));
++      return "OK " + Base64.getEncoder().encodeToString(out);
++    } catch (GeneralSecurityException e) {
++      return refuse(peer, "signing failed: " + e.getMessage(), st);
++    }
++  }
++
++  private String refuse(String peer, String why, byte[] st) {
++    refused.incrementAndGet();
++    audit("REFUSED", "peer=" + peer + " reason=" + why + (st == null ? "" : " statement=" + digest(st)));
++    return "ERR " + why;
++  }
++
++  private static boolean startsWith(byte[] a, byte[] prefix) {
++    if (a.length < prefix.length) {
++      return false;
++    }
++    for (int i = 0; i < prefix.length; i++) {
++      if (a[i] != prefix[i]) {
++        return false;
++      }
++    }
++    return true;
++  }
++
++  private static String digest(byte[] st) {
++    try {
++      return MerkleHasher.hex(MessageDigest.getInstance("SHA-256").digest(st)).substring(0, 16);
++    } catch (GeneralSecurityException e) {
++      return "?";
++    }
++  }
++
++  private void audit(String what, String detail) {
++    synchronized (auditLock) {
++      try {
++        Files.write(dir.resolve("audit.log"), (Instant.now() + " " + what + " " + detail + "\n").getBytes(StandardCharsets.UTF_8),
++            StandardOpenOption.CREATE, StandardOpenOption.APPEND);
++      } catch (IOException e) {
++        // the service goes on: the log is for people, the signing does not depend on it
++      }
++    }
++  }
++
++  @Override
++  public void close() {
++    closed = true;
++    try {
++      server.close();
++    } catch (IOException e) {
++      // already closed
++    }
++    audit("STOP", "signed=" + signed.get() + " refused=" + refused.get());
++  }
++
++  public static void main(String[] args) throws Exception {
++    Path dir = Paths.get(System.getProperty("user.home"), "tc-keyservice");
++    Path listDir = null;
++    int port = 0;
++    String quote = null;
++    String host = InetAddress.getLocalHost().getHostName().replaceAll("[^A-Za-z0-9._-]", "-");
++    for (int i = 0; i < args.length; i++) {
++      switch (args[i]) {
++        case "--dir": dir = Paths.get(args[++i]); break;
++        case "--port": port = Integer.parseInt(args[++i]); break;
++        case "--list-dir": listDir = Paths.get(args[++i]); break;
++        case "--quote-cmd": quote = args[++i]; break;
++        case "--host": host = args[++i]; break;
++        default:
++          System.err.println("usage: KeyService --dir DIR [--port N] [--list-dir DIR] [--quote-cmd CMD] [--host NAME]");
++          System.exit(2);
++      }
++    }
++    KeyService svc = start(dir, port, listDir, quote, host);
++    System.out.println("key-service: listening on 127.0.0.1:" + svc.port() + "   key id " + svc.keyId() + "   bundle " + svc.bundleFile());
++    System.out.flush();
++    new CountDownLatch(1).await();
++  }
++}
+diff --git a/src/java/org/apache/nutch/attested/ServiceKeys.java b/src/java/org/apache/nutch/attested/ServiceKeys.java
+new file mode 100644
+index 000000000..ef96db3bc
+--- /dev/null
++++ b/src/java/org/apache/nutch/attested/ServiceKeys.java
+@@ -0,0 +1,127 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.nutch.attested;
++
++import java.io.BufferedReader;
++import java.io.IOException;
++import java.io.InputStreamReader;
++import java.io.OutputStreamWriter;
++import java.io.Writer;
++import java.net.InetSocketAddress;
++import java.net.Socket;
++import java.nio.charset.StandardCharsets;
++import java.security.PublicKey;
++import java.util.Base64;
++
++/**
++ * The real key of step 5.1.3, as the wrapper sees it: signing is done by the small signing service on this machine
++ * (the private key never enters this JVM), and the public keys that are trusted come from the key list. Reading needs
++ * only the list; the service is needed only for writing.
++ */
++final class ServiceKeys implements AttestedKeys {
++  private final String host;
++  private final int port;
++  private final String token;
++  private final KeyList list;
++  private final int timeoutMillis;
++  private volatile String id;
++  private volatile String lastError = "";
++
++  /** A null host means that this JVM cannot sign (it only verifies). */
++  ServiceKeys(String host, int port, String token, KeyList list, int timeoutMillis) {
++    this.host = host;
++    this.port = port;
++    this.token = token;
++    this.list = list;
++    this.timeoutMillis = timeoutMillis;
++  }
++
++  /** Why the last request to the service failed, for messages. */
++  String lastError() {
++    return lastError;
++  }
++
++  KeyList list() {
++    return list;
++  }
++
++  @Override
++  public String signingKeyId() {
++    if (host == null) {
++      return null;
++    }
++    String x = id;
++    if (x == null) {
++      try {
++        x = request("ID");
++        id = x;
++      } catch (IOException e) {
++        lastError = e.getMessage();
++        return null;
++      }
++    }
++    return x;
++  }
++
++  @Override
++  public byte[] sign(byte[] statement) throws IOException {
++    if (host == null) {
++      throw new IOException("this JVM has no signing service to ask");
++    }
++    String reply = request("SIGN " + Base64.getEncoder().encodeToString(statement));
++    try {
++      return Base64.getDecoder().decode(reply);
++    } catch (IllegalArgumentException e) {
++      throw new IOException("the signing service sent a bad signature: " + e.getMessage());
++    }
++  }
++
++  @Override
++  public PublicKey publicKey(String keyId) {
++    return list == null ? null : list.publicKey(keyId);
++  }
++
++  private String request(String command) throws IOException {
++    try (Socket s = new Socket()) {
++      s.connect(new InetSocketAddress(host, port), timeoutMillis);
++      s.setSoTimeout(timeoutMillis);
++      Writer w = new OutputStreamWriter(s.getOutputStream(), StandardCharsets.US_ASCII);
++      w.write("AUTH " + token + "\n" + command + "\n");
++      w.flush();
++      BufferedReader r = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.US_ASCII));
++      String auth = r.readLine();
++      if (auth == null || !auth.startsWith("OK")) {
++        throw new IOException("the signing service at " + host + ":" + port + " refused: " + clip(auth));
++      }
++      String reply = r.readLine();
++      if (reply == null || !reply.startsWith("OK ")) {
++        throw new IOException("the signing service at " + host + ":" + port + " refused: " + clip(reply));
++      }
++      return reply.substring(3);
++    } catch (IOException e) {
++      lastError = e.getMessage();
++      if (e.getMessage() != null && e.getMessage().startsWith("the signing service")) {
++        throw e;
++      }
++      throw new IOException("cannot reach the signing service at " + host + ":" + port + ": " + e.getMessage());
++    }
++  }
++
++  private static String clip(String s) {
++    return s == null ? "no answer" : s.length() > 120 ? s.substring(0, 120) : s;
++  }
++}
