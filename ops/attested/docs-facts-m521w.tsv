@@ -1,0 +1,63 @@
+# Facts of the live window of step 5.2.1 (16 October 2026), tied to the evidence folder in the Cloud Shell home (evidence-m521w), to the repository after the commits of this window, and to the documents as committed with this list
+docs/milestone-5-signed-records.md	feat(ops): add the window kit of the live quote admission (step 5.2.1)	@git-log	feat(ops): add the window kit of the live quote admission (step 5.2.1)
+docs/milestone-5-signed-records.md	feat(ops): add a dry run for the gate scripts that checks every source file and fingerprint without PowerShell	@git-log	feat(ops): add a dry run for the gate scripts that checks every source file and fingerprint without PowerShell
+docs/milestone-5-signed-records.md	committed as it ran under `ops/kits/m521-window`	@repo:ops/kits/m521-window/ops/attested/m521-window.sh	M521W-OPEN-OK
+docs/milestone-5-signed-records.md	a real file was written and read back through the wrapper	@repo:ops/kits/m521-window/ops/attested/m521-live.sh	M521L-OK
+docs/milestone-5-signed-records.md	(`ops/attested/gate_dryrun.py`: it resolves every source file of a gate the way the gate does, and compares fingerprints)	@repo:ops/attested/gate_dryrun.py	GATE-DRYRUN: PASS
+docs/milestone-5-signed-records.md	15:29:13 to 15:31:02	evidence-m521w/m521w-selftest-console.txt	2026-10-16T15:29:13Z
+docs/milestone-5-signed-records.md	15:29:13 to 15:31:02	evidence-m521w/m521w-selftest-console.txt	2026-10-16T15:31:02Z
+docs/milestone-5-signed-records.md	the window script rehearsal 47 checks	evidence-m521w/m521w-selftest-console.txt	REHEARSAL-PASS: the real window script, with the real signing service, key tool and bundle checks, passes; the faults of open and close are all reported; 47 checks
+docs/milestone-5-signed-records.md	the live script rehearsal 22	evidence-m521w/m521w-selftest-console.txt	REHEARSAL-PASS: the real live script passes with real bundles and a real rogue service, and its faults are all reported; 22 checks
+docs/milestone-5-signed-records.md	the key list exchange rehearsal 16	evidence-m521w/m521w-selftest-console.txt	REHEARSAL-PASS: the exchange passes with two real services, and its 8 faults are caught
+docs/milestone-5-signed-records.md	both real bundles of run 15 admitted by the built jar	evidence-m521w/m521w-selftest-console.txt	ADMIT   key id TDX-428f3734fdb03238   host tdx-lab   admitted by quote
+docs/milestone-5-signed-records.md	both real bundles of run 15 admitted by the built jar	evidence-m521w/m521w-selftest-console.txt	ADMIT   key id TDX-5fdb825500807c66   host tdx-lab-worker   admitted by quote
+docs/milestone-5-signed-records.md	21 of 21 files identical to the list	evidence-m521w/m521w-selftest-console.txt	files identical to the list: 21
+docs/milestone-5-signed-records.md	| 15:32:45 |	evidence-m521w/m521w-open-master-console.txt	m521-window open: 2026-10-16T15:32:45Z on tdx-lab
+docs/milestone-5-signed-records.md	opened with 13 settings	evidence-m521w/m521w-open-master-console.txt	the signed version of core-site.xml (the measured one plus thirteen settings)
+docs/milestone-5-signed-records.md	(7 values, SHA-256 `03965e5af0a199c1…`)	evidence-m521w/m521w-open-master-console.txt	the reference file is in place: /home/rishabsdp17/tc-keys/reference-measurements.txt (7 values, SHA-256 03965e5af0a199c1...)
+docs/milestone-5-signed-records.md	the master's signing service started with the key `TDX-d98a94e537f5282b`	evidence-m521w/m521w-open-master-console.txt	the signing service runs with the key TDX-d98a94e537f5282b (pid 1453346), started at 2026-10-16T15:33:47Z
+docs/milestone-5-signed-records.md	its quote (8,000 bytes) binds the key	evidence-m521w/m521w-open-master-console.txt	the quote (8000 bytes) was taken out of the bundle: its REPORTDATA equals the SHA-512 of the statement
+docs/milestone-5-signed-records.md	(our check and `verify-binding.sh` say `MATCH`)	evidence-m521w/m521w-open-master-console.txt	attest/verify-binding.sh, the check of the earlier milestones, says MATCH
+docs/milestone-5-signed-records.md	**the node's own bundle was admitted by its fresh live quote**	evidence-m521w/m521w-open-master-console.txt	the node's own bundle is ADMITTED by its fresh live quote (the Intel chain, the signatures and the reference)
+docs/milestone-5-signed-records.md	| 15:35:37 and 15:36:36 |	evidence-m521w/m521w-open-worker-console.txt	m521-window open: 2026-10-16T15:35:37Z on tdx-lab-worker
+docs/milestone-5-signed-records.md	started with the key `TDX-775de83fe87625ad`	evidence-m521w/m521w-open-worker-console.txt	the signing service runs with the key TDX-775de83fe87625ad (pid 1156876), started at 2026-10-16T15:36:36Z
+docs/milestone-5-signed-records.md	admitted the same way	evidence-m521w/m521w-open-worker-console.txt	the node's own bundle is ADMITTED by its fresh live quote (the Intel chain, the signatures and the reference)
+docs/milestone-5-signed-records.md	| 15:39:43 |	evidence-m521w/m521-sync-console2.txt	m513-keylist-sync: 2026-10-16T15:39:43Z
+docs/milestone-5-signed-records.md	(`M513-SYNC-OK`)	evidence-m521w/m521-sync-console2.txt	M513-SYNC-OK
+docs/milestone-5-signed-records.md	a first attempt had stopped safely because Cloud Shell had lost `xxd`	evidence-m521w/m521-sync-console.txt	M513-SYNC-STOP: xxd is missing here (attest/verify-binding.sh needs it)
+docs/milestone-5-signed-records.md	go-tdx-guest's `check` verified the Intel signature chain of both fresh quotes	evidence-m521w/quote-check-m521-laptop.txt	TDX Quote verified successfully
+docs/milestone-5-signed-records.md	| 15:42:22 |	evidence-m521w/m521-live-console.txt	m521-live: 2026-10-16T15:42:22Z on tdx-lab   run=run16
+docs/milestone-5-signed-records.md	| 15:43:58 and 15:47:12 |	evidence-m521w/m521w-close-master-console.txt	m521-window close: 2026-10-16T15:43:58Z on tdx-lab
+docs/milestone-5-signed-records.md	| 15:43:58 and 15:47:12 |	evidence-m521w/m521w-close-worker-console.txt	m521-window close: 2026-10-16T15:47:12Z on tdx-lab-worker
+docs/milestone-5-signed-records.md	`ALL-UNCHANGED` 9 and 6	evidence-m521w/m521w-close-master-console.txt	ALL-UNCHANGED (9 components checked)
+docs/milestone-5-signed-records.md	`ALL-UNCHANGED` 9 and 6	evidence-m521w/m521w-close-worker-console.txt	ALL-UNCHANGED (6 components checked)
+docs/milestone-5-signed-records.md	each signing service stopped (its key disappeared with it)	evidence-m521w/m521w-close-master-console.txt	the signing service is stopped (its private key disappeared with it: it was never written anywhere)
+docs/milestone-5-signed-records.md	each signing service stopped (its key disappeared with it)	evidence-m521w/m521w-close-worker-console.txt	the signing service is stopped (its private key disappeared with it: it was never written anywhere)
+docs/milestone-5-signed-records.md	read back byte for byte	evidence-m521w/m521-live-console.txt	the file reads back byte for byte through the wrapper
+docs/milestone-5-signed-records.md	an `ADMIT` line for each key of the window	evidence-m521w/m521-live-console.txt	ADMIT key=TDX-d98a94e537f5282b host=tdx-lab admitted by quote: mrtd=c1ee9c16e3af(enforced) rtmr0=036d0bf4b669(enforced)
+docs/milestone-5-signed-records.md	an `ADMIT` line for each key of the window	evidence-m521w/m521-live-console.txt	ADMIT key=TDX-775de83fe87625ad host=tdx-lab-worker admitted by quote: mrtd=c1ee9c16e3af(enforced) rtmr0=5e276dcf6867(enforced)
+docs/milestone-5-signed-records.md	RTMR3 shown only	evidence-m521w/m521-live-console.txt	rtmr3=0e137cc3e973(shown only)
+docs/milestone-5-signed-records.md	(1 folder, 1 file; the live key list held 4 keys	evidence-m521w/m521-live-console.txt	folders=1 files=1 verify; KEYLIST 4 key(s) admitted by their quotes
+docs/milestone-5-signed-records.md	a signing service `TDX-31c4d7d14d16cc13` put its bundle into the live key list	evidence-m521w/m521-live-console.txt	the rogue service runs with the key TDX-31c4d7d14d16cc13 and put its bundle into the live key list
+docs/milestone-5-signed-records.md	the list **refused it and wrote why** (the quote is too short, 632 bytes)	evidence-m521w/m521-live-console.txt	the key list REFUSED the rogue key and wrote why: reason=the quote is too short (632 bytes)
+docs/milestone-5-signed-records.md	the honest file still read	evidence-m521w/m521-live-console.txt	with the rogue bundle in the list the honest file still reads
+docs/milestone-5-signed-records.md	`bundle-admit` refused it too	evidence-m521w/m521-live-console.txt	bundle-admit refuses the rogue bundle too (exit 1)
+docs/milestone-5-signed-records.md	the rogue bundle and service were removed	evidence-m521w/m521-live-console.txt	the rogue bundle is removed from the key list and the rogue service is stopped
+docs/milestone-5-signed-records.md	an edited reference refused it (the reason names MRTD)	evidence-m521w/m521-live-console.txt	EDIT 1: with one changed MRTD in a copy of the reference, this node's live quote is refused
+docs/milestone-5-signed-records.md	taking `mrtd` out of the enforce list admitted it again	evidence-m521w/m521-live-console.txt	EDIT 2: with mrtd out of the enforce list the same edited reference admits it again
+docs/milestone-5-signed-records.md	one flipped bit in MRTD of the live quote was refused	evidence-m521w/m521-live-console.txt	a flipped bit in MRTD of this node's live quote is refused
+docs/milestone-5-signed-records.md	a harmless shell message about an audit file that did not exist yet (row 124)	evidence-m521w/m521-live-console.txt	ops/attested/m521-live.sh: line 46: /home/rishabsdp17/tc-keys/keylist-audit.log: No such file or directory
+docs/milestone-5-signed-records.md	The kit | `m521w` (`5cfd9dfd…`, 21 files)	evidence-m521w/SHA256SUMS	5cfd9dfdcc5b220b2563021c2318520c0e6962c4aed338516ac198d36ed47095  ./m521w-files.zip
+docs/cluster-configuration.md	the master opened at 15:32:45 (its service started at 15:33:47)	evidence-m521w/m521w-open-master-console.txt	started at 2026-10-16T15:33:47Z
+docs/cluster-configuration.md	the master closed at 15:43:58, the worker at 15:47:12	evidence-m521w/m521w-close-worker-console.txt	m521-window close: 2026-10-16T15:47:12Z
+docs/milestone-5-signed-records.md	(limitations row 121)	@docs:docs/limitations-and-trust.md	| 121 | The live check of the admission wrote and read one 20 KB file
+docs/milestone-5-signed-records.md	(row 123)	@docs:docs/limitations-and-trust.md	| 123 | A signing service that cannot bind its port
+docs/milestone-5-signed-records.md	(row 124)	@docs:docs/limitations-and-trust.md	| 124 | The live script counts the lines of the key list's audit file
+docs/milestone-5-signed-records.md	(mistake log 120)	@docs:docs/guide-pitfalls-and-lessons.md	| 120 | Tests | A fact failed against the real evidence
+docs/milestone-5-signed-records.md	(mistake log 121)	@docs:docs/guide-pitfalls-and-lessons.md	| 121 | Process | The correction gate stopped
+docs/milestone-5-signed-records.md	(mistake log 122)	@docs:docs/guide-pitfalls-and-lessons.md	| 122 | Process | The bundle exchange stopped in Cloud Shell again
+docs/milestone-5-signed-records.md	(mistake log 123)	@docs:docs/guide-pitfalls-and-lessons.md	| 123 | Tests | The live console printed
+docs/milestone-5-signed-records.md	(mistake log 124)	@docs:docs/guide-pitfalls-and-lessons.md	| 124 | Process | The verification of the documents could not run
+docs/milestone-plan.md	and section 8 for the live window	@docs:docs/milestone-5-signed-records.md	## 8. Step 5.2.1, the live window (16 October 2026)
+docs/session-start.md	and section 8 (the live window)	@docs:docs/milestone-5-signed-records.md	## 8. Step 5.2.1, the live window (16 October 2026)
+docs/cluster-configuration.md	the report is [milestone-5-signed-records.md](milestone-5-signed-records.md) section 8	@docs:docs/milestone-5-signed-records.md	## 8. Step 5.2.1, the live window (16 October 2026)
