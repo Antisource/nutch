@@ -424,3 +424,18 @@ To count what the NodeManager read through the wrapper, on the worker: `cat /tmp
 | The real data it read | `~/run15/verify/keylist` (the two bundles of run 15) and `~/run15/verify/crawl-run15` and `seeds-run15` (the plain copies of the output) |
 | Current state | **measured stack on both nodes**; no window is open; no signing service runs |
 | Kit | `ops/kits/m521-test` and `ops/kits/m521-build`; the report is [milestone-5-signed-records.md](milestone-5-signed-records.md) section 7 |
+
+
+## 26. The live admission window (16 October 2026, step 5.2.1)
+
+| Item | Value |
+|---|---|
+| What it is | the fifth window of the method of section 21, with the 5.2.1 wrapper jar (`ef611d1260b3b427…`, 37 classes) and the job `8f21a37f933ee2ca…`, and thirteen settings: the ten of section 24 plus `attested.keys.admission.enabled` (true), `attested.keys.admission.reference.file` (`~/tc-keys/reference-measurements.txt`) and `attested.keys.admission.reference.sha256` (`03965e5af0a199c1…`), all final |
+| Times | the master opened at 15:32:45 (its service started at 15:33:47), the worker at 15:35:37 (15:36:36), the bundles exchanged at 15:39:43, the live check at 15:42:22, the master closed at 15:43:58, the worker at 15:47:12 |
+| The keys | master `TDX-d98a94e537f5282b`, worker `TDX-775de83fe87625ad`, each admitted by its fresh live quote; a rogue key `TDX-31c4d7d14d16cc13` (a fake quote) was refused and removed; the public bundles of this window are in `~/tc-keys/list` on both nodes, next to those of run 15 |
+| The reference file | `~/tc-keys/reference-measurements.txt` (7 values, SHA-256 `03965e5af0a199c1…`), put there by the window script and pinned in core-site.xml; it stays on the nodes |
+| The key list's audit file | `~/tc-keys/keylist-audit.log` on the master (every admission and rejection), a copy in the window folder |
+| The test data | `/user/rishabsdp17/adm-run16` in HDFS (a 20 KB file with its record); delete it with the other test data at the end of Milestone 5 |
+| Folders | state in `~/m521w/window` while open, then `~/m521w/window-closed-<role>-<time>`; on the master the kit in `~/m521wkit`, `~/m521l` (the live results), `~/m521`, `~/m521b`, `~/m521r`; on the worker `~/m521-new-jar.jar` |
+| Current state | **measured stack on both nodes**; the window is closed; no signing service runs; the test key `TEST-37c2a6aa…` is still in `~/tc-test-key` on both nodes (unused) |
+| Kit | `ops/kits/m521-window`; the report is [milestone-5-signed-records.md](milestone-5-signed-records.md) section 8 |
