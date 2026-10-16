@@ -249,6 +249,7 @@ public class AttestedFsSmoke {
     signatureChecks(conf, base, plain);
     bindingChecks(conf, base, plain);
     keyServiceChecks(conf, base, plain);
+    keyAdmissionChecks(conf, base, plain);
     metadataChecks(conf, base, plain);
     fileContext(conf, new Path("hdfs://fake:9000" + tmp + "/fc"));
     refusalChecks(conf, base, plain);
@@ -278,6 +279,7 @@ public class AttestedFsSmoke {
       signatureChecks(conf, base, plain);
       bindingChecks(conf, base, plain);
       keyServiceChecks(conf, base, plain);
+      keyAdmissionChecks(conf, base, plain);
       fileContext(conf, new Path("hdfs://" + authority + work + "-fc"));
       refusalChecks(conf, base, plain);
       auditLines(conf, tmp + "/audit", DistributedFileSystem.class.getName(),
@@ -1637,6 +1639,43 @@ public class AttestedFsSmoke {
     soft.close();
     rogue.close();
     svc2.close();
+  }
+
+  /**
+   * Step 5.2.1: a list that admits keys by their quote refuses a key whose quote is a fake. The service here makes its bundle with a stand-in quote command (632
+   * bytes with the right REPORTDATA, as in the other checks): it passes the binding check but has no Intel certificate chain, so the admitting list must not
+   * trust it, and the wrapper must refuse its own records. The control is the same list without admission.
+   */
+  static void keyAdmissionChecks(Configuration baseConf, Path base, FileSystem plain) throws Exception {
+    java.nio.file.Path work = Files.createTempDirectory("keyadm");
+    java.nio.file.Path listDir = work.resolve("list");
+    KeyService svc = KeyService.start(work.resolve("svc"), 0, listDir, fakeQuoteScript(work).toString(), "adm-node");
+    java.nio.file.Path ref = work.resolve("reference.txt");
+    Files.write(ref, ("MRTD " + "0".repeat(96) + " *\n").getBytes(StandardCharsets.US_ASCII));
+    java.nio.file.Path auditFile = work.resolve("keylist-audit.log");
+    Configuration on = serviceConf(baseConf, svc, work.resolve("svc"), listDir, false);
+    on.set(AttestedKeyFactory.LIST_AUDIT_FILE_KEY, auditFile.toString());
+    on.setBoolean(AttestedKeyFactory.ADMISSION_ENABLED_KEY, true);
+    on.set(AttestedKeyFactory.ADMISSION_REFERENCE_KEY, ref.toString());
+    on.set(AttestedKeyFactory.ADMISSION_ENFORCE_KEY, "mrtd");
+    FileSystem fs = FileSystem.newInstance(base.toUri(), on);
+    byte[] d = data(20000, 41);
+    String why = null;
+    try {
+      put(fs, new Path(new Path(base, "admit-refused"), "x.bin"), d);
+    } catch (IOException e) {
+      why = String.valueOf(e.getMessage());
+    }
+    check("with admission on, a key whose quote has no Intel certificate chain is not trusted: even its own writer refuses (not trusted here)", why != null && why.contains("not trusted here"));
+    check("the rejection is written to the key list's audit file, with its reason", Files.exists(auditFile)
+        && Files.readAllLines(auditFile).stream().anyMatch(l -> l.contains(" REJECT file=" + svc.keyId()) && l.contains("reason=")));
+    Configuration off = serviceConf(baseConf, svc, work.resolve("svc"), listDir, false);
+    Path ok = new Path(new Path(base, "admit-control"), "y.bin");
+    FileSystem fs2 = FileSystem.newInstance(base.toUri(), off);
+    put(fs2, ok, d);
+    check("control: the same list without admission trusts that key (the fake quote passes the binding check), so the write and the read work", Arrays.equals(d, readAll(fs2, ok)));
+    check("the admission is off by default: the settings of the control do not mention it", !off.getBoolean(AttestedKeyFactory.ADMISSION_ENABLED_KEY, false));
+    svc.close();
   }
 
   static void bindingChecks(Configuration baseConf, Path base, FileSystem plain) throws Exception {

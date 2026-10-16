@@ -27,4 +27,9 @@ import java.io.IOException;
  */
 interface BundleCheck {
   void check(KeyBundle bundle) throws IOException;
+
+  /** A short note for the audit line of an admitted key (for example the measurements that were checked). */
+  default String note(KeyBundle bundle) {
+    return "";
+  }
 }

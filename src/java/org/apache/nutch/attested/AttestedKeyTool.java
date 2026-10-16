@@ -33,7 +33,10 @@ import java.nio.file.Paths;
  * java -cp attested-hdfs.jar org.apache.nutch.attested.AttestedKeyTool bundle-info FILE   print what a key bundle says (key id, host, time, quote)
  * java -cp attested-hdfs.jar org.apache.nutch.attested.AttestedKeyTool bundle-verify FILE [--allow-unquoted]
  *                                                                             check a key bundle: the key id is the hash of the public key and the quote's REPORTDATA
- *                                                                             is the SHA-512 of the statement (not the quote's signature chain: step 5.2.1)
+ *                                                                             is the SHA-512 of the statement (not the quote's signature chain: bundle-admit does that)
+ * java -cp attested-hdfs.jar org.apache.nutch.attested.AttestedKeyTool bundle-admit FILE REFERENCE [--no-dates] [--enforce mrtd,rtmr0,...] [--root SHA256]
+ *                                                                             admit a key bundle by its quote (step 5.2.1): the certificate chain, the signatures and the reference measurements; prints ADMIT or REJECT
+ * java -cp attested-hdfs.jar org.apache.nutch.attested.AttestedKeyTool quote-info FILE   print the measurement registers and the certificate chain of a bundle's quote (no verification)
  * </pre>
  *
  * <p>It prints the key id, never the private key. The test key is never to be used in evidence.</p>
@@ -57,6 +60,37 @@ public final class AttestedKeyTool {
       if (args.length == 2 && args[0].equals("info")) {
         TestKeys k = TestKeys.load(Paths.get(args[1]));
         out.println("file " + args[1] + "   key id " + k.keyId() + "   can sign: " + (k.signingKeyId() != null));
+        return 0;
+      }
+      if (args.length >= 2 && args[0].equals("quote-info")) {
+        KeyBundle b = KeyBundle.decode(Files.readAllBytes(Paths.get(args[1])));
+        QuoteVerifier.Quote q = QuoteVerifier.parse(b.quote);
+        out.println("key id " + b.keyId + "   host " + b.host + "   quote version " + q.version + "   tee type 0x" + Long.toHexString(q.teeType));
+        for (String reg : QuoteVerifier.REGISTERS) {
+          out.println(String.format("%-6s %s", reg.toUpperCase(), q.register(reg)));
+        }
+        return 0;
+      }
+      if (args.length >= 3 && args[0].equals("bundle-admit")) {
+        KeyBundle b = KeyBundle.decode(Files.readAllBytes(Paths.get(args[1])));
+        b.checkBinding();
+        boolean dates = true;
+        String enforce = QuoteAdmission.DEFAULT_ENFORCE;
+        String root = QuoteAdmission.INTEL_SGX_ROOT_SHA256;
+        for (int i = 3; i < args.length; i++) {
+          if (args[i].equals("--no-dates")) {
+            dates = false;
+          } else if (args[i].equals("--enforce") && i + 1 < args.length) {
+            enforce = args[++i];
+          } else if (args[i].equals("--root") && i + 1 < args.length) {
+            root = args[++i];
+          } else {
+            throw new IOException("unknown option " + args[i]);
+          }
+        }
+        QuoteAdmission adm = new QuoteAdmission(AdmissionReference.load(Paths.get(args[2]), ""), QuoteAdmission.registers(enforce), QuoteAdmission.rootList(root), dates, java.time.Instant::now);
+        adm.check(b);
+        out.println("ADMIT   key id " + b.keyId + "   host " + b.host + "   " + adm.note(b));
         return 0;
       }
       if (args.length >= 2 && args[0].startsWith("bundle-")) {

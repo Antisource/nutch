@@ -24,8 +24,11 @@ import java.security.PublicKey;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.Consumer;
 
 /**
  * The public keys that this machine trusts for records: a folder of key bundles (*.attestkey), each of which must pass
@@ -41,12 +44,36 @@ final class KeyList {
   private volatile Map<String, KeyBundle> keys = Collections.emptyMap();
   private volatile List<String> rejected = Collections.emptyList();
   private volatile long loadedAt = -1;
+  private volatile Consumer<String> sink;
+  private final Set<String> reported = new HashSet<>();
 
   KeyList(Path dir, boolean allowUnquoted, BundleCheck extra, long ttlSeconds) {
     this.dir = dir;
     this.allowUnquoted = allowUnquoted;
     this.extra = extra;
     this.ttlMillis = ttlSeconds * 1000L;
+  }
+
+  /** Where the list reports each admission and each rejection (once per state), for the audit; null for no report. */
+  void setSink(Consumer<String> sink) {
+    this.sink = sink;
+  }
+
+  private void report(String line) {
+    Consumer<String> s = sink;
+    if (s == null) {
+      return;
+    }
+    synchronized (reported) {
+      if (!reported.add(line)) {
+        return;
+      }
+    }
+    try {
+      s.accept(line);
+    } catch (RuntimeException e) {
+      // the report is for people; the list does not depend on it
+    }
   }
 
   /** The public key of a trusted key id, or null. */
@@ -91,8 +118,10 @@ final class KeyList {
               throw new IOException("the file name does not say the key id " + b.keyId);
             }
             found.put(b.keyId, b);
+            report("ADMIT key=" + b.keyId + " host=" + b.host + (extra == null ? "" : " " + extra.note(b)));
           } catch (IOException e) {
             bad.add(f.getFileName() + ": " + e.getMessage());
+            report("REJECT file=" + f.getFileName() + " reason=" + String.valueOf(e.getMessage()).replace('\n', ' '));
           }
         }
       } catch (IOException e) {

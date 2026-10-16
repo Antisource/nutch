@@ -21,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Instant;
 import java.util.List;
 import org.apache.hadoop.conf.Configuration;
 
@@ -38,8 +39,40 @@ final class AttestedKeyFactory {
   static final String LIST_CACHE_KEY = "attested.keys.list.cache.seconds";
   static final String LIST_ALLOW_UNQUOTED_KEY = "attested.keys.list.allow.unquoted";
   static final String LIST_CHECK_CLASS_KEY = "attested.keys.list.check.class";
+  static final String LIST_AUDIT_FILE_KEY = "attested.keys.list.audit.file";
+  static final String ADMISSION_ENABLED_KEY = "attested.keys.admission.enabled";
+  static final String ADMISSION_REFERENCE_KEY = "attested.keys.admission.reference.file";
+  static final String ADMISSION_REFERENCE_SHA_KEY = "attested.keys.admission.reference.sha256";
+  static final String ADMISSION_ENFORCE_KEY = "attested.keys.admission.enforce";
+  static final String ADMISSION_ROOT_KEY = "attested.keys.admission.root.sha256";
+  static final String ADMISSION_DATES_KEY = "attested.keys.admission.check.dates";
+
+  /** The clock of the quote admission (the validity dates of the certificates); tests set it. */
+  static java.util.function.Supplier<Instant> clock = Instant::now;
 
   private AttestedKeyFactory() {
+  }
+
+  /** Both checks, in order; either may be null. */
+  static BundleCheck both(BundleCheck first, BundleCheck second) {
+    if (second == null) {
+      return first;
+    }
+    if (first == null) {
+      return second;
+    }
+    return new BundleCheck() {
+      @Override
+      public void check(KeyBundle b) throws IOException {
+        first.check(b);
+        second.check(b);
+      }
+
+      @Override
+      public String note(KeyBundle b) {
+        return (first.note(b) + " " + second.note(b)).trim();
+      }
+    };
   }
 
   /** "test" (the default) or "service". */
@@ -71,7 +104,27 @@ final class AttestedKeyFactory {
         throw new IOException(LIST_CHECK_CLASS_KEY + " names a class that cannot be used as a bundle check: " + cls + " (" + e + ")");
       }
     }
+    if (AttestedSettings.getBoolean(conf, ADMISSION_ENABLED_KEY, false, ignored)) {
+      String ref = AttestedSettings.get(conf, ADMISSION_REFERENCE_KEY, "", ignored).trim();
+      if (ref.isEmpty()) {
+        throw new IOException(ADMISSION_REFERENCE_KEY + " is needed when " + ADMISSION_ENABLED_KEY + " is true");
+      }
+      AdmissionReference reference = AdmissionReference.load(Paths.get(ref), AttestedSettings.get(conf, ADMISSION_REFERENCE_SHA_KEY, "", ignored).trim());
+      BundleCheck admission = new QuoteAdmission(reference, QuoteAdmission.registers(AttestedSettings.get(conf, ADMISSION_ENFORCE_KEY, QuoteAdmission.DEFAULT_ENFORCE, ignored)),
+          QuoteAdmission.rootList(AttestedSettings.get(conf, ADMISSION_ROOT_KEY, QuoteAdmission.INTEL_SGX_ROOT_SHA256, ignored)),
+          AttestedSettings.getBoolean(conf, ADMISSION_DATES_KEY, true, ignored), () -> clock.get());
+      extra = both(admission, extra);
+    }
     KeyList list = new KeyList(listDir, unquoted, extra, ttl);
+    Path auditFile = Paths.get(AttestedSettings.get(conf, LIST_AUDIT_FILE_KEY, listDir.toAbsolutePath().getParent() == null ? "keylist-audit.log"
+        : listDir.toAbsolutePath().getParent().resolve("keylist-audit.log").toString(), ignored).trim());
+    list.setSink(line -> {
+      try {
+        Files.write(auditFile, (Instant.now() + " " + line + "\n").getBytes(StandardCharsets.UTF_8), java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+      } catch (IOException e) {
+        // the audit file is for people; the list does not depend on it
+      }
+    });
     String address = AttestedSettings.get(conf, SERVICE_ADDRESS_KEY, "", ignored).trim();
     if (address.isEmpty()) {
       if (signOn) {
