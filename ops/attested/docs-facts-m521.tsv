@@ -40,7 +40,7 @@ docs/milestone-5-signed-records.md	each decision flips with one edit	evidence-m5
 docs/milestone-5-signed-records.md	each decision flips with one edit	evidence-m521/m521-realdata-console.txt	EDIT 3: pin another root certificate: no key is admitted (not one of the trusted roots)
 docs/milestone-5-signed-records.md	each decision flips with one edit	evidence-m521/m521-realdata-console.txt	EDIT 4: enforce rtmr3 (the reference has no RTMR3 lines): refused, fail closed, with the reason
 docs/milestone-5-signed-records.md	a quote changed by one bit of MRTD is refused	evidence-m521/m521-realdata-console.txt	one flipped bit in MRTD of both quotes: no key is admitted (the signature of the quote does not verify)
-docs/milestone-5-signed-records.md	RTMR3 is shown, not enforced	evidence-m521/m521-realdata-console.txt	rtmr3=0e137cc3e973(shown only)
+docs/milestone-5-signed-records.md	RTMR3 is shown, not enforced	@repo:ops/attested/AdmissionCoreTest.java	rtmr3=0e137cc3e973(shown only)
 docs/milestone-5-signed-records.md	**MRTD is the same on the two machines** (`c1ee9c16e3af…`)	evidence-m521/m521-realdata-console.txt	re:rtmr0=5e276dcf6867\(enforced\).*
 docs/milestone-5-signed-records.md	(`SOURCE-IDENTICAL`)	evidence-m521/master-tree-source-sha.txt	re:76d1fef1dc4f0898[0-9a-f]+\s+src/java/org/apache/nutch/attested/QuoteVerifier\.java
 docs/milestone-5-signed-records.md	(`m521tb` `1be67c3b…`)	evidence-m521/SHA256SUMS	re:1be67c3b0296665108bade813ea47367f5bebe7a1e3000be5d8d159ec34afae7\s+\./m521tb-files\.zip
