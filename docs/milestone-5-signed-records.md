@@ -1,6 +1,6 @@
 # Milestone 5: signed records
 
-Status: **steps 5.1.1 and 5.1.2 are done on 15 October 2026**: every record can be signed with a labelled test key, a file rewritten together with its record, without the key, fails the read (section 3), and every file is bound to its folder and its name, so that a signed file moved or copied elsewhere fails the read too (section 4); both are shown on the real HDFS. The combined crawl, with signing and folder binding on and required, ran on the real cluster the same day and its whole output verifies offline with the public key only (section 5). **Step 5.1.3, the real key, is done on 16 October 2026**: each VM makes its own signing key in the memory of a small signing service, the hardware quote vouches for exactly that key, and a crawl with the real keys verifies offline against a key list (section 6). Steps 5.2 and 5.3 are open ([milestone-plan.md](milestone-plan.md)). It is extended as the later steps close. All times are UTC.
+Status: **steps 5.1.1 and 5.1.2 are done on 15 October 2026**: every record can be signed with a labelled test key, a file rewritten together with its record, without the key, fails the read (section 3), and every file is bound to its folder and its name, so that a signed file moved or copied elsewhere fails the read too (section 4); both are shown on the real HDFS. The combined crawl, with signing and folder binding on and required, ran on the real cluster the same day and its whole output verifies offline with the public key only (section 5). **Step 5.1.3, the real key, is done on 16 October 2026**: each VM makes its own signing key in the memory of a small signing service, the hardware quote vouches for exactly that key, and a crawl with the real keys verifies offline against a key list (section 6). **Step 5.2.1, the admission of keys by their quote, has run on the master offline on 16 October 2026**: a key is trusted only if its hardware quote verifies in Java and its measurements are in an editable reference file; both real keys of run 15 are admitted and the whole run-15 output verifies with only admitted keys (section 7); its live window on the real VMs is still to come. The rest of step 5.2 and step 5.3 are open ([milestone-plan.md](milestone-plan.md)). It is extended as the later steps close. All times are UTC.
 
 ## 1. What this milestone does, in plain words
 
@@ -14,7 +14,7 @@ Until now every file in HDFS has a tamper sticker, its record. The sticker prove
 | 5.1.2 | folder identity files bind each file to its folder (ADR-035) | **Done on 15 October 2026** (section 4) |
 | 5.1.2b | the combined crawl with signing and folder binding on and required (`run14`) | **Done on 15 October 2026** (section 5) |
 | 5.1.3 | the real key: generated per VM at boot, held by a small signing service, bound to the quote through REPORTDATA | **Done on 16 October 2026** (section 6) |
-| 5.2.1 | readers accept only keys of attested machines | Open |
+| 5.2.1 | readers accept only keys of attested machines | **Done offline on 16 October 2026** (section 7); the live window is still to come |
 | 5.3 | locked image, fixed driver, TLS checking on | Open |
 
 ## 3. Step 5.1.1: signing the records with a test key
@@ -326,3 +326,69 @@ The cluster was reserved at 11:17:03. The master was opened at 11:17:42 and its 
 - A rehearsal fixture must be as large as the real thing: a check of a big archive that failed because of a broken pipe never showed on a small one (mistake log 114).
 - A tool needed by a step must be checked on every machine that runs the step, not only on the nodes (mistake log 113).
 - A helper used by a test must be compiled by the script that compiles the test (mistake log 112), and a script must look at the folder of the step that it belongs to (mistake log 115).
+
+
+## 7. Step 5.2.1: readers accept only keys of attested machines (16 October 2026)
+
+### 7.1 What it does
+
+Until now the key list trusted a key when its bundle was in the folder and its quote bound the key (the quote's `REPORTDATA` is the SHA-512 of the key statement). That proves that *somebody* put that statement into a quote, not that the quote is a genuine Intel-signed TDX quote: a fake quote of the right shape passes (the control in section 7.4 shows the same list without admission trusting a key whose quote is a 632-byte fake). Step 5.2.1 closes this. The key list now runs a second check on every bundle: the quote must be a **genuine TDX quote, verified offline in Java**, and the machine's measurements must be **allowed by a reference file**. After that, how a bundle arrives no longer matters for safety: a forged or altered bundle fails the checks by itself.
+
+### 7.2 The design
+
+| Part | What it is |
+|---|---|
+| `QuoteVerifier` | reads a TDX quote (version 4, ECDSA P-256) and verifies it without any network: the certificate chain inside the quote must lead to a pinned Intel root, the PCK certificate's key must have signed the quoting enclave's report, that report must name the attestation key, and the attestation key must have signed the quote's header and body |
+| `AdmissionReference` | the reference measurements: a plain text file, one line per allowed value (`REGISTER VALUE [HOST]`, with MRTD and RTMR0 to RTMR3, for one host or for any) |
+| `QuoteAdmission` | the check that the key list runs on every bundle through the hook of ADR-048: a genuine quote, and every **enforced** register allowed by the reference for the host of the key's statement; registers that are not enforced are shown in the audit and decide nothing |
+| The key list's audit | each admission (with the registers that were checked) and each rejection (with its reason) is written once to a file next to the list, so that a rejection is never silent |
+| The key tool | `quote-info` prints the registers of a bundle's quote, and `bundle-admit` admits a bundle against a reference |
+
+### 7.3 The decisions, and how to change each one
+
+Every decision is a setting in core-site.xml or a line of the reference file, so that the mentor can ask for a change and it is one edit (ADR-050 to ADR-052). Each row is shown to flip by a test.
+
+| Decision (default) | How to change it |
+|---|---|
+| Admission is off (`attested.keys.admission.enabled` false) | set it to true and give `attested.keys.admission.reference.file` |
+| Which registers must match (`attested.keys.admission.enforce` = `mrtd,rtmr0,rtmr1,rtmr2`) | change the list, for example add `rtmr3` once the reference has RTMR3 lines, or remove `rtmr1` |
+| What values are allowed | add or delete lines of the reference file; a line can name a host |
+| The trusted Intel root (`attested.keys.admission.root.sha256` = the SGX Root CA) | give another SHA-256, or several separated by commas |
+| Certificate dates (`attested.keys.admission.check.dates` true) | set it to false |
+| Locking the reference file (`attested.keys.admission.reference.sha256`, unset) | give the file's SHA-256; the wrapper then refuses to start if the file changed |
+| RTMR3 is shown, not enforced | add the RTMR3 lines to the reference and put `rtmr3` into the enforce setting; without the lines it fails closed, with the reason |
+
+### 7.4 How it was built and tested
+
+1. **In the sandbox:** 73 admission checks with **two real quotes of run 15 as test vectors**: both verify; one flipped bit in every part of a quote is found (the quote's signature, the header, MRTD, RTMR3, the attestation key, the quoting enclave's report, its signature and authentication data, and each certificate); a chain without a root, another machine's chain, certificate dates before and after validity, a wrong version, an SGX quote, a bad length, and a changed attestation key are refused; the reference file's errors are reported with line numbers; every decision of section 7.3 is shown to flip with one edit. **21 planted faults in the new code, all caught** (the first run left one survivor, the date setting, which was closed by a settable clock and two checks). The smoke test in fake mode passes **239 of 239** (4 new wrapper checks: with admission on, a key whose quote has no Intel chain is not trusted, even by its own writer; the control without admission trusts it), and the signing core (73 of 73) and the key core (68 of 68) are unchanged.
+2. **On the master, in a scratch clone** (the kit `m521-test`, 13:57:41): the fake-mode smoke test **239 of 239**, Hadoop's real committer with signing and binding **16 of 16**, the hash test **18 of 18**, **the real HDFS 237 of 237** (the 233 of step 5.1.3 plus the 4 new checks), the signing core **73 of 73**, the key core **68 of 68**, the admission core **73 of 73**.
+3. **The build** (`m521-build`, 13:59:10): the job `8f21a37f933ee2ca…` (134,909,332 bytes, built in 34 s) differs from the job of step 5.1.3 in 4 changed and 5 new classes, none unexpected; the wrapper jar `ef611d1260b3b427…` has 37 classes (32 before), and the built jar admits a real bundle of run 15.
+4. **The real-data check** (`m521-realdata`, 13:59:59, read-only, on the files of run 15 that are on the master): both real keys are admitted by their quotes; the **whole run-15 output verifies with only admitted keys** (the seeds folder, and the crawl output of 55 folders and 60 files); each decision flips with one edit; a quote changed by one bit of MRTD is refused.
+
+### 7.5 What the real quotes showed
+
+Both quotes are version 4 TDX quotes (tee type 0x81, ECDSA P-256) of 8,000 bytes, of which 4,935 are the quote and the rest is zero padding. Each carries a chain of three certificates: the PCK certificate of the physical processor, Intel's SGX PCK Platform CA, and Intel's SGX Root CA (valid until 2049), whose SHA-256 fingerprint is pinned in the code as the default. **MRTD is the same on the two machines** (`c1ee9c16e3af…`), RTMR0 to RTMR2 differ per machine (`036d0bf4b669…` and `5e276dcf6867…` for RTMR0), and RTMR3 differs. These are the values already documented for these machines.
+
+### 7.6 What it does not show
+
+- **Revocation lists, the TCB status and the quoting enclave's identity** need Intel's online collateral and are not checked offline; go-tdx-guest's `check` with the collateral on the laptop remains the second opinion (limitations row 117).
+- **The reference records what these two machines reported.** The firmware is the cloud provider's, so the file is a record, not an independent reference (row 118).
+- **RTMR3 is shown, not enforced:** the measured stack is therefore not yet proved by the quote (row 119).
+- **The admission has run on the real machines only offline** (real quotes, real data, on the master) and in the real-HDFS mode with fake quotes; the live wrapper with admission on the real signing services, and a rogue key refused live, are still to come in a short window (row 121).
+- The same-user limits of section 6.6 stay.
+
+### 7.7 Evidence and commits
+
+| Item | Value |
+|---|---|
+| The patch that was tested | `26469ac65ba3a1c4…` (12 files, against branch head `6051b375c`) |
+| The code commit | `feat(attested): admit keys by their quote: an offline TDX quote verifier, a reference file and an admission check for the key list (step 5.2.1)` (12 files: 7 new, 5 modified; two of the new files are the real bundles of run 15, used as test vectors) |
+| The kits commit | `feat(ops): add the test, build and real-data kits of the quote admission (step 5.2.1)` (`ops/kits/m521-test`, `m521-build`) |
+| Evidence bundle (outside the repository) | `evidence-m521` (`8b7a034a…`, 9 files): the three consoles, the two bundles of the scratch runs, the real-data results, both zips, and the check that the twelve source files of the tree that ran equal the source package (`SOURCE-IDENTICAL`) |
+| The files that ran | the scripts that ran on the master are the files of the kit zip that was delivered (`m521tb` `1be67c3b…`) |
+
+### 7.8 Lessons
+
+- A script that counts files must list them one by one: `git status` collapses a new folder into one line, and the rehearsal found that 22 had been counted instead of 23 (mistake log 117).
+- A setting is not tested until a test can see it change something: the date setting survived the first planted faults because the clock was not settable (mistake log 118).
+- A tool check in a non-interactive ssh command does not see the path of a login session; the real session was fine (mistake log 119).
