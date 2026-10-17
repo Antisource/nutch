@@ -1,0 +1,86 @@
+# Facts of step 5.2.2 (17 October 2026), tied to the evidence folders in the Cloud Shell home (evidence-m522c, evidence-m522, evidence-m522w), to the repository after the commits of step 5.2.2, and to the documents as committed with this list
+docs/milestone-5-signed-records.md	feat(attested): the doorman of the mesh: a node bundle, a policy table and an admission by quote (step 5.2.2)	@git-log	feat(attested): the doorman of the mesh: a node bundle, a policy table and an admission by quote (step 5.2.2)
+docs/milestone-5-signed-records.md	feat(ops): add the capture, test, build and window kits of the mesh doorman (step 5.2.2)	@git-log	feat(ops): add the capture, test, build and window kits of the mesh doorman (step 5.2.2)
+docs/milestone-5-signed-records.md	the strict parser of that bundle	@repo:src/java/org/apache/nutch/attested/NodeBundle.java	ATTESTED-NODE-STATEMENT 1
+docs/milestone-5-signed-records.md	`HOST MESH_IP [VPC_IP]`	@repo:src/java/org/apache/nutch/attested/MeshPolicy.java	expected HOST MESH_IP [VPC_IP]
+docs/milestone-5-signed-records.md	freshness (900 s, clock skew 60 s)	@repo:src/java/org/apache/nutch/attested/AttestedKeyTool.java	long maxAge = 900;
+docs/milestone-5-signed-records.md	freshness (900 s, clock skew 60 s)	@repo:src/java/org/apache/nutch/attested/AttestedKeyTool.java	long skew = 60;
+docs/milestone-5-signed-records.md	`node-admit` (one bundle) and `node-admit-all`	@repo:src/java/org/apache/nutch/attested/AttestedKeyTool.java	node-admit-all
+docs/milestone-5-signed-records.md	the variable `PORT` at the top of `wg1-node-up.sh`	@repo:ops/kits/m522-window/ops/attested/wg1-node-up.sh	PORT="${W1_PORT:-51821}"
+docs/milestone-5-signed-records.md	`admit` asks each host of the table	@repo:ops/kits/m522-window/ops/attested/mesh-admit.sh	MESH-ADMIT-OK
+docs/milestone-5-signed-records.md	`build` brings the test mesh up	@repo:ops/kits/m522-window/ops/attested/mesh-admit.sh	MESH-BUILD-OK
+docs/milestone-5-signed-records.md	(the kit `m522-test`, 09:25:31)	@repo:ops/kits/m522-test/ops/attested/m522-test.sh	M522-TEST-OK
+docs/milestone-5-signed-records.md	(`m522-build`, 09:27:01)	@repo:ops/kits/m522-build/ops/attested/m522-build.sh	M522B-BUILD-OK
+docs/milestone-5-signed-records.md	the capture script rehearses with 18 checks and 10 faults	@repo:ops/kits/m522-capture/ops/attested/node-attest-rehearse.sh	its 10 faults are all reported
+docs/milestone-5-signed-records.md	`node-attest.sh` (on a node)	@repo:ops/kits/m522-capture/ops/attested/node-attest.sh	NODE-ATTEST-OK
+docs/milestone-5-signed-records.md	**a rogue node with a fake quote is refused by the quote check alone**	@repo:ops/attested/NodeCoreTest.java	the quote is too short (632 bytes)
+docs/milestone-5-signed-records.md	62 node core checks with **two real node bundles as test vectors**	@repo:ops/attested/testdata/node-bundle-tdx-lab.attestnode	ATTESTED-NODE-BUNDLE 1
+docs/milestone-5-signed-records.md	the policy table	@repo:ops/attested/mesh-peers-m522.txt	tdx-lab-worker 10.20.0.2 10.128.0.5
+docs/milestone-5-signed-records.md	dated 08:14:27 (master, host `tdx-lab`, address 10.20.0.1)	evidence-m522c/extracted-tdx-lab/statement.txt	created=2026-10-17T08:14:27Z
+docs/milestone-5-signed-records.md	dated 08:14:27 (master, host `tdx-lab`, address 10.20.0.1)	evidence-m522c/extracted-tdx-lab/statement.txt	mesh-ip=10.20.0.1
+docs/milestone-5-signed-records.md	and 08:14:50 (worker, `tdx-lab-worker`, 10.20.0.2)	evidence-m522c/extracted-tdx-lab-worker/statement.txt	created=2026-10-17T08:14:50Z
+docs/milestone-5-signed-records.md	and 08:14:50 (worker, `tdx-lab-worker`, 10.20.0.2)	evidence-m522c/extracted-tdx-lab-worker/statement.txt	mesh-ip=10.20.0.2
+docs/milestone-5-signed-records.md	each quote is 8,000 bytes	evidence-m522c/m522c-capture-console-master.txt	quote=8000 bytes
+docs/milestone-5-signed-records.md	each quote is 8,000 bytes	evidence-m522c/m522c-capture-console-worker.txt	quote=8000 bytes
+docs/milestone-5-signed-records.md	the key file equals the key of the running `wg0`	evidence-m522c/m522c-capture-console-master.txt	is the key that the running wg0 uses
+docs/milestone-5-signed-records.md	the key file equals the key of the running `wg0`	evidence-m522c/m522c-capture-console-worker.txt	is the key that the running wg0 uses
+docs/milestone-5-signed-records.md	the capture script rehearses with 18 checks and 10 faults	evidence-m522c/m522c-rehearse-console-master.txt	REHEARSAL-PASS: the real script passes, and its 10 faults are all reported; 18 checks
+docs/milestone-5-signed-records.md	`m522c` `3568765a…`	evidence-m522c/SHA256SUMS	3568765ab5ee37e1f248c6d70f23a4dc201e111642e0b2205de0389ec8d4b31f  ./m522c-files.zip
+docs/milestone-5-signed-records.md	(the kit `m522-test`, 09:25:31)	evidence-m522/m522-test-console.txt	m522-test: 2026-10-17T09:25:31Z on tdx-lab
+docs/milestone-5-signed-records.md	the fake-mode smoke test **239 of 239**	evidence-m522/m522-test-console.txt	the fake-mode smoke test passes 239 of 239 checks
+docs/milestone-5-signed-records.md	Hadoop's real committer **16 of 16**	evidence-m522/m522-test-console.txt	re:mode mr-bound .*: ALL-PASS \(16 of 16
+docs/milestone-5-signed-records.md	the hash test **18 of 18**	evidence-m522/m522-test-console.txt	re:mode hash: ALL-PASS \(18 of 18
+docs/milestone-5-signed-records.md	**the real HDFS 237 of 237**	evidence-m522/m522-test-console.txt	re:mode hdfs \(the real HDFS\): ALL-PASS \(237 of 237
+docs/milestone-5-signed-records.md	the signing core **73 of 73**	evidence-m522/m522-test-console.txt	the signing core passes 73 of 73 checks
+docs/milestone-5-signed-records.md	the key core **68 of 68**	evidence-m522/m522-test-console.txt	the key core passes 68 of 68 checks
+docs/milestone-5-signed-records.md	the admission core **73 of 73**	evidence-m522/m522-test-console.txt	the admission core passes 73 of 73 checks
+docs/milestone-5-signed-records.md	the node core **62 of 62**	evidence-m522/m522-test-console.txt	the node core passes 62 of 62 checks
+docs/milestone-5-signed-records.md	the node core **62 of 62**	evidence-m522/m522-test-console.txt	M522-TEST-OK
+docs/milestone-5-signed-records.md	(`m522-build`, 09:27:01)	evidence-m522/m522b-build-console.txt	m522-build: 2026-10-17T09:27:01Z on tdx-lab
+docs/milestone-5-signed-records.md	built in 33 s	evidence-m522/m522b-build-console.txt	BUILD SUCCESSFUL in 33 s
+docs/milestone-5-signed-records.md	the job `ff73a7c281ac5299…` (134,921,739 bytes	evidence-m522/m522b-build-console.txt	re:new job:\s+ff73a7c281ac5299\.\.\.\s+134921739 bytes
+docs/milestone-5-signed-records.md	2 changed and 6 new classes, none unexpected	evidence-m522/m522b-build-console.txt	JOB-DIFF-ONLY-THE-PATCH (changed 2, new 6, removed 0, unexpected 0)
+docs/milestone-5-signed-records.md	the wrapper jar `77bbdda0a2b57028…` has 43 classes (37 before)	evidence-m522/m522b-build-console.txt	re:43 classes written; sha256 77bbdda0a2b57028
+docs/milestone-5-signed-records.md	the wrapper jar `77bbdda0a2b57028…` has 43 classes (37 before)	evidence-m522/m522b-build-console.txt	installed jar: 37 classes, new jar: 43 classes
+docs/milestone-5-signed-records.md	the built jar's doorman admits the two real node bundles	evidence-m522/m522b-build-console.txt	the built jar's doorman admits the two REAL node bundles of 17 October
+docs/milestone-5-signed-records.md	`m522tb` `56268956…`	evidence-m522/SHA256SUMS	56268956b5531eb035fe2ad5173703a401e33140647080a89d3d78b128cbfabe  ./m522tb-files.zip
+docs/milestone-5-signed-records.md	with `SOURCE-IDENTICAL` for the nine source files	evidence-m522/master-tree-source-sha.txt	re:[0-9a-f]{64}\s+src/java/org/apache/nutch/attested/NodeBundle\.java
+docs/milestone-5-signed-records.md	`admit` at 10:01:17	evidence-m522w/m522-admit-console.txt	mesh-admit admit: 2026-10-17T10:01:17Z
+docs/milestone-5-signed-records.md	**admitted both nodes and refused a rogue node** (`the quote is too short (632 bytes)`)	evidence-m522w/m522-admit-console.txt	REJECT-NODE rogue-node.attestnode: the quote is too short (632 bytes)
+docs/milestone-5-signed-records.md	**admitted both nodes and refused a rogue node** (`the quote is too short (632 bytes)`)	evidence-m522w/m522-admit-console.txt	NODES 2 admitted, 1 refused
+docs/milestone-5-signed-records.md	**admitted both nodes and refused a rogue node** (`the quote is too short (632 bytes)`)	evidence-m522w/m522-admit-console.txt	ADMIT-NODE host=tdx-lab-worker
+docs/milestone-5-signed-records.md	and only it	evidence-m522w/m522-admit-console.txt	the rogue node was REFUSED by the quote check ('the quote is too short'), and only it
+docs/milestone-5-signed-records.md	`build` at 10:02:04	evidence-m522w/m522-build-console.txt	mesh-admit build: 2026-10-17T10:02:04Z
+docs/milestone-5-signed-records.md	**the key that `wg1` runs is the key that the quote attested**	evidence-m522w/m522-build-console.txt	the key that wg1 runs is the key that the quote attested (dQWkCJ+KKL...)
+docs/milestone-5-signed-records.md	the peers are exactly the admitted ones	evidence-m522w/m522-build-console.txt	wg1 has exactly the admitted peers and no other
+docs/milestone-5-signed-records.md	each node reaches the other (3 of 3 packets)	evidence-m522w/m522-build-console.txt	tdx-lab reaches tdx-lab-worker over wg1 (10.20.0.2): 3 received
+docs/milestone-5-signed-records.md	the peers have handshaken	evidence-m522w/m522-build-console.txt	every peer has made a handshake
+docs/milestone-5-signed-records.md	**`wg0` is untouched**	evidence-m522w/m522-build-console.txt	wg0 is untouched (same peers as before)
+docs/milestone-5-signed-records.md	`down` at 10:05:05	evidence-m522w/m522-down-console.txt	mesh-admit down: 2026-10-17T10:05:05Z
+docs/milestone-5-signed-records.md	`down` at 10:05:05	evidence-m522w/m522-down-console.txt	MESH-DOWN-OK
+docs/milestone-5-signed-records.md	`ALL-UNCHANGED` (9 components on the master, 6 on the worker)	evidence-m522w/m522-aftercheck-console.txt	ALL-UNCHANGED (9 components checked)
+docs/milestone-5-signed-records.md	`ALL-UNCHANGED` (9 components on the master, 6 on the worker)	evidence-m522w/m522-aftercheck-console.txt	ALL-UNCHANGED (6 components checked)
+docs/milestone-5-signed-records.md	go-tdx-guest's `check` verified the Intel signature chain of the two fresh quotes	evidence-m522w/quote-check-m522w-laptop.txt	TDX Quote verified successfully
+docs/milestone-5-signed-records.md	The Google firewall already allows UDP between the two machines (`default-allow-internal`)	evidence-m522w/firewall-rules.txt	ALLOW: tcp:0-65535,udp:0-65535,icmp
+docs/milestone-5-signed-records.md	my check of the measured stack said `SOMETHING-CHANGED` on the master	evidence-m522w/m522-check-unchanged-master.txt	SOMETHING-CHANGED
+docs/milestone-5-signed-records.md	the master was `ALL-UNCHANGED` (9 components)	evidence-m522w/m522-precheck-console.txt	ALL-UNCHANGED (9 components checked)
+docs/milestone-5-signed-records.md	`m522w` `813e2c16…`	evidence-m522w/SHA256SUMS	813e2c16fecf7f069e4b55381ae3202012e703ea8bb167f9573253629a0a4284  ./m522w-files.zip
+docs/milestone-5-signed-records.md	rehearsal of the scripts (29 checks, 15 faults	evidence-m522w/m522w-selftest-console.txt	REHEARSAL-PASS: the real scripts and the real doorman pass, a rogue node is refused and never becomes a peer, and the 15 faults are all reported; 29 checks
+docs/milestone-5-signed-records.md	(ADR-053 to ADR-055)	@docs:docs/decisions.md	## ADR-053: A node is bound to its hardware by a quote
+docs/milestone-5-signed-records.md	(ADR-053 to ADR-055)	@docs:docs/decisions.md	## ADR-055: The first proof is on a separate test mesh
+docs/milestone-5-signed-records.md	(limitations row 125)	@docs:docs/limitations-and-trust.md	| 125 | The operator is the trust root of the doorman
+docs/milestone-5-signed-records.md	(row 126)	@docs:docs/limitations-and-trust.md	| 126 | The WireGuard private key is on the node's disk
+docs/milestone-5-signed-records.md	(row 127)	@docs:docs/limitations-and-trust.md	| 127 | The admission is a decision made once
+docs/milestone-5-signed-records.md	(row 128)	@docs:docs/limitations-and-trust.md	| 128 | The production mesh `wg0` still has the static keys
+docs/milestone-5-signed-records.md	(row 129)	@docs:docs/limitations-and-trust.md	| 129 | A genuine statement and quote can be replayed
+docs/milestone-5-signed-records.md	(row 130)	@docs:docs/limitations-and-trust.md	| 130 | A real machine with other measurements was not available
+docs/milestone-5-signed-records.md	(mistake log 125)	@docs:docs/guide-pitfalls-and-lessons.md	| 125 | Process | The first capture stopped on both nodes
+docs/milestone-5-signed-records.md	(mistake log 126)	@docs:docs/guide-pitfalls-and-lessons.md	| 126 | Process | The fetch block failed
+docs/milestone-5-signed-records.md	(mistake log 127)	@docs:docs/guide-pitfalls-and-lessons.md	| 127 | Tests | A script that calls `gcloud compute ssh`
+docs/milestone-5-signed-records.md	(mistake log 128)	@docs:docs/guide-pitfalls-and-lessons.md	| 128 | Process | The check of the measured stack said
+docs/milestone-5-signed-records.md	(mistake log 129)	@docs:docs/guide-pitfalls-and-lessons.md	| 129 | Tests | The rehearsals of this step needed four repairs
+docs/milestone-plan.md	([milestone-5](milestone-5-signed-records.md) section 9, ADR-053 to ADR-055)	@docs:docs/milestone-5-signed-records.md	## 9. Step 5.2.2: the doorman of the mesh (17 October 2026)
+docs/session-start.md	([milestone-5-signed-records.md](milestone-5-signed-records.md) section 9, ADR-053 to ADR-055)	@docs:docs/milestone-5-signed-records.md	## 9. Step 5.2.2: the doorman of the mesh (17 October 2026)
+docs/cluster-configuration.md	the report is [milestone-5-signed-records.md](milestone-5-signed-records.md) section 9	@docs:docs/milestone-5-signed-records.md	## 9. Step 5.2.2: the doorman of the mesh (17 October 2026)
+docs/cluster-configuration.md	the capture at 08:14 (the statements are dated 08:14:27 and 08:14:50)	evidence-m522c/extracted-tdx-lab/statement.txt	created=2026-10-17T08:14:27Z
+docs/cluster-configuration.md	the admission at 10:01:17, the build of `wg1` at 10:02:04, `wg1` taken down at 10:05:05	evidence-m522w/m522-admit-console.txt	2026-10-17T10:01:17Z
