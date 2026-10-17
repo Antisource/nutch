@@ -439,3 +439,18 @@ To count what the NodeManager read through the wrapper, on the worker: `cat /tmp
 | Folders | state in `~/m521w/window` while open, then `~/m521w/window-closed-<role>-<time>`; on the master the kit in `~/m521wkit`, `~/m521l` (the live results), `~/m521`, `~/m521b`, `~/m521r`; on the worker `~/m521-new-jar.jar` |
 | Current state | **measured stack on both nodes**; the window is closed; no signing service runs; the test key `TEST-37c2a6aa…` is still in `~/tc-test-key` on both nodes (unused) |
 | Kit | `ops/kits/m521-window`; the report is [milestone-5-signed-records.md](milestone-5-signed-records.md) section 8 |
+
+
+## 27. The test mesh run (17 October 2026, step 5.2.2)
+
+| Item | Value |
+|---|---|
+| What it is | the doorman proven on a separate test mesh `wg1` (10.20.0.0/24, UDP 51821) on the two nodes; **not a window**: no jar was swapped, no daemon restarted and no setting changed |
+| Times | the capture at 08:14 (the statements are dated 08:14:27 and 08:14:50), the test and the build on the master at 09:25:31 and 09:27:01, the admission at 10:01:17, the build of `wg1` at 10:02:04, `wg1` taken down at 10:05:05 |
+| The keys | each node's own WireGuard key (master `dQWkCJ+KKLMy…`, worker `mgzs+5CcDcTK…`), the keys that production `wg0` also uses; the node bundles are public and are in the evidence |
+| The policy table | `ops/attested/mesh-peers-m522.txt` in the repository: `tdx-lab` 10.20.0.1 (VPC 10.128.0.2), `tdx-lab-worker` 10.20.0.2 (VPC 10.128.0.5) |
+| The Google firewall | `default-allow-internal` allows all TCP and UDP from `10.128.0.0/9`, so no rule was added |
+| What stays on the nodes | the capture kit `~/m522ckit` on both nodes; on the master `~/m522tbkit`, `~/m522`, `~/m522b` (the job `ff73a7c281ac5299…` and the jar `77bbdda0a2b57028…`, not installed anywhere); the bundles `~/node-bundle-<host>.attestnode`; `wg1` and its config are gone |
+| Current state | **measured stack on both nodes** (`ALL-UNCHANGED`, 9 and 6 components); `wg0` has its one peer; no `wg1`; no signing service runs |
+| The check of the measured stack | on the master it needs `NUTCH_DIR=$HOME/m481/patched`, as every window sets it (the check's own default is `~/ccbot-work/nutch-cc`) |
+| Kits | `ops/kits/m522-capture`, `ops/kits/m522-test`, `ops/kits/m522-build`, `ops/kits/m522-window`; the report is [milestone-5-signed-records.md](milestone-5-signed-records.md) section 9 |

@@ -58,6 +58,9 @@ Times are UTC.
 | 050 | A key is admitted by its quote, verified offline in Java inside the key list | Accepted (the recommended defaults, the mentor not having answered) |
 | 051 | "Attested" means a genuine quote and MRTD and RTMR0 to RTMR2 allowed by an editable reference file; RTMR3 is shown, not enforced | Accepted |
 | 052 | What is not checked offline, and how a rejection and the bundle delivery are handled | Accepted |
+| 053 | A node is bound to its hardware by a quote over its WireGuard public key and the mesh address it asks for | Accepted (the recommended defaults, the mentor not having answered) |
+| 054 | The doorman decides in a fixed order and reuses the verifier and the reference file of step 5.2.1 | Accepted |
+| 055 | The first proof is on a separate test mesh with the operator as the trust root; removal is by hand | Accepted |
 
 ---
 
@@ -487,3 +490,29 @@ Times are UTC.
 - **Decision:** (1) revocation lists, the TCB status and the quoting enclave's identity need Intel's online collateral and are not checked by the wrapper; (2) every admission, with the registers checked, and every rejection, with its reason, is written once to `attested.keys.list.audit.file` (default `keylist-audit.log` next to the list), a separate file so that the analysis tools never meet an unknown line; (3) the bundles are still delivered by the Cloud Shell script, because the checks make the delivery path irrelevant for safety.
 - **How to change it:** to add the collateral checks, add a second `BundleCheck` through `attested.keys.list.check.class` (the factory runs it after the admission); to change the audit file, set its setting; to automate the delivery, replace the script and nothing else.
 - **Consequences:** limitations rows 117 to 122.
+
+
+## ADR-053: A node is bound to its hardware by a quote over its WireGuard public key and the mesh address it asks for
+
+- **Date:** 17 October 2026. **Status:** accepted. It carries out the rest of step 5.2 of the plan (mesh admission only after verifying a peer's quote).
+- **Context:** the mesh of Milestone 2 trusts static WireGuard keys that an operator writes into a configuration; nothing says that the machine behind a key is a genuine measured machine.
+- **Decision:** on the node, `node-attest.sh` builds a statement (`ATTESTED-NODE-STATEMENT 1`: host, the WireGuard public key, the requested mesh address, the time, a random nonce) and asks the TDX guest for a quote whose REPORTDATA is the SHA-512 of the statement bytes, the rule of the signing keys' bundles (ADR-047); the statement and the quote are the node bundle. The public key is read with sudo (the folder `/etc/wireguard` is root only) and must equal the key of the running interface.
+- **Why:** the quote then proves that a genuine machine presented exactly this key now; a copied key cannot be bound to another machine's quote.
+- **How to change it:** the statement's fields are one place (`node-attest.sh` writes them, `NodeBundle` reads them); adding a field is a change of both and of the tag.
+- **Consequences:** the private key stays on the node's disk (limitations row 126).
+
+## ADR-054: The doorman decides in a fixed order and reuses the verifier and the reference file of step 5.2.1
+
+- **Date:** 17 October 2026. **Status:** accepted.
+- **Decision:** `MeshAdmission` checks, cheapest first and refusing at the first problem: (1) the binding of the quote to the statement, (2) the policy table (the host is listed and asks for exactly the address that the table gives it), (3) freshness (at most 900 s old, at most 60 s in the future), and (4) the genuine-quote and reference check of step 5.2.1 (`QuoteAdmission`), with the same reference file, enforce list, root and date options; a host or a mesh key is admitted once only per run; every decision is written to an audit file with its reason.
+- **Why:** one verifier and one reference file mean one place for the policy; the address comes from the table so a node cannot claim another's.
+- **How to change it:** the policy table, the reference file and the options named in report section 9.3; the order of the checks is in `MeshAdmission.admit`.
+- **Consequences:** the quote's online collateral is still not checked (ADR-052).
+
+## ADR-055: The first proof is on a separate test mesh with the operator as the trust root; removal is by hand
+
+- **Date:** 17 October 2026. **Status:** accepted.
+- **Decision:** the admitted nodes are brought up as peers of a separate test interface `wg1` (10.20.0.0/24, UDP 51821) so that the production mesh `wg0` and Hadoop are never touched; the doorman runs from Cloud Shell like the mesh scripts of Milestone 2, so the operator is the trust root; removing a node is by hand (take `wg1` down, or delete the peer) and is written to the audit; the build proves the key in use, the peers, the reachability, the handshakes and that `wg0` is unchanged.
+- **Why:** a proof that cannot damage production, with the same code that would later run for production.
+- **How to change it:** to adopt the doorman for `wg0`, run the same scripts with another interface name and the production port and addresses (the mentor's decision); to move the doorman off Cloud Shell, run `mesh-admit.sh` where the jar and `gcloud` are.
+- **Consequences:** limitations rows 125, 127 and 128.
