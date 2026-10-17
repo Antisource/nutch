@@ -38,6 +38,7 @@ Plan and decisions: `docs/milestone-plan.md`, `docs/decisions.md` (ADR-034 to AD
 
 ## How we work (the rules that proved their worth)
 
+- **Look at the repository before every commit, and never work from memory.** Fetch the branch and run `ops/attested/preflight.sh`: it refuses unless the working copy is at the latest commit on GitHub, every status summary says what `ops/attested/docs-status-expected.tsv` requires, and no earlier facts list has changed its result. It is mandatory before a package of code or documents is built, and again after the commit.
 - **Evidence first.** A claim in a document is checked against the evidence by a facts list (`docs_facts_check.py`); a document is committed only after that check passes.
 - **Code and documents in separate, gated commits.** Each gate checks the head, the base files and the exact content before it commits and pushes, and a GitHub check follows.
 - **Small steps with a pass condition**, rehearsed first with stand-ins, then run on the cluster; each real run is saved as a bundle and checked on the laptop.

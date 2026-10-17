@@ -19,3 +19,6 @@ docs/cluster-configuration.md	must	## 27. The test mesh run (17 October 2026, st
 docs/decisions.md	must	## ADR-055: The first proof is on a separate test mesh
 *	mustnot	5.2 and 5.3 open
 *	mustnot	5.2.2 is open
+docs/session-start.md	must	**Look at the repository before every commit, and never work from memory.**
+docs/guide-pitfalls-and-lessons.md	must	36. **Before any commit of code or documents, look at the actual repository, not at memory.**
+docs/guide-pitfalls-and-lessons.md	line	| 131 |	preflight.sh
