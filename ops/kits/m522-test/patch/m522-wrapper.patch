@@ -1,0 +1,743 @@
+diff --git a/ops/attested/NodeCoreTest.java b/ops/attested/NodeCoreTest.java
+new file mode 100644
+index 000000000..08bdf613c
+--- /dev/null
++++ b/ops/attested/NodeCoreTest.java
+@@ -0,0 +1,216 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.nutch.attested;
++
++import java.io.ByteArrayOutputStream;
++import java.io.IOException;
++import java.io.PrintStream;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.nio.file.Paths;
++import java.security.MessageDigest;
++import java.time.Instant;
++import java.util.Arrays;
++import java.util.Base64;
++import java.util.Collections;
++import java.util.List;
++
++/**
++ * Tests of the doorman of step 5.2.2: two REAL node bundles (made on the two real nodes on 17 October 2026, quotes verified with go-tdx-guest on the laptop) are the test vectors. Every part of the
++ * decision is shown to refuse what it should: the binding, the policy table, the freshness, the quote's chain and the reference, and a rogue node with a fake quote is refused by the quote check alone.
++ */
++public final class NodeCoreTest {
++  static int pass = 0;
++  static int fail = 0;
++
++  static void chk(String what, boolean ok) {
++    if (ok) { pass++; System.out.println("  pass: " + what); } else { fail++; System.out.println("  FAIL: " + what); }
++  }
++
++  interface Thrower { void run() throws Exception; }
++
++  static boolean refuses(Thrower t, String text) {
++    try { t.run(); return false; } catch (Exception e) { return e.getMessage() != null && e.getMessage().contains(text); }
++  }
++
++  static boolean accepts(Thrower t) {
++    try { t.run(); return true; } catch (Exception e) { System.out.println("      unexpected: " + e.getMessage()); return false; }
++  }
++
++  static byte[] bundleFile(String tag, byte[] statement, byte[] quote) {
++    return (tag + "\nstatement=" + Base64.getEncoder().encodeToString(statement) + "\nquote=" + Base64.getEncoder().encodeToString(quote) + "\n").getBytes(StandardCharsets.UTF_8);
++  }
++
++  static NodeBundle withStatement(NodeBundle real, String statement) throws IOException {
++    return NodeBundle.decode(bundleFile(NodeBundle.TAG, statement.getBytes(StandardCharsets.UTF_8), real.quote));
++  }
++
++  static byte[] fakeQuote(byte[] statement) throws Exception {
++    byte[] q = new byte[632]; q[0] = 4;
++    System.arraycopy(MessageDigest.getInstance("SHA-512").digest(statement), 0, q, 568, 64);
++    return q;
++  }
++
++  static String stmt(NodeBundle b) { return new String(b.statement, StandardCharsets.UTF_8); }
++
++  static MeshPolicy policyOf(Path tmp, String name, String text) throws IOException {
++    Path f = tmp.resolve(name); Files.write(f, text.getBytes(StandardCharsets.UTF_8)); return MeshPolicy.load(f);
++  }
++
++  static MeshAdmission door(QuoteAdmission qa, MeshPolicy pol, long maxAge, long skew, Instant now) {
++    return new MeshAdmission(MeshAdmission.of(qa), pol, maxAge, skew, () -> now);
++  }
++
++  public static void main(String[] args) throws Exception {
++    Path vec = Paths.get(System.getProperty("m522.vectors", "ops/attested/testdata"));
++    Path realRef = Paths.get(System.getProperty("m522.reference", "ops/attested/reference-measurements-m521.txt"));
++    Path tmp = Files.createTempDirectory("node");
++    byte[] mFile = Files.readAllBytes(vec.resolve("node-bundle-tdx-lab.attestnode")); byte[] wFile = Files.readAllBytes(vec.resolve("node-bundle-tdx-lab-worker.attestnode"));
++    NodeBundle m = NodeBundle.decode(mFile); NodeBundle w = NodeBundle.decode(wFile);
++    MeshPolicy pol = policyOf(tmp, "policy.txt", "# test\ntdx-lab 10.20.0.1 10.128.0.2\ntdx-lab-worker 10.20.0.2 10.128.0.5\n");
++    AdmissionReference ref = AdmissionReference.load(realRef, "");
++    QuoteAdmission qa = new QuoteAdmission(ref, QuoteAdmission.registers(QuoteAdmission.DEFAULT_ENFORCE), Collections.singleton(QuoteAdmission.INTEL_SGX_ROOT_SHA256), true, () -> m.created.plusSeconds(300));
++    Instant now = m.created.plusSeconds(300);
++    MeshAdmission ok = door(qa, pol, 900, 60, now);
++
++    System.out.println("== 1. two REAL node bundles");
++    chk("the master's bundle: host, mesh key, mesh address and time as captured", m.host.equals("tdx-lab") && m.meshPublic.equals("dQWkCJ+KKLMy5rCT0r6jnD7E5R0Du8UppXFkLORZoRA=") && m.meshIp.equals("10.20.0.1") && m.created.equals(Instant.parse("2026-10-17T08:14:27Z")));
++    chk("the worker's bundle: host, mesh key, mesh address and time as captured", w.host.equals("tdx-lab-worker") && w.meshPublic.equals("mgzs+5CcDcTKx0dnechOgH/Sxxv6sADipwM0e9bXr2Y=") && w.meshIp.equals("10.20.0.2") && w.created.equals(Instant.parse("2026-10-17T08:14:50Z")));
++    chk("each quote's REPORTDATA is the SHA-512 of its statement", accepts(m::checkBinding) && accepts(w::checkBinding));
++    chk("the two machines have different mesh keys and different nonces", !m.meshPublic.equals(w.meshPublic) && !m.nonce.equals(w.nonce));
++
++    System.out.println("== 2. the doorman admits both real nodes (5 minutes after the capture)");
++    MeshAdmission.Admitted am = ok.admit(m); MeshAdmission.Admitted aw = ok.admit(w);
++    chk("the master is admitted with its table address and VPC address", am.host.equals("tdx-lab") && am.meshIp.equals("10.20.0.1") && am.vpcIp.equals("10.128.0.2"));
++    chk("the worker is admitted with its table address and VPC address", aw.host.equals("tdx-lab-worker") && aw.meshIp.equals("10.20.0.2") && aw.vpcIp.equals("10.128.0.5"));
++    chk("the audit note names the registers that were enforced", am.note.contains("mrtd=c1ee9c16e3af(enforced)") && aw.note.contains("rtmr0=5e276dcf6867(enforced)"));
++
++    System.out.println("== 3. a statement changed after the quote was made: the binding refuses it");
++    String ms = stmt(m);
++    chk("the worker's mesh key put into the master's statement (the key swap that the step exists to stop)", refuses(() -> ok.admit(withStatement(m, ms.replace(m.meshPublic, w.meshPublic))), "REPORTDATA is not the SHA-512 of the statement"));
++    chk("another mesh address (10.20.0.1 became 10.20.0.9)", refuses(() -> ok.admit(withStatement(m, ms.replace("10.20.0.1", "10.20.0.9"))), "REPORTDATA is not the SHA-512 of the statement"));
++    chk("another host name", refuses(() -> ok.admit(withStatement(m, ms.replace("host=tdx-lab\n", "host=tdx-lab-worker\n"))), "REPORTDATA is not the SHA-512 of the statement"));
++    chk("a newer time (to make an old statement look fresh)", refuses(() -> ok.admit(withStatement(m, ms.replace("2026-10-17T08:14:27Z", "2026-10-17T08:19:27Z"))), "REPORTDATA is not the SHA-512 of the statement"));
++    byte[] badRd = m.quote.clone(); badRd[570] ^= 1;
++    chk("one flipped bit in the quote's REPORTDATA", refuses(() -> ok.admit(NodeBundle.decode(bundleFile(NodeBundle.TAG, m.statement, badRd))), "REPORTDATA is not the SHA-512 of the statement"));
++    chk("a quote too short to hold a REPORTDATA", refuses(() -> ok.admit(NodeBundle.decode(bundleFile(NodeBundle.TAG, m.statement, Arrays.copyOf(m.quote, 100)))), "too short"));
++
++    System.out.println("== 4. a quote changed after it was signed (the binding still holds, the signature does not)");
++    byte[] badMrtd = m.quote.clone(); badMrtd[184] ^= 1;
++    chk("one flipped bit in MRTD", refuses(() -> ok.admit(NodeBundle.decode(bundleFile(NodeBundle.TAG, m.statement, badMrtd))), "signature of the quote does not verify"));
++    byte[] badSig = m.quote.clone(); badSig[641] ^= 1;
++    chk("one flipped bit in the quote's signature", refuses(() -> ok.admit(NodeBundle.decode(bundleFile(NodeBundle.TAG, m.statement, badSig))), "signature of the quote does not verify"));
++
++    System.out.println("== 5. freshness (made 2026-10-17T08:14:27Z, limit 900 s, skew 60 s)");
++    chk("exactly at the limit (900 s) is admitted", accepts(() -> door(qa, pol, 900, 60, m.created.plusSeconds(900)).admit(m)));
++    chk("one second past the limit is stale, and the message gives both numbers", refuses(() -> door(qa, pol, 900, 60, m.created.plusSeconds(901)).admit(m), "it was made 901 s ago and the limit is 900 s"));
++    chk("a clock 59 s behind the node is within the skew", accepts(() -> door(qa, pol, 900, 60, m.created.minusSeconds(59)).admit(m)));
++    chk("a statement dated more than the skew in the future is refused", refuses(() -> door(qa, pol, 900, 60, m.created.minusSeconds(61)).admit(m), "dated in the future"));
++    chk("EDIT: a longer limit (3600 s) admits a statement that is an hour old", accepts(() -> door(qa, pol, 3600, 60, m.created.plusSeconds(3600)).admit(m)));
++
++    System.out.println("== 6. the policy table decides the host and the address");
++    MeshPolicy only = policyOf(tmp, "only-worker.txt", "tdx-lab-worker 10.20.0.2\n");
++    chk("a host that is not in the table is refused", refuses(() -> door(qa, only, 900, 60, now).admit(m), "tdx-lab is not in the mesh policy table"));
++    MeshPolicy other = policyOf(tmp, "other-ip.txt", "tdx-lab 10.20.0.5\ntdx-lab-worker 10.20.0.2\n");
++    chk("an address that the table does not give to the host is refused, naming both", refuses(() -> door(qa, other, 900, 60, now).admit(m), "asks for the mesh address 10.20.0.1 but the policy table gives it 10.20.0.5"));
++    chk("a policy line without a VPC address is allowed (the address is then empty)", policyOf(tmp, "novpc.txt", "tdx-lab 10.20.0.1\n").vpcIp("tdx-lab").isEmpty());
++    chk("a policy file with a bad line is refused with its line number", refuses(() -> policyOf(tmp, "p1.txt", "tdx-lab 10.20.0.1\nbad\n"), "mesh policy line 2: expected HOST MESH_IP"));
++    chk("a host listed twice is refused", refuses(() -> policyOf(tmp, "p2.txt", "a 10.20.0.1\na 10.20.0.2\n"), "listed twice"));
++    chk("one address given to two hosts is refused", refuses(() -> policyOf(tmp, "p3.txt", "a 10.20.0.1\nb 10.20.0.1\n"), "given to two hosts"));
++    chk("a bad address is refused", refuses(() -> policyOf(tmp, "p4.txt", "a 10.20.0.256\n"), "bad address"));
++    chk("an empty policy is refused", refuses(() -> policyOf(tmp, "p5.txt", "# nothing\n"), "lists no host"));
++    chk("a missing policy file is refused", refuses(() -> MeshPolicy.load(tmp.resolve("nowhere.txt")), "cannot be read"));
++
++    System.out.println("== 7. the reference and the root, as in step 5.2.1");
++    String good = new String(Files.readAllBytes(realRef), StandardCharsets.UTF_8);
++    Path wrongRef = tmp.resolve("wrong-ref.txt"); Files.write(wrongRef, good.replaceFirst("MRTD [0-9a-f]{96}", "MRTD " + "ab".repeat(48)).getBytes(StandardCharsets.UTF_8));
++    QuoteAdmission qaWrong = new QuoteAdmission(AdmissionReference.load(wrongRef, ""), QuoteAdmission.registers(QuoteAdmission.DEFAULT_ENFORCE), Collections.singleton(QuoteAdmission.INTEL_SGX_ROOT_SHA256), true, () -> now);
++    chk("EDIT 1: one changed MRTD in the reference refuses the node, and names MRTD", refuses(() -> door(qaWrong, pol, 900, 60, now).admit(m), "MRTD of tdx-lab is c1ee9c16e3af..."));
++    QuoteAdmission qaNoMrtd = new QuoteAdmission(AdmissionReference.load(wrongRef, ""), QuoteAdmission.registers("rtmr0,rtmr1,rtmr2"), Collections.singleton(QuoteAdmission.INTEL_SGX_ROOT_SHA256), true, () -> now);
++    chk("EDIT 2: mrtd out of the enforce list admits it again", accepts(() -> door(qaNoMrtd, pol, 900, 60, now).admit(m)));
++    QuoteAdmission qaRoot = new QuoteAdmission(ref, QuoteAdmission.registers(QuoteAdmission.DEFAULT_ENFORCE), Collections.singleton("11".repeat(32)), true, () -> now);
++    chk("EDIT 3: another trusted root refuses it", refuses(() -> door(qaRoot, pol, 900, 60, now).admit(m), "not one of the trusted roots"));
++    QuoteAdmission qaLate = new QuoteAdmission(ref, QuoteAdmission.registers(QuoteAdmission.DEFAULT_ENFORCE), Collections.singleton(QuoteAdmission.INTEL_SGX_ROOT_SHA256), true, () -> Instant.parse("2034-01-01T00:00:00Z"));
++    chk("EDIT 4: after the certificates expired the quote is refused, and with dates off it is admitted", refuses(() -> door(qaLate, pol, 900, 60, now).admit(m), "certificate chain") && accepts(() -> door(new QuoteAdmission(ref, QuoteAdmission.registers(QuoteAdmission.DEFAULT_ENFORCE), Collections.singleton(QuoteAdmission.INTEL_SGX_ROOT_SHA256), false, () -> Instant.parse("2034-01-01T00:00:00Z")), pol, 900, 60, now).admit(m)));
++    String swapped = good.replaceFirst("RTMR0 (" + "[0-9a-f]{96}" + ") tdx-lab\\n", "RTMR0 $1 tdx-lab-worker\\n");
++    Path swapRef = tmp.resolve("swap-ref.txt"); StringBuilder sw = new StringBuilder();
++    for (String line : good.split("\\n")) { if (line.startsWith("RTMR0 ") && line.endsWith(" tdx-lab")) { sw.append(line.replace(" tdx-lab", " tdx-lab-worker")).append("\n"); } else if (line.startsWith("RTMR0 ") && line.endsWith(" tdx-lab-worker")) { sw.append(line.replace(" tdx-lab-worker", " tdx-lab")).append("\n"); } else { sw.append(line).append("\n"); } }
++    Files.write(swapRef, sw.toString().getBytes(StandardCharsets.UTF_8));
++    QuoteAdmission qaSwap = new QuoteAdmission(AdmissionReference.load(swapRef, ""), QuoteAdmission.registers(QuoteAdmission.DEFAULT_ENFORCE), Collections.singleton(QuoteAdmission.INTEL_SGX_ROOT_SHA256), true, () -> now);
++    chk("EDIT 5: the RTMR0 values put on the other host's lines (the reference is per host): the master is refused, naming RTMR0 of tdx-lab", refuses(() -> door(qaSwap, pol, 900, 60, now).admit(m), "RTMR0 of tdx-lab is 036d0bf4b669"));
++
++    System.out.println("== 8. a rogue node with a fake quote is refused by the quote check alone");
++    String rogueText = "ATTESTED-NODE-STATEMENT 1\nhost=tdx-lab\nmesh-public=" + "A".repeat(43) + "=\nmesh-ip=10.20.0.1\ncreated=" + m.created.plusSeconds(280) + "\nnonce=" + "0".repeat(32) + "\n";
++    NodeBundle rogue = NodeBundle.decode(bundleFile(NodeBundle.TAG, rogueText.getBytes(StandardCharsets.UTF_8), fakeQuote(rogueText.getBytes(StandardCharsets.UTF_8))));
++    chk("the rogue's fake quote passes the binding check (its REPORTDATA is right)", accepts(rogue::checkBinding));
++    chk("the doorman refuses it: the quote is too short to be a TDX quote", refuses(() -> ok.admit(rogue), "the quote is too short (632 bytes)"));
++    chk("with the quote check removed the same bundle WOULD be admitted (it is the quote check that stops it, not the other checks)", accepts(() -> new MeshAdmission((q, h) -> "no quote check", pol, 900, 60, () -> now).admit(rogue)));
++    NodeBundle rogue2 = NodeBundle.decode(bundleFile(NodeBundle.TAG, rogueText.replace("host=tdx-lab\n", "host=intruder\n").getBytes(StandardCharsets.UTF_8), fakeQuote(rogueText.replace("host=tdx-lab\n", "host=intruder\n").getBytes(StandardCharsets.UTF_8))));
++    chk("a host that is not in the table is refused before the quote is even looked at", refuses(() -> ok.admit(rogue2), "intruder is not in the mesh policy table"));
++
++    System.out.println("== 9. the parser is strict");
++    String sb = "ATTESTED-NODE-STATEMENT 1\nhost=tdx-lab\nmesh-public=" + m.meshPublic + "\nmesh-ip=10.20.0.1\ncreated=2026-10-17T08:14:27Z\nnonce=" + m.nonce + "\n";
++    chk("the reference statement itself parses", accepts(() -> withStatement(m, sb)));
++    chk("a file with another tag is refused", refuses(() -> NodeBundle.decode(bundleFile("ATTESTED-KEY-BUNDLE 1", m.statement, m.quote)), "not a node bundle"));
++    chk("a file with an extra line is refused", refuses(() -> NodeBundle.decode((new String(mFile, StandardCharsets.UTF_8) + "extra=1\n").getBytes(StandardCharsets.UTF_8)), "not a node bundle"));
++    chk("a file with a line missing is refused", refuses(() -> NodeBundle.decode(("ATTESTED-NODE-BUNDLE 1\nstatement=AAAA\n").getBytes(StandardCharsets.UTF_8)), "not a node bundle"));
++    chk("a statement that is not valid base64 is refused", refuses(() -> NodeBundle.decode("ATTESTED-NODE-BUNDLE 1\nstatement=!!!\nquote=AAAA\n".getBytes(StandardCharsets.UTF_8)), "not valid base64"));
++    chk("another statement tag is refused", refuses(() -> withStatement(m, sb.replace("NODE-STATEMENT 1", "NODE-STATEMENT 2")), "must be 'ATTESTED-NODE-STATEMENT 1'"));
++    chk("fields in another order are refused", refuses(() -> withStatement(m, sb.replace("host=tdx-lab\nmesh-public=" + m.meshPublic, "mesh-public=" + m.meshPublic + "\nhost=tdx-lab")), "must have the line"));
++    chk("an extra field is refused", refuses(() -> withStatement(m, sb + "extra=1\n"), "exactly the lines"));
++    chk("a missing field is refused", refuses(() -> withStatement(m, sb.replace("nonce=" + m.nonce + "\n", "")), "exactly the lines"));
++    chk("a mesh key of the wrong length is refused", refuses(() -> withStatement(m, sb.replace(m.meshPublic, "AAAA=")), "mesh-public is not in the required form"));
++    chk("an address with an octet above 255 is refused", refuses(() -> withStatement(m, sb.replace("10.20.0.1", "10.20.0.256")), "mesh-ip is not in the required form"));
++    chk("a time in another form is refused", refuses(() -> withStatement(m, sb.replace("2026-10-17T08:14:27Z", "2026-10-17 08:14:27")), "created is not in the required form"));
++    chk("a nonce of the wrong length is refused", refuses(() -> withStatement(m, sb.replace(m.nonce, "abcd")), "nonce is not in the required form"));
++    chk("a host name with a space is refused", refuses(() -> withStatement(m, sb.replace("host=tdx-lab\n", "host=tdx lab\n")), "host is not in the required form"));
++
++    System.out.println("== 10. one host or one mesh key admitted once only (the roster)");
++    MeshAdmission.Roster r = new MeshAdmission.Roster();
++    r.add(am);
++    chk("the same host twice is refused", refuses(() -> r.add(am), "already admitted from another bundle"));
++    chk("another host with the same mesh key is refused, naming the first", refuses(() -> r.add(new MeshAdmission.Admitted("tdx-lab-worker", m.meshPublic, "10.20.0.2", "", "")), "mesh key is already used by the admitted host tdx-lab"));
++    chk("a different host with a different key is admitted", accepts(() -> r.add(aw)) && r.size() == 2);
++
++    System.out.println("== 11. the tool");
++    Path tsv = tmp.resolve("admitted.tsv"); Path mf = vec.resolve("node-bundle-tdx-lab.attestnode"); Path wf = vec.resolve("node-bundle-tdx-lab-worker.attestnode");
++    String nowArg = "2026-10-17T08:20:00Z"; ByteArrayOutputStream o = new ByteArrayOutputStream(), e = new ByteArrayOutputStream();
++    int rc = AttestedKeyTool.run(new String[]{"node-admit-all", realRef.toString(), tmp.resolve("policy.txt").toString(), tsv.toString(), "--now", nowArg, mf.toString(), wf.toString()}, new PrintStream(o), new PrintStream(e));
++    chk("node-admit-all admits both real nodes (exit 0, two ADMIT-NODE lines, NODES 2 admitted, 0 refused)", rc == 0 && o.toString().split("ADMIT-NODE").length == 3 && o.toString().contains("NODES 2 admitted, 0 refused"));
++    List<String> rows = Files.readAllLines(tsv);
++    chk("the table of admitted nodes has host, mesh key, mesh address and VPC address, tab separated", rows.size() == 2 && rows.get(0).equals("tdx-lab\t" + m.meshPublic + "\t10.20.0.1\t10.128.0.2") && rows.get(1).equals("tdx-lab-worker\t" + w.meshPublic + "\t10.20.0.2\t10.128.0.5"));
++    o.reset(); e.reset();
++    rc = AttestedKeyTool.run(new String[]{"node-admit-all", realRef.toString(), tmp.resolve("policy.txt").toString(), tsv.toString(), "--now", nowArg, mf.toString(), mf.toString()}, new PrintStream(o), new PrintStream(e));
++    chk("the same bundle twice: exit 1, the second is REJECT-NODE (already admitted), the table has one node", rc == 1 && o.toString().contains("REJECT-NODE node-bundle-tdx-lab.attestnode: the host tdx-lab was already admitted") && Files.readAllLines(tsv).size() == 1);
++    o.reset(); e.reset();
++    rc = AttestedKeyTool.run(new String[]{"node-admit", mf.toString(), realRef.toString(), tmp.resolve("policy.txt").toString(), "--now", "2026-10-17T09:30:00Z"}, new PrintStream(o), new PrintStream(e));
++    chk("node-admit on a stale bundle: exit 1 and the reason is printed", rc == 1 && e.toString().contains("REJECT-NODE node-bundle-tdx-lab.attestnode: the statement is stale"));
++    o.reset(); e.reset();
++    rc = AttestedKeyTool.run(new String[]{"node-admit", mf.toString(), realRef.toString(), tmp.resolve("policy.txt").toString(), "--now", "2026-10-17T09:30:00Z", "--max-age", "7200"}, new PrintStream(o), new PrintStream(e));
++    chk("EDIT: --max-age 7200 admits the same bundle", rc == 0 && o.toString().contains("ADMIT-NODE host=tdx-lab "));
++    o.reset(); e.reset();
++    rc = AttestedKeyTool.run(new String[]{"node-admit", mf.toString(), realRef.toString(), tmp.resolve("policy.txt").toString(), "--bogus"}, new PrintStream(o), new PrintStream(e));
++    chk("an unknown option is refused", rc != 0 && e.toString().contains("unknown option --bogus"));
++    o.reset(); e.reset();
++    rc = AttestedKeyTool.run(new String[]{"node-admit-all", realRef.toString(), tmp.resolve("policy.txt").toString(), tsv.toString(), "--now", nowArg}, new PrintStream(o), new PrintStream(e));
++    chk("node-admit-all with no bundle is refused", rc != 0 && e.toString().contains("no node bundle given"));
++    System.out.println("\npass: " + pass + "   fail: " + fail);
++    System.out.println(fail == 0 ? "NODECORE-PASS" : "NODECORE-FAIL");
++    if (fail != 0) System.exit(1);
++  }
++}
+diff --git a/ops/attested/mesh-peers-m522.txt b/ops/attested/mesh-peers-m522.txt
+new file mode 100644
+index 000000000..269af9f0f
+--- /dev/null
++++ b/ops/attested/mesh-peers-m522.txt
+@@ -0,0 +1,5 @@
++# Step 5.2.2: the hosts that may join the mesh, at the mesh address that this table gives them (a node cannot claim another's address).
++# HOST MESH_IP VPC_IP   (the VPC address is where the peer's WireGuard endpoint is reached)
++# The first proof uses the test mesh wg1 (10.20.0.0/24, UDP 51821); to change who may join, edit this file.
++tdx-lab 10.20.0.1 10.128.0.2
++tdx-lab-worker 10.20.0.2 10.128.0.5
+diff --git a/ops/attested/testdata/node-bundle-tdx-lab-worker.attestnode b/ops/attested/testdata/node-bundle-tdx-lab-worker.attestnode
+new file mode 100644
+index 000000000..0e759c494
+--- /dev/null
++++ b/ops/attested/testdata/node-bundle-tdx-lab-worker.attestnode
+@@ -0,0 +1,3 @@
++ATTESTED-NODE-BUNDLE 1
++statement=QVRURVNURUQtTk9ERS1TVEFURU1FTlQgMQpob3N0PXRkeC1sYWItd29ya2VyCm1lc2gtcHVibGljPW1nenMrNUNjRGNUS3gwZG5lY2hPZ0gvU3h4djZzQURpcHdNMGU5YlhyMlk9Cm1lc2gtaXA9MTAuMjAuMC4yCmNyZWF0ZWQ9MjAyNi0xMC0xN1QwODoxNDo1MFoKbm9uY2U9MDlkODkzZWZhYjJjYmI3NjgxNmU3Y2RjZWRiZjc0YmQK
++quote=BAACAIEAAAAAAAAAk5pyM/ecTKmUCg2zlX8GBwAAAAAAAAAAAAAAAAAAAAAAAAAADwEKAAAAAAAAAAAAAAAAAKtiVhoXOsvRjuUP83dQ20QYTGz16IbfdCR8xXXhY7BMNLnhg3R1fCNa/6YU1BJ/awAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAADnAgYAAAAAAMHunBbjr8UGz+BCxbhGo2hSjzs3YY6vsnRpvBFM+RTpIiyRYYRw5/KyisNgloJwpQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADYDQUqvH0CyYu1W603VsIe0t7TbKUZJjp80onFjpczeSpsTdCbpaiZg9WQAPlTXRQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAF4nbc9oZ5U13uIXpMMvL5FZulk1JReaZFc+/DR2/SkgmFJrkDD191E9jMBNjSW+eLiDeCECLlsFNUHCgT95nFOpFEMV/sJ1887gPSxRNSq7grFyXwRDi88iGrdhPK7xt2h5x/W9ExEMiywtse8LAgAjiOPZtEJ7fOj3RPY2kPU3mnf5ma/yW81HyGaeAYMuLA8duV/LGkk66ppLOCaSRvVD4anMdCgMs7UosnISFmOiRPw+zUYMtD6iktXMaZfI5f2KX52GwvRZa9AcM65+uoVO82K7xFxkh7Cdz+jNQk/QDz/zbygiC6VwPt2svCaqlCClKHI93RA2dqsm5HBhz3LLEAAA29GladjDr1oeRlU0AHHYe7eaSLlj/2YjN16Bx8p09P4AFGXm2rnY07KXRAWQByKNyLDpU0VVG+ly3MCQhOG2H8FUa2fonyKGdhbTerCRkXNRs/Eo7fblSowXiBWk82H4Tzez4szpde4XynfQUtAw3Q2ipWEG8Hjpe9pO0UR5bcgGAEUQAAAKCv8bBv8ABgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAAAAAAAAAOcAAAAAAAAA5aOntdgwwpU7mFNMbFmjo0/cNOkz9/WJjwqFzwiEa8oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAANyeKnxvlI8XR040p/xD7QMPfBVj8bq932NAyC4OVKjFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAGAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMJZTETwrPag6qSjZnt7eTxJyFvEuBrn1zfiT1lc0dN3AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACeGKuW2KsbYHd4NOJ43ktQpSsehPW6pDrTdGIO2PXymbw1VJhjVrUQ1IJ2Uwa0Ap+wdU1n+sqMA9aTu6CnZ0cUIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAUAXQ4AAC0tLS0tQkVHSU4gQ0VSVElGSUNBVEUtLS0tLQpNSUlFN3pDQ0JKYWdBd0lCQWdJVVpYRjJTemVMeHNUTlNYdnNoVDQxUHNxRGRqMHdDZ1lJS29aSXpqMEVBd0l3CmNERWlNQ0FHQTFVRUF3d1pTVzUwWld3Z1UwZFlJRkJEU3lCUWJHRjBabTl5YlNCRFFURWFNQmdHQTFVRUNnd1IKU1c1MFpXd2dRMjl5Y0c5eVlYUnBiMjR4RkRBU0JnTlZCQWNNQzFOaGJuUmhJRU5zWVhKaE1Rc3dDUVlEVlFRSQpEQUpEUVRFTE1Ba0dBMVVFQmhNQ1ZWTXdIaGNOTWpZd09EQTBNREF6TmpFMldoY05Nek13T0RBME1EQXpOakUyCldqQndNU0l3SUFZRFZRUUREQmxKYm5SbGJDQlRSMWdnVUVOTElFTmxjblJwWm1sallYUmxNUm93R0FZRFZRUUsKREJGSmJuUmxiQ0JEYjNKd2IzSmhkR2x2YmpFVU1CSUdBMVVFQnd3TFUyRnVkR0VnUTJ4aGNtRXhDekFKQmdOVgpCQWdNQWtOQk1Rc3dDUVlEVlFRR0V3SlZVekJaTUJNR0J5cUdTTTQ5QWdFR0NDcUdTTTQ5QXdFSEEwSUFCSmYrCmd0ejd1a1hzaW9WOHo1a0RuRGFRaEs1WXg0eEhkQ2F3N0NLcHo5WE5DZmFKaW5UaXRwUUdEREtyelhSOU03MlEKUy9Sa0RXdDFLcUYwbGRRZXdYS2pnZ01NTUlJRENEQWZCZ05WSFNNRUdEQVdnQlNWYjEzTnZSdmg2VUJKeWRUMApNODRCVnd2ZVZEQnJCZ05WSFI4RVpEQmlNR0NnWHFCY2hscG9kSFJ3Y3pvdkwyRndhUzUwY25WemRHVmtjMlZ5CmRtbGpaWE11YVc1MFpXd3VZMjl0TDNObmVDOWpaWEowYVdacFkyRjBhVzl1TDNZMEwzQmphMk55YkQ5allUMXcKYkdGMFptOXliU1psYm1OdlpHbHVaejFrWlhJd0hRWURWUjBPQkJZRUZPYWxRYzFTaTc1ZHBzL3VmdkFBZ2FiOApUOFNMTUE0R0ExVWREd0VCL3dRRUF3SUd3REFNQmdOVkhSTUJBZjhFQWpBQU1JSUNPUVlKS29aSWh2aE5BUTBCCkJJSUNLakNDQWlZd0hnWUtLb1pJaHZoTkFRMEJBUVFRY2pTVFJzMmFxSjlQd1Z2QXQrNE01VENDQVdNR0NpcUcKU0liNFRRRU5BUUl3Z2dGVE1CQUdDeXFHU0liNFRRRU5BUUlCQWdFSk1CQUdDeXFHU0liNFRRRU5BUUlDQWdFSgpNQkFHQ3lxR1NJYjRUUUVOQVFJREFnRUNNQkFHQ3lxR1NJYjRUUUVOQVFJRUFnRUNNQkFHQ3lxR1NJYjRUUUVOCkFRSUZBZ0VFTUJBR0N5cUdTSWI0VFFFTkFRSUdBZ0VCTUJBR0N5cUdTSWI0VFFFTkFRSUhBZ0VBTUJBR0N5cUcKU0liNFRRRU5BUUlJQWdFR01CQUdDeXFHU0liNFRRRU5BUUlKQWdFQU1CQUdDeXFHU0liNFRRRU5BUUlLQWdFQQpNQkFHQ3lxR1NJYjRUUUVOQVFJTEFnRUFNQkFHQ3lxR1NJYjRUUUVOQVFJTUFnRUFNQkFHQ3lxR1NJYjRUUUVOCkFRSU5BZ0VBTUJBR0N5cUdTSWI0VFFFTkFRSU9BZ0VBTUJBR0N5cUdTSWI0VFFFTkFRSVBBZ0VBTUJBR0N5cUcKU0liNFRRRU5BUUlRQWdFQU1CQUdDeXFHU0liNFRRRU5BUUlSQWdFTE1COEdDeXFHU0liNFRRRU5BUUlTQkJBSgpDUUlDQkFFQUJnQUFBQUFBQUFBQU1CQUdDaXFHU0liNFRRRU5BUU1FQWdBQU1CUUdDaXFHU0liNFRRRU5BUVFFCkJnQ0Fid1VBQURBUEJnb3Foa2lHK0UwQkRRRUZDZ0VCTUI0R0NpcUdTSWI0VFFFTkFRWUVFQmVOMnB1bDVaL1oKQVhyUnhGVkhuUHN3UkFZS0tvWklodmhOQVEwQkJ6QTJNQkFHQ3lxR1NJYjRUUUVOQVFjQkFRSC9NQkFHQ3lxRwpTSWI0VFFFTkFRY0NBUUVBTUJBR0N5cUdTSWI0VFFFTkFRY0RBUUgvTUFvR0NDcUdTTTQ5QkFNQ0EwY0FNRVFDCklFU0tiNnJLNmwzazJvbnpZWWVIZjRPNWw0RUVWbmNJVytTL3FWSzJWdWRjQWlBbXlzWkIvY2R0NW9CYWZIeTMKVDZrSEhSQk5BSnp0OG1teWRtNk01WFZ0Tmc9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCi0tLS0tQkVHSU4gQ0VSVElGSUNBVEUtLS0tLQpNSUlDbGpDQ0FqMmdBd0lCQWdJVkFKVnZYYzI5RytIcFFFbkoxUFF6emdGWEM5NVVNQW9HQ0NxR1NNNDlCQU1DCk1HZ3hHakFZQmdOVkJBTU1FVWx1ZEdWc0lGTkhXQ0JTYjI5MElFTkJNUm93R0FZRFZRUUtEQkZKYm5SbGJDQkQKYjNKd2IzSmhkR2x2YmpFVU1CSUdBMVVFQnd3TFUyRnVkR0VnUTJ4aGNtRXhDekFKQmdOVkJBZ01Ba05CTVFzdwpDUVlEVlFRR0V3SlZVekFlRncweE9EQTFNakV4TURVd01UQmFGdzB6TXpBMU1qRXhNRFV3TVRCYU1IQXhJakFnCkJnTlZCQU1NR1VsdWRHVnNJRk5IV0NCUVEwc2dVR3hoZEdadmNtMGdRMEV4R2pBWUJnTlZCQW9NRVVsdWRHVnMKSUVOdmNuQnZjbUYwYVc5dU1SUXdFZ1lEVlFRSERBdFRZVzUwWVNCRGJHRnlZVEVMTUFrR0ExVUVDQXdDUTBFeApDekFKQmdOVkJBWVRBbFZUTUZrd0V3WUhLb1pJemowQ0FRWUlLb1pJemowREFRY0RRZ0FFTlNCLzd0MjFsWFNPCjJDdXpweHc3NGVKQjcyRXlER2dXNXJYQ3R4MnRWVExxNmhLazZ6K1VpUlpDbnFSN3BzT3ZncUZlU3hsbVRsSmwKZVRtaTJXWXozcU9CdXpDQnVEQWZCZ05WSFNNRUdEQVdnQlFpWlF6V1dwMDBpZk9EdEpWU3YxQWJPU2NHckRCUwpCZ05WSFI4RVN6QkpNRWVnUmFCRGhrRm9kSFJ3Y3pvdkwyTmxjblJwWm1sallYUmxjeTUwY25WemRHVmtjMlZ5CmRtbGpaWE11YVc1MFpXd3VZMjl0TDBsdWRHVnNVMGRZVW05dmRFTkJMbVJsY2pBZEJnTlZIUTRFRmdRVWxXOWQKemIwYjRlbEFTY25VOURQT0FWY0wzbFF3RGdZRFZSMFBBUUgvQkFRREFnRUdNQklHQTFVZEV3RUIvd1FJTUFZQgpBZjhDQVFBd0NnWUlLb1pJemowRUF3SURSd0F3UkFJZ1hzVmtpMHcraTZWWUdXM1VGLzIydWFYZTBZSkRqMVVlCm5BK1RqRDFhaTVjQ0lDWWIxU0FtRDV4a2ZUVnB2bzRVb3lpU1l4ckRXTG1VUjRDSTlOS3lmUE4rCi0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0KLS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUNqekNDQWpTZ0F3SUJBZ0lVSW1VTTFscWROSW56ZzdTVlVyOVFHemtuQnF3d0NnWUlLb1pJemowRUF3SXcKYURFYU1CZ0dBMVVFQXd3UlNXNTBaV3dnVTBkWUlGSnZiM1FnUTBFeEdqQVlCZ05WQkFvTUVVbHVkR1ZzSUVOdgpjbkJ2Y21GMGFXOXVNUlF3RWdZRFZRUUhEQXRUWVc1MFlTQkRiR0Z5WVRFTE1Ba0dBMVVFQ0F3Q1EwRXhDekFKCkJnTlZCQVlUQWxWVE1CNFhEVEU0TURVeU1URXdORFV4TUZvWERUUTVNVEl6TVRJek5UazFPVm93YURFYU1CZ0cKQTFVRUF3d1JTVzUwWld3Z1UwZFlJRkp2YjNRZ1EwRXhHakFZQmdOVkJBb01FVWx1ZEdWc0lFTnZjbkJ2Y21GMAphVzl1TVJRd0VnWURWUVFIREF0VFlXNTBZU0JEYkdGeVlURUxNQWtHQTFVRUNBd0NRMEV4Q3pBSkJnTlZCQVlUCkFsVlRNRmt3RXdZSEtvWkl6ajBDQVFZSUtvWkl6ajBEQVFjRFFnQUVDNm5Fd01ESVlaT2ovaVBXc0N6YUVLaTcKMU9pT1NMUkZoV0dqYm5CVkpmVm5rWTR1M0lqa0RZWUwwTXhPNG1xc3lZamxCYWxUVll4RlAyc0pCSzV6bEtPQgp1ekNCdURBZkJnTlZIU01FR0RBV2dCUWlaUXpXV3AwMGlmT0R0SlZTdjFBYk9TY0dyREJTQmdOVkhSOEVTekJKCk1FZWdSYUJEaGtGb2RIUndjem92TDJObGNuUnBabWxqWVhSbGN5NTBjblZ6ZEdWa2MyVnlkbWxqWlhNdWFXNTAKWld3dVkyOXRMMGx1ZEdWc1UwZFlVbTl2ZEVOQkxtUmxjakFkQmdOVkhRNEVGZ1FVSW1VTTFscWROSW56ZzdTVgpVcjlRR3prbkJxd3dEZ1lEVlIwUEFRSC9CQVFEQWdFR01CSUdBMVVkRXdFQi93UUlNQVlCQWY4Q0FRRXdDZ1lJCktvWkl6ajBFQXdJRFNRQXdSZ0loQU9XLzVRa1IrUzlDaVNEY05vb3dMdVBSTHNXR2YvWWk3R1NYOTRCZ3dUd2cKQWlFQTRKMGxySG9NcytYbzVvL3NYNk85UVd4SFJBdlpVR09kUlE3Y3ZxUlhhcUk9Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0KAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+diff --git a/ops/attested/testdata/node-bundle-tdx-lab.attestnode b/ops/attested/testdata/node-bundle-tdx-lab.attestnode
+new file mode 100644
+index 000000000..83be955ef
+--- /dev/null
++++ b/ops/attested/testdata/node-bundle-tdx-lab.attestnode
+@@ -0,0 +1,3 @@
++ATTESTED-NODE-BUNDLE 1
++statement=QVRURVNURUQtTk9ERS1TVEFURU1FTlQgMQpob3N0PXRkeC1sYWIKbWVzaC1wdWJsaWM9ZFFXa0NKK0tLTE15NXJDVDByNmpuRDdFNVIwRHU4VXBwWEZrTE9SWm9SQT0KbWVzaC1pcD0xMC4yMC4wLjEKY3JlYXRlZD0yMDI2LTEwLTE3VDA4OjE0OjI3Wgpub25jZT04Y2FkZTkyMzBkYWU4N2ZjNmRkNTg3ZjBiZjk3MjEzYgo=
++quote=BAACAIEAAAAAAAAAk5pyM/ecTKmUCg2zlX8GBwAAAAAAAAAAAAAAAAAAAAAAAAAADwEKAAAAAAAAAAAAAAAAAKtiVhoXOsvRjuUP83dQ20QYTGz16IbfdCR8xXXhY7BMNLnhg3R1fCNa/6YU1BJ/awAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAADnAgYAAAAAAMHunBbjr8UGz+BCxbhGo2hSjzs3YY6vsnRpvBFM+RTpIiyRYYRw5/KyisNgloJwpQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAANBxw6G41MahXIpx15VpiM//dLJglCc32ixuMKdpgJfX40/jpNcNvFI0NDojlvWVUgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAANtC/S2aRNhjj5vNFfgStVpjtgQ1lGxXLcfjTLxg8y0FcJcqpHvWH6MNY8vMVIupAVxjx1TgaYEOEcngumt6d1PTFpa58p9TMJpHl1gGnDg7uH4E2+UeerbwpN0tuDmITHWgNQvnuJEhG5f9y0yN8PWcz0CQFNcM3NHa8YPqoq6I/2oAokLpUcraL9WIEni7g4TfMPpczM3kK0GRLYu9xZpr/A+Th3t3oy0+SceKiT03fCAuK1mBB0ONXh1n2fl8EvG5E4BPpuwUyImFO++1UTh9ZCxcI2rAwHB4AIydQIKWu7KHdfQTa0O+m4R+0OKauRYWC8TKFnkn0GAWxWOhSfLEAAAJdsZWUdgo+DcgLL81GHdvTYuPBIeWdL3Qbth5bHN8ftIvtFzAhU4Fgs6iWbwPH3BUJ/420G1/5GMSg5wISoL8mR7k1HnPWAWiDZxgGPESHbJZKE+BD9/QZWzteZN2QFJme+dFczG8M+TD8EsIcDfxat3FOEjtixR+TjVHdWecdMGAEUQAAAKCv8bBv8ABgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAAAAAAAAAOcAAAAAAAAA5aOntdgwwpU7mFNMbFmjo0/cNOkz9/WJjwqFzwiEa8oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAANyeKnxvlI8XR040p/xD7QMPfBVj8bq932NAyC4OVKjFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAGAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMY6JUp6OAy4zALMD2+bpvzxDQn9/6chS8KfBJa0kwJJAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC2vNh5x2JdOrqPkiJ2y5WRd1m33obPV8Mwbx0T27t7O3MEcMMjN6R/Qw7WMg7SOgoxFsxDnbGGlcKypXVabG5lIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAUAXQ4AAC0tLS0tQkVHSU4gQ0VSVElGSUNBVEUtLS0tLQpNSUlFOERDQ0JKZWdBd0lCQWdJVkFONG1zT0ZrL2Nva3NIWncrUmtqZjcweE9LTk9NQW9HQ0NxR1NNNDlCQU1DCk1IQXhJakFnQmdOVkJBTU1HVWx1ZEdWc0lGTkhXQ0JRUTBzZ1VHeGhkR1p2Y20wZ1EwRXhHakFZQmdOVkJBb00KRVVsdWRHVnNJRU52Y25CdmNtRjBhVzl1TVJRd0VnWURWUVFIREF0VFlXNTBZU0JEYkdGeVlURUxNQWtHQTFVRQpDQXdDUTBFeEN6QUpCZ05WQkFZVEFsVlRNQjRYRFRJMk1EZ3dPREE0TlRVeE5sb1hEVE16TURnd09EQTROVFV4Ck5sb3djREVpTUNBR0ExVUVBd3daU1c1MFpXd2dVMGRZSUZCRFN5QkRaWEowYVdacFkyRjBaVEVhTUJnR0ExVUUKQ2d3UlNXNTBaV3dnUTI5eWNHOXlZWFJwYjI0eEZEQVNCZ05WQkFjTUMxTmhiblJoSUVOc1lYSmhNUXN3Q1FZRApWUVFJREFKRFFURUxNQWtHQTFVRUJoTUNWVk13V1RBVEJnY3Foa2pPUFFJQkJnZ3Foa2pPUFFNQkJ3TkNBQVRPCmFRSEJNZTQ4RVJab2Iwelh5dlhtZW5haW9ESFRadFc3V3dlQ3o5cFRlK01KSm82RW14QnJkWFloWm55TjRQWEQKUk1TNXdoc283cStGdndMWTNNV2RvNElERERDQ0F3Z3dId1lEVlIwakJCZ3dGb0FVbFc5ZHpiMGI0ZWxBU2NuVQo5RFBPQVZjTDNsUXdhd1lEVlIwZkJHUXdZakJnb0Y2Z1hJWmFhSFIwY0hNNkx5OWhjR2t1ZEhKMWMzUmxaSE5sCmNuWnBZMlZ6TG1sdWRHVnNMbU52YlM5elozZ3ZZMlZ5ZEdsbWFXTmhkR2x2Ymk5Mk5DOXdZMnRqY213L1kyRTkKY0d4aGRHWnZjbTBtWlc1amIyUnBibWM5WkdWeU1CMEdBMVVkRGdRV0JCU2F4UkFwa1QzVUtUZWYzTWJUUHJmeApzN3NqTmpBT0JnTlZIUThCQWY4RUJBTUNCc0F3REFZRFZSMFRBUUgvQkFJd0FEQ0NBamtHQ1NxR1NJYjRUUUVOCkFRU0NBaW93Z2dJbU1CNEdDaXFHU0liNFRRRU5BUUVFRU1jVW1qVHBDN1U0ek4wRDZjeVFKcll3Z2dGakJnb3EKaGtpRytFMEJEUUVDTUlJQlV6QVFCZ3NxaGtpRytFMEJEUUVDQVFJQkNUQVFCZ3NxaGtpRytFMEJEUUVDQWdJQgpDVEFRQmdzcWhraUcrRTBCRFFFQ0F3SUJBakFRQmdzcWhraUcrRTBCRFFFQ0JBSUJBakFRQmdzcWhraUcrRTBCCkRRRUNCUUlCQkRBUUJnc3Foa2lHK0UwQkRRRUNCZ0lCQVRBUUJnc3Foa2lHK0UwQkRRRUNCd0lCQURBUUJnc3EKaGtpRytFMEJEUUVDQ0FJQkJqQVFCZ3NxaGtpRytFMEJEUUVDQ1FJQkFEQVFCZ3NxaGtpRytFMEJEUUVDQ2dJQgpBREFRQmdzcWhraUcrRTBCRFFFQ0N3SUJBREFRQmdzcWhraUcrRTBCRFFFQ0RBSUJBREFRQmdzcWhraUcrRTBCCkRRRUNEUUlCQURBUUJnc3Foa2lHK0UwQkRRRUNEZ0lCQURBUUJnc3Foa2lHK0UwQkRRRUNEd0lCQURBUUJnc3EKaGtpRytFMEJEUUVDRUFJQkFEQVFCZ3NxaGtpRytFMEJEUUVDRVFJQkN6QWZCZ3NxaGtpRytFMEJEUUVDRWdRUQpDUWtDQWdRQkFBWUFBQUFBQUFBQUFEQVFCZ29xaGtpRytFMEJEUUVEQkFJQUFEQVVCZ29xaGtpRytFMEJEUUVFCkJBWUFnRzhGQUFBd0R3WUtLb1pJaHZoTkFRMEJCUW9CQVRBZUJnb3Foa2lHK0UwQkRRRUdCQkRBSXR6dWdQQ3EKRzQvSytGeXhhUFRkTUVRR0NpcUdTSWI0VFFFTkFRY3dOakFRQmdzcWhraUcrRTBCRFFFSEFRRUIvekFRQmdzcQpoa2lHK0UwQkRRRUhBZ0VCQURBUUJnc3Foa2lHK0UwQkRRRUhBd0VCL3pBS0JnZ3Foa2pPUFFRREFnTkhBREJFCkFpQjU0RytJcFVrUlJuVW5kK2F3eThLMS9kQVN5aWJXOEFjY1Q2Y092RStTeFFJZ1BvTTg1K1hvMFhQeGVEYnEKVVdIVG9lQ250RXF1bmtZZ2NLNnZaVmFkcFB3PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCi0tLS0tQkVHSU4gQ0VSVElGSUNBVEUtLS0tLQpNSUlDbGpDQ0FqMmdBd0lCQWdJVkFKVnZYYzI5RytIcFFFbkoxUFF6emdGWEM5NVVNQW9HQ0NxR1NNNDlCQU1DCk1HZ3hHakFZQmdOVkJBTU1FVWx1ZEdWc0lGTkhXQ0JTYjI5MElFTkJNUm93R0FZRFZRUUtEQkZKYm5SbGJDQkQKYjNKd2IzSmhkR2x2YmpFVU1CSUdBMVVFQnd3TFUyRnVkR0VnUTJ4aGNtRXhDekFKQmdOVkJBZ01Ba05CTVFzdwpDUVlEVlFRR0V3SlZVekFlRncweE9EQTFNakV4TURVd01UQmFGdzB6TXpBMU1qRXhNRFV3TVRCYU1IQXhJakFnCkJnTlZCQU1NR1VsdWRHVnNJRk5IV0NCUVEwc2dVR3hoZEdadmNtMGdRMEV4R2pBWUJnTlZCQW9NRVVsdWRHVnMKSUVOdmNuQnZjbUYwYVc5dU1SUXdFZ1lEVlFRSERBdFRZVzUwWVNCRGJHRnlZVEVMTUFrR0ExVUVDQXdDUTBFeApDekFKQmdOVkJBWVRBbFZUTUZrd0V3WUhLb1pJemowQ0FRWUlLb1pJemowREFRY0RRZ0FFTlNCLzd0MjFsWFNPCjJDdXpweHc3NGVKQjcyRXlER2dXNXJYQ3R4MnRWVExxNmhLazZ6K1VpUlpDbnFSN3BzT3ZncUZlU3hsbVRsSmwKZVRtaTJXWXozcU9CdXpDQnVEQWZCZ05WSFNNRUdEQVdnQlFpWlF6V1dwMDBpZk9EdEpWU3YxQWJPU2NHckRCUwpCZ05WSFI4RVN6QkpNRWVnUmFCRGhrRm9kSFJ3Y3pvdkwyTmxjblJwWm1sallYUmxjeTUwY25WemRHVmtjMlZ5CmRtbGpaWE11YVc1MFpXd3VZMjl0TDBsdWRHVnNVMGRZVW05dmRFTkJMbVJsY2pBZEJnTlZIUTRFRmdRVWxXOWQKemIwYjRlbEFTY25VOURQT0FWY0wzbFF3RGdZRFZSMFBBUUgvQkFRREFnRUdNQklHQTFVZEV3RUIvd1FJTUFZQgpBZjhDQVFBd0NnWUlLb1pJemowRUF3SURSd0F3UkFJZ1hzVmtpMHcraTZWWUdXM1VGLzIydWFYZTBZSkRqMVVlCm5BK1RqRDFhaTVjQ0lDWWIxU0FtRDV4a2ZUVnB2bzRVb3lpU1l4ckRXTG1VUjRDSTlOS3lmUE4rCi0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0KLS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUNqekNDQWpTZ0F3SUJBZ0lVSW1VTTFscWROSW56ZzdTVlVyOVFHemtuQnF3d0NnWUlLb1pJemowRUF3SXcKYURFYU1CZ0dBMVVFQXd3UlNXNTBaV3dnVTBkWUlGSnZiM1FnUTBFeEdqQVlCZ05WQkFvTUVVbHVkR1ZzSUVOdgpjbkJ2Y21GMGFXOXVNUlF3RWdZRFZRUUhEQXRUWVc1MFlTQkRiR0Z5WVRFTE1Ba0dBMVVFQ0F3Q1EwRXhDekFKCkJnTlZCQVlUQWxWVE1CNFhEVEU0TURVeU1URXdORFV4TUZvWERUUTVNVEl6TVRJek5UazFPVm93YURFYU1CZ0cKQTFVRUF3d1JTVzUwWld3Z1UwZFlJRkp2YjNRZ1EwRXhHakFZQmdOVkJBb01FVWx1ZEdWc0lFTnZjbkJ2Y21GMAphVzl1TVJRd0VnWURWUVFIREF0VFlXNTBZU0JEYkdGeVlURUxNQWtHQTFVRUNBd0NRMEV4Q3pBSkJnTlZCQVlUCkFsVlRNRmt3RXdZSEtvWkl6ajBDQVFZSUtvWkl6ajBEQVFjRFFnQUVDNm5Fd01ESVlaT2ovaVBXc0N6YUVLaTcKMU9pT1NMUkZoV0dqYm5CVkpmVm5rWTR1M0lqa0RZWUwwTXhPNG1xc3lZamxCYWxUVll4RlAyc0pCSzV6bEtPQgp1ekNCdURBZkJnTlZIU01FR0RBV2dCUWlaUXpXV3AwMGlmT0R0SlZTdjFBYk9TY0dyREJTQmdOVkhSOEVTekJKCk1FZWdSYUJEaGtGb2RIUndjem92TDJObGNuUnBabWxqWVhSbGN5NTBjblZ6ZEdWa2MyVnlkbWxqWlhNdWFXNTAKWld3dVkyOXRMMGx1ZEdWc1UwZFlVbTl2ZEVOQkxtUmxjakFkQmdOVkhRNEVGZ1FVSW1VTTFscWROSW56ZzdTVgpVcjlRR3prbkJxd3dEZ1lEVlIwUEFRSC9CQVFEQWdFR01CSUdBMVVkRXdFQi93UUlNQVlCQWY4Q0FRRXdDZ1lJCktvWkl6ajBFQXdJRFNRQXdSZ0loQU9XLzVRa1IrUzlDaVNEY05vb3dMdVBSTHNXR2YvWWk3R1NYOTRCZ3dUd2cKQWlFQTRKMGxySG9NcytYbzVvL3NYNk85UVd4SFJBdlpVR09kUlE3Y3ZxUlhhcUk9Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0KAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+diff --git a/src/java/org/apache/nutch/attested/AttestedKeyTool.java b/src/java/org/apache/nutch/attested/AttestedKeyTool.java
+index 39be899f2..a7f6d1137 100644
+--- a/src/java/org/apache/nutch/attested/AttestedKeyTool.java
++++ b/src/java/org/apache/nutch/attested/AttestedKeyTool.java
+@@ -36,6 +36,10 @@ import java.nio.file.Paths;
+  *                                                                             is the SHA-512 of the statement (not the quote's signature chain: bundle-admit does that)
+  * java -cp attested-hdfs.jar org.apache.nutch.attested.AttestedKeyTool bundle-admit FILE REFERENCE [--no-dates] [--enforce mrtd,rtmr0,...] [--root SHA256]
+  *                                                                             admit a key bundle by its quote (step 5.2.1): the certificate chain, the signatures and the reference measurements; prints ADMIT or REJECT
++ * java -cp attested-hdfs.jar org.apache.nutch.attested.AttestedKeyTool node-admit BUNDLE REFERENCE POLICY [--max-age S] [--skew S] [--enforce a,b] [--root SHA256] [--no-dates] [--now ISO]
++ *                                                                             the doorman's decision for one node bundle (step 5.2.2): binding, policy table, freshness, genuine quote and reference
++ * java -cp attested-hdfs.jar org.apache.nutch.attested.AttestedKeyTool node-admit-all REFERENCE POLICY OUT.tsv [options as above] BUNDLE...
++ *                                                                             the same for several bundles; writes the admitted nodes (host, mesh key, mesh address, VPC address) to OUT.tsv; refuses a host or a mesh key twice
+  * java -cp attested-hdfs.jar org.apache.nutch.attested.AttestedKeyTool quote-info FILE   print the measurement registers and the certificate chain of a bundle's quote (no verification)
+  * </pre>
+  *
+@@ -71,6 +75,74 @@ public final class AttestedKeyTool {
+         }
+         return 0;
+       }
++      if (args.length >= 4 && (args[0].equals("node-admit") || args[0].equals("node-admit-all"))) {
++        boolean all = args[0].equals("node-admit-all");
++        String reference = all ? args[1] : args[2];
++        String policyFile = all ? args[2] : args[3];
++        String tsv = all ? args[3] : null;
++        java.util.List<String> bundles = new java.util.ArrayList<>();
++        if (!all) {
++          bundles.add(args[1]);
++        }
++        long maxAge = 900;
++        long skew = 60;
++        boolean dates = true;
++        String enforce = QuoteAdmission.DEFAULT_ENFORCE;
++        String root = QuoteAdmission.INTEL_SGX_ROOT_SHA256;
++        java.time.Instant now = null;
++        for (int i = all ? 4 : 4; i < args.length; i++) {
++          if (args[i].equals("--no-dates")) {
++            dates = false;
++          } else if (args[i].equals("--max-age") && i + 1 < args.length) {
++            maxAge = Long.parseLong(args[++i]);
++          } else if (args[i].equals("--skew") && i + 1 < args.length) {
++            skew = Long.parseLong(args[++i]);
++          } else if (args[i].equals("--enforce") && i + 1 < args.length) {
++            enforce = args[++i];
++          } else if (args[i].equals("--root") && i + 1 < args.length) {
++            root = args[++i];
++          } else if (args[i].equals("--now") && i + 1 < args.length) {
++            now = java.time.Instant.parse(args[++i]);
++          } else if (all && !args[i].startsWith("--")) {
++            bundles.add(args[i]);
++          } else {
++            throw new IOException("unknown option " + args[i]);
++          }
++        }
++        if (bundles.isEmpty()) {
++          throw new IOException("no node bundle given");
++        }
++        final java.time.Instant fixedNow = now;
++        java.util.function.Supplier<java.time.Instant> clock = () -> fixedNow != null ? fixedNow : java.time.Instant.now();
++        QuoteAdmission qa = new QuoteAdmission(AdmissionReference.load(Paths.get(reference), ""), QuoteAdmission.registers(enforce), QuoteAdmission.rootList(root), dates, clock);
++        MeshAdmission door = new MeshAdmission(MeshAdmission.of(qa), MeshPolicy.load(Paths.get(policyFile)), maxAge, skew, clock);
++        MeshAdmission.Roster admitted = new MeshAdmission.Roster();
++        int refused = 0;
++        for (String f : bundles) {
++          String name = Paths.get(f).getFileName().toString();
++          try {
++            MeshAdmission.Admitted a = door.admit(NodeBundle.decode(Files.readAllBytes(Paths.get(f))));
++            admitted.add(a);
++            out.println("ADMIT-NODE host=" + a.host + " mesh-public=" + a.meshPublic + " mesh-ip=" + a.meshIp + " vpc-ip=" + (a.vpcIp.isEmpty() ? "-" : a.vpcIp) + " " + a.note);
++          } catch (IOException e) {
++            if (!all) {
++              throw new IOException("REJECT-NODE " + name + ": " + e.getMessage());
++            }
++            refused++;
++            out.println("REJECT-NODE " + name + ": " + e.getMessage());
++          }
++        }
++        if (all) {
++          StringBuilder sb = new StringBuilder();
++          for (MeshAdmission.Admitted a : admitted.all()) {
++            sb.append(a.host).append('\t').append(a.meshPublic).append('\t').append(a.meshIp).append('\t').append(a.vpcIp.isEmpty() ? "-" : a.vpcIp).append('\n');
++          }
++          Files.write(Paths.get(tsv), sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
++          out.println("NODES " + admitted.size() + " admitted, " + refused + " refused");
++          return refused == 0 ? 0 : 1;
++        }
++        return 0;
++      }
+       if (args.length >= 3 && args[0].equals("bundle-admit")) {
+         KeyBundle b = KeyBundle.decode(Files.readAllBytes(Paths.get(args[1])));
+         b.checkBinding();
+diff --git a/src/java/org/apache/nutch/attested/MeshAdmission.java b/src/java/org/apache/nutch/attested/MeshAdmission.java
+new file mode 100644
+index 000000000..035fdc768
+--- /dev/null
++++ b/src/java/org/apache/nutch/attested/MeshAdmission.java
+@@ -0,0 +1,118 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.nutch.attested;
++
++import java.io.IOException;
++import java.time.Duration;
++import java.time.Instant;
++import java.util.function.Supplier;
++
++/**
++ * The doorman's decision for one node (step 5.2.2): a node is admitted to the mesh only if (1) the quote's REPORTDATA binds its statement, (2) its host is in the policy table and asks for exactly the
++ * address that the table gives it, (3) the statement is fresh, and (4) the quote is a genuine TDX quote whose enforced registers the reference allows for this host (the check of step 5.2.1). The
++ * order puts the cheap checks first, so that the reason given is the first thing that is wrong.
++ */
++final class MeshAdmission {
++  /** The quote check: throws with the reason, or returns the audit note. */
++  interface QuoteChecker {
++    String check(byte[] quote, String host) throws IOException;
++  }
++
++  /** What was admitted. */
++  static final class Admitted {
++    final String host;
++    final String meshPublic;
++    final String meshIp;
++    final String vpcIp;
++    final String note;
++
++    Admitted(String host, String meshPublic, String meshIp, String vpcIp, String note) {
++      this.host = host;
++      this.meshPublic = meshPublic;
++      this.meshIp = meshIp;
++      this.vpcIp = vpcIp;
++      this.note = note;
++    }
++  }
++
++  /** The nodes admitted so far in one run: a host or a mesh key may be admitted once only. */
++  static final class Roster {
++    private final java.util.Map<String, Admitted> byHost = new java.util.LinkedHashMap<>();
++
++    void add(Admitted a) throws IOException {
++      if (byHost.containsKey(a.host)) {
++        throw new IOException("the host " + a.host + " was already admitted from another bundle");
++      }
++      for (Admitted o : byHost.values()) {
++        if (o.meshPublic.equals(a.meshPublic)) {
++          throw new IOException("the mesh key is already used by the admitted host " + o.host);
++        }
++      }
++      byHost.put(a.host, a);
++    }
++
++    java.util.Collection<Admitted> all() {
++      return byHost.values();
++    }
++
++    int size() {
++      return byHost.size();
++    }
++  }
++
++  private final QuoteChecker quotes;
++  private final MeshPolicy policy;
++  private final long maxAgeSeconds;
++  private final long skewSeconds;
++  private final Supplier<Instant> clock;
++
++  MeshAdmission(QuoteChecker quotes, MeshPolicy policy, long maxAgeSeconds, long skewSeconds, Supplier<Instant> clock) {
++    this.quotes = quotes;
++    this.policy = policy;
++    this.maxAgeSeconds = maxAgeSeconds;
++    this.skewSeconds = skewSeconds;
++    this.clock = clock;
++  }
++
++  /** A checker that is QuoteAdmission: the genuine-quote and reference check of step 5.2.1. */
++  static QuoteChecker of(QuoteAdmission qa) {
++    return (quote, host) -> {
++      qa.checkQuote(quote, host);
++      return qa.noteOf(quote);
++    };
++  }
++
++  Admitted admit(NodeBundle b) throws IOException {
++    b.checkBinding();
++    if (!policy.hasHost(b.host)) {
++      throw new IOException("the host " + b.host + " is not in the mesh policy table");
++    }
++    if (!policy.meshIp(b.host).equals(b.meshIp)) {
++      throw new IOException("the host " + b.host + " asks for the mesh address " + b.meshIp + " but the policy table gives it " + policy.meshIp(b.host));
++    }
++    Instant now = clock.get();
++    if (b.created.isAfter(now.plusSeconds(skewSeconds))) {
++      throw new IOException("the statement is dated in the future (" + b.created + ", now " + now + ", allowed skew " + skewSeconds + " s)");
++    }
++    long age = Duration.between(b.created, now).getSeconds();
++    if (age > maxAgeSeconds) {
++      throw new IOException("the statement is stale: it was made " + age + " s ago and the limit is " + maxAgeSeconds + " s");
++    }
++    String note = quotes.check(b.quote, b.host);
++    return new Admitted(b.host, b.meshPublic, b.meshIp, policy.vpcIp(b.host), note);
++  }
++}
+diff --git a/src/java/org/apache/nutch/attested/MeshPolicy.java b/src/java/org/apache/nutch/attested/MeshPolicy.java
+new file mode 100644
+index 000000000..b4c554ff5
+--- /dev/null
++++ b/src/java/org/apache/nutch/attested/MeshPolicy.java
+@@ -0,0 +1,96 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.nutch.attested;
++
++import java.io.IOException;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.util.LinkedHashMap;
++import java.util.Map;
++import java.util.regex.Pattern;
++
++/**
++ * Which hosts may join the mesh and at which address (step 5.2.2): a plain text file, one line per host, HOST MESH_IP [VPC_IP]. The mesh address is decided by this table, not by the node: a node cannot
++ * claim another's address. The VPC address (optional) is where the peer's WireGuard endpoint is reached. Lines that start with # and empty lines are ignored; a host or an address twice is refused.
++ */
++final class MeshPolicy {
++  private static final Pattern HOST = Pattern.compile("[A-Za-z0-9._-]{1,63}");
++  private static final Pattern IP = Pattern.compile("(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])(\\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])){3}");
++
++  private final Map<String, String[]> byHost = new LinkedHashMap<>();
++
++  static MeshPolicy load(Path file) throws IOException {
++    String[] lines;
++    try {
++      lines = new String(Files.readAllBytes(file), StandardCharsets.UTF_8).split("\\r?\\n", -1);
++    } catch (IOException e) {
++      throw new IOException("the mesh policy file cannot be read: " + file + " (" + e.getMessage() + ")");
++    }
++    MeshPolicy p = new MeshPolicy();
++    int n = 0;
++    for (String line : lines) {
++      n++;
++      String t = line.trim();
++      if (t.isEmpty() || t.startsWith("#")) {
++        continue;
++      }
++      String[] f = t.split("\\s+");
++      if (f.length < 2 || f.length > 3) {
++        throw new IOException("mesh policy line " + n + ": expected HOST MESH_IP [VPC_IP], got " + f.length + " field(s)");
++      }
++      if (!HOST.matcher(f[0]).matches()) {
++        throw new IOException("mesh policy line " + n + ": bad host " + f[0]);
++      }
++      if (!IP.matcher(f[1]).matches() || (f.length == 3 && !IP.matcher(f[2]).matches())) {
++        throw new IOException("mesh policy line " + n + ": bad address");
++      }
++      if (p.byHost.containsKey(f[0])) {
++        throw new IOException("mesh policy line " + n + ": the host " + f[0] + " is listed twice");
++      }
++      for (String[] e : p.byHost.values()) {
++        if (e[0].equals(f[1])) {
++          throw new IOException("mesh policy line " + n + ": the mesh address " + f[1] + " is given to two hosts");
++        }
++      }
++      p.byHost.put(f[0], new String[] {f[1], f.length == 3 ? f[2] : ""});
++    }
++    if (p.byHost.isEmpty()) {
++      throw new IOException("the mesh policy file lists no host: " + file);
++    }
++    return p;
++  }
++
++  boolean hasHost(String host) {
++    return byHost.containsKey(host);
++  }
++
++  String meshIp(String host) {
++    String[] e = byHost.get(host);
++    return e == null ? null : e[0];
++  }
++
++  /** The VPC address of the host, or the empty string. */
++  String vpcIp(String host) {
++    String[] e = byHost.get(host);
++    return e == null ? "" : e[1];
++  }
++
++  int size() {
++    return byHost.size();
++  }
++}
+diff --git a/src/java/org/apache/nutch/attested/NodeBundle.java b/src/java/org/apache/nutch/attested/NodeBundle.java
+new file mode 100644
+index 000000000..ac7a0b29e
+--- /dev/null
++++ b/src/java/org/apache/nutch/attested/NodeBundle.java
+@@ -0,0 +1,126 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.
++ * The ASF licenses this file to You under the Apache License, Version 2.0
++ * (the "License"); you may not use this file except in compliance with
++ * the License.  You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.apache.nutch.attested;
++
++import java.io.IOException;
++import java.nio.charset.StandardCharsets;
++import java.security.GeneralSecurityException;
++import java.security.MessageDigest;
++import java.time.Instant;
++import java.util.Arrays;
++import java.util.Base64;
++import java.util.regex.Pattern;
++
++/**
++ * A node's statement and the quote that binds it (step 5.2.2), made on the node by node-attest.sh: the statement names the host, the node's WireGuard PUBLIC key, the mesh address that the node
++ * asks for, the time and a random nonce; the quote's REPORTDATA is the SHA-512 of the statement bytes (the rule of the signing keys' bundles). The file has three lines: the tag, the statement
++ * in base64 and the quote in base64. Parsing is strict: a file or statement that is not exactly of this form is refused.
++ */
++final class NodeBundle {
++  static final String TAG = "ATTESTED-NODE-BUNDLE 1";
++  static final String STATEMENT_TAG = "ATTESTED-NODE-STATEMENT 1";
++  private static final Pattern HOST = Pattern.compile("[A-Za-z0-9._-]{1,63}");
++  private static final Pattern KEY = Pattern.compile("[A-Za-z0-9+/]{43}=");
++  private static final Pattern IP = Pattern.compile("(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])(\\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])){3}");
++  private static final Pattern TIME = Pattern.compile("[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z");
++  private static final Pattern NONCE = Pattern.compile("[0-9a-f]{32}");
++  private static final String[] FIELDS = {"host", "mesh-public", "mesh-ip", "created", "nonce"};
++
++  final byte[] statement;
++  final byte[] quote;
++  final String host;
++  final String meshPublic;
++  final String meshIp;
++  final Instant created;
++  final String nonce;
++
++  private NodeBundle(byte[] statement, byte[] quote, String host, String meshPublic, String meshIp, Instant created, String nonce) {
++    this.statement = statement;
++    this.quote = quote;
++    this.host = host;
++    this.meshPublic = meshPublic;
++    this.meshIp = meshIp;
++    this.created = created;
++    this.nonce = nonce;
++  }
++
++  static NodeBundle decode(byte[] file) throws IOException {
++    String[] lines = new String(file, StandardCharsets.UTF_8).split("\n", -1);
++    int n = lines.length;
++    if (n > 0 && lines[n - 1].isEmpty()) {
++      n--;
++    }
++    if (n != 3 || !TAG.equals(lines[0]) || !lines[1].startsWith("statement=") || !lines[2].startsWith("quote=")) {
++      throw new IOException("not a node bundle: it must have exactly the lines '" + TAG + "', 'statement=...' and 'quote=...'");
++    }
++    byte[] statement;
++    byte[] quote;
++    try {
++      statement = Base64.getDecoder().decode(lines[1].substring("statement=".length()));
++      quote = Base64.getDecoder().decode(lines[2].substring("quote=".length()));
++    } catch (IllegalArgumentException e) {
++      throw new IOException("the statement or the quote of the node bundle is not valid base64");
++    }
++    String[] st = new String(statement, StandardCharsets.UTF_8).split("\n", -1);
++    int m = st.length;
++    if (m > 0 && st[m - 1].isEmpty()) {
++      m--;
++    }
++    if (m != 1 + FIELDS.length || !STATEMENT_TAG.equals(st[0])) {
++      throw new IOException("the node statement must be '" + STATEMENT_TAG + "' and exactly the lines " + Arrays.toString(FIELDS) + " in this order");
++    }
++    String[] v = new String[FIELDS.length];
++    for (int i = 0; i < FIELDS.length; i++) {
++      String prefix = FIELDS[i] + "=";
++      if (!st[i + 1].startsWith(prefix)) {
++        throw new IOException("the node statement must have the line '" + prefix + "...' at position " + (i + 1) + " (fields, in this order: " + Arrays.toString(FIELDS) + ")");
++      }
++      v[i] = st[i + 1].substring(prefix.length());
++    }
++    need(HOST, v[0], "host");
++    need(KEY, v[1], "mesh-public");
++    need(IP, v[2], "mesh-ip");
++    need(TIME, v[3], "created");
++    need(NONCE, v[4], "nonce");
++    if (Base64.getDecoder().decode(v[1]).length != 32) {
++      throw new IOException("mesh-public is not a 32-byte WireGuard key");
++    }
++    return new NodeBundle(statement, quote, v[0], v[1], v[2], Instant.parse(v[3]), v[4]);
++  }
++
++  private static void need(Pattern p, String value, String name) throws IOException {
++    if (!p.matcher(value).matches()) {
++      throw new IOException("the node statement's " + name + " is not in the required form: " + (value.length() > 60 ? value.substring(0, 60) + "..." : value));
++    }
++  }
++
++  /** The quote's REPORTDATA (64 bytes at offset 568) must be the SHA-512 of the statement. */
++  void checkBinding() throws IOException {
++    if (quote.length < 632) {
++      throw new IOException("the quote is too short to carry a REPORTDATA (" + quote.length + " bytes)");
++    }
++    byte[] digest;
++    try {
++      digest = MessageDigest.getInstance("SHA-512").digest(statement);
++    } catch (GeneralSecurityException e) {
++      throw new IOException("no SHA-512: " + e);
++    }
++    if (!MessageDigest.isEqual(Arrays.copyOfRange(quote, 568, 632), digest)) {
++      throw new IOException("the quote's REPORTDATA is not the SHA-512 of the statement: the quote does not belong to this statement");
++    }
++  }
++}
+diff --git a/src/java/org/apache/nutch/attested/QuoteAdmission.java b/src/java/org/apache/nutch/attested/QuoteAdmission.java
+index 8dd3f221e..457f94ba1 100644
+--- a/src/java/org/apache/nutch/attested/QuoteAdmission.java
++++ b/src/java/org/apache/nutch/attested/QuoteAdmission.java
+@@ -89,24 +89,34 @@ final class QuoteAdmission implements BundleCheck {
+     if (!b.hasQuote()) {
+       throw new IOException("the key " + b.keyId + " has no quote, so it cannot be admitted");
+     }
+-    QuoteVerifier.Quote q = QuoteVerifier.parse(b.quote);
++    checkQuote(b.quote, b.host);
++  }
++
++  /** The same check for any quote of the host named: a genuine quote, and every enforced register allowed by the reference for that host. */
++  void checkQuote(byte[] quote, String host) throws IOException {
++    QuoteVerifier.Quote q = QuoteVerifier.parse(quote);
+     QuoteVerifier.verify(q, roots, checkDates, clock.get());
+     for (String reg : enforce) {
+       String v = q.register(reg);
+       if (!reference.hasRegister(reg)) {
+         throw new IOException("the reference has no value for " + reg.toUpperCase(Locale.ROOT) + ", which is enforced");
+       }
+-      if (!reference.allows(reg, v, b.host)) {
+-        throw new IOException(reg.toUpperCase(Locale.ROOT) + " of " + b.host + " is " + v.substring(0, 12) + "..., which the reference does not allow (allowed: "
+-            + reference.allowedFor(reg, b.host) + ")");
++      if (!reference.allows(reg, v, host)) {
++        throw new IOException(reg.toUpperCase(Locale.ROOT) + " of " + host + " is " + v.substring(0, 12) + "..., which the reference does not allow (allowed: "
++            + reference.allowedFor(reg, host) + ")");
+       }
+     }
+   }
+ 
+   @Override
+   public String note(KeyBundle b) {
++    return noteOf(b.quote);
++  }
++
++  /** The registers of a quote with the word enforced or shown only, for the audit. */
++  String noteOf(byte[] quote) {
+     try {
+-      QuoteVerifier.Quote q = QuoteVerifier.parse(b.quote);
++      QuoteVerifier.Quote q = QuoteVerifier.parse(quote);
+       StringBuilder sb = new StringBuilder("admitted by quote:");
+       for (String reg : QuoteVerifier.REGISTERS) {
+         sb.append(' ').append(reg).append('=').append(q.register(reg), 0, 12).append(enforce.contains(reg) ? "(enforced)" : "(shown only)");

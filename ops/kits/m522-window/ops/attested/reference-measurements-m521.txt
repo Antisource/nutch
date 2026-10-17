@@ -1,0 +1,13 @@
+# Reference measurements of the two attested machines (step 5.2.1). One line per allowed value: REGISTER VALUE [HOST].
+# Taken from the quotes of the two signing services of run 15 (16 October 2026), both verified with go-tdx-guest's check on the laptop.
+# TO CHANGE A DECISION: add a line to allow another value, delete a line to forbid one, or change attested.keys.admission.enforce to choose the registers that count.
+# RTMR3 is not listed on purpose: it is shown in the audit but not enforced (ADR-051). Add RTMR3 lines and put rtmr3 into the enforce setting to enforce it.
+# The firmware (MRTD) is the cloud provider's: this file records what these machines reported, it is not an independent reference.
+
+MRTD c1ee9c16e3afc506cfe042c5b846a368528f3b37618eafb27469bc114cf914e9222c91618470e7f2b28ac360968270a5 *
+RTMR0 036d0bf4b66913618e3e6f3457e04ad5698ed810d651b15cb71f8d32f183ccb415c25caa91ef587e8c358f2f31522ea4 tdx-lab
+RTMR0 5e276dcf68679535dee217a4c32f2f9159ba593525179a64573efc3476fd292098526b9030f5f7513d8cc04d8d25be78 tdx-lab-worker
+RTMR1 05718f1d5381a60438472782e9ade9dd4f4c5a5ae7ca7d4cc2691e5d601a70e0eee1f8136f9479eadbc29374b6e0e621 tdx-lab
+RTMR1 b8837821022e5b053541c2813f799c53a9144315fec275f3cee03d2c51352abb82b1725f04438bcf221ab7613caef1b7 tdx-lab-worker
+RTMR2 31d680d42f9ee244846e5ff72d3237c3d6733d0240535c3373476bc60faa8aba23fda802890ba5472b68bf562049e2ee tdx-lab
+RTMR2 6879c7f5bd13110c8b2c2db1ef0b02002388e3d9b4427b7ce8f744f63690f5379a77f999aff25bcd47c8669e01832e2c tdx-lab-worker
