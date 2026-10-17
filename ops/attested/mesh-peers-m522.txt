@@ -1,0 +1,5 @@
+# Step 5.2.2: the hosts that may join the mesh, at the mesh address that this table gives them (a node cannot claim another's address).
+# HOST MESH_IP VPC_IP   (the VPC address is where the peer's WireGuard endpoint is reached)
+# The first proof uses the test mesh wg1 (10.20.0.0/24, UDP 51821); to change who may join, edit this file.
+tdx-lab 10.20.0.1 10.128.0.2
+tdx-lab-worker 10.20.0.2 10.128.0.5

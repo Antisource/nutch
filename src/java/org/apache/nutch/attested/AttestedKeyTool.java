@@ -36,6 +36,10 @@ import java.nio.file.Paths;
  *                                                                             is the SHA-512 of the statement (not the quote's signature chain: bundle-admit does that)
  * java -cp attested-hdfs.jar org.apache.nutch.attested.AttestedKeyTool bundle-admit FILE REFERENCE [--no-dates] [--enforce mrtd,rtmr0,...] [--root SHA256]
  *                                                                             admit a key bundle by its quote (step 5.2.1): the certificate chain, the signatures and the reference measurements; prints ADMIT or REJECT
+ * java -cp attested-hdfs.jar org.apache.nutch.attested.AttestedKeyTool node-admit BUNDLE REFERENCE POLICY [--max-age S] [--skew S] [--enforce a,b] [--root SHA256] [--no-dates] [--now ISO]
+ *                                                                             the doorman's decision for one node bundle (step 5.2.2): binding, policy table, freshness, genuine quote and reference
+ * java -cp attested-hdfs.jar org.apache.nutch.attested.AttestedKeyTool node-admit-all REFERENCE POLICY OUT.tsv [options as above] BUNDLE...
+ *                                                                             the same for several bundles; writes the admitted nodes (host, mesh key, mesh address, VPC address) to OUT.tsv; refuses a host or a mesh key twice
  * java -cp attested-hdfs.jar org.apache.nutch.attested.AttestedKeyTool quote-info FILE   print the measurement registers and the certificate chain of a bundle's quote (no verification)
  * </pre>
  *
@@ -68,6 +72,74 @@ public final class AttestedKeyTool {
         out.println("key id " + b.keyId + "   host " + b.host + "   quote version " + q.version + "   tee type 0x" + Long.toHexString(q.teeType));
         for (String reg : QuoteVerifier.REGISTERS) {
           out.println(String.format("%-6s %s", reg.toUpperCase(), q.register(reg)));
+        }
+        return 0;
+      }
+      if (args.length >= 4 && (args[0].equals("node-admit") || args[0].equals("node-admit-all"))) {
+        boolean all = args[0].equals("node-admit-all");
+        String reference = all ? args[1] : args[2];
+        String policyFile = all ? args[2] : args[3];
+        String tsv = all ? args[3] : null;
+        java.util.List<String> bundles = new java.util.ArrayList<>();
+        if (!all) {
+          bundles.add(args[1]);
+        }
+        long maxAge = 900;
+        long skew = 60;
+        boolean dates = true;
+        String enforce = QuoteAdmission.DEFAULT_ENFORCE;
+        String root = QuoteAdmission.INTEL_SGX_ROOT_SHA256;
+        java.time.Instant now = null;
+        for (int i = all ? 4 : 4; i < args.length; i++) {
+          if (args[i].equals("--no-dates")) {
+            dates = false;
+          } else if (args[i].equals("--max-age") && i + 1 < args.length) {
+            maxAge = Long.parseLong(args[++i]);
+          } else if (args[i].equals("--skew") && i + 1 < args.length) {
+            skew = Long.parseLong(args[++i]);
+          } else if (args[i].equals("--enforce") && i + 1 < args.length) {
+            enforce = args[++i];
+          } else if (args[i].equals("--root") && i + 1 < args.length) {
+            root = args[++i];
+          } else if (args[i].equals("--now") && i + 1 < args.length) {
+            now = java.time.Instant.parse(args[++i]);
+          } else if (all && !args[i].startsWith("--")) {
+            bundles.add(args[i]);
+          } else {
+            throw new IOException("unknown option " + args[i]);
+          }
+        }
+        if (bundles.isEmpty()) {
+          throw new IOException("no node bundle given");
+        }
+        final java.time.Instant fixedNow = now;
+        java.util.function.Supplier<java.time.Instant> clock = () -> fixedNow != null ? fixedNow : java.time.Instant.now();
+        QuoteAdmission qa = new QuoteAdmission(AdmissionReference.load(Paths.get(reference), ""), QuoteAdmission.registers(enforce), QuoteAdmission.rootList(root), dates, clock);
+        MeshAdmission door = new MeshAdmission(MeshAdmission.of(qa), MeshPolicy.load(Paths.get(policyFile)), maxAge, skew, clock);
+        MeshAdmission.Roster admitted = new MeshAdmission.Roster();
+        int refused = 0;
+        for (String f : bundles) {
+          String name = Paths.get(f).getFileName().toString();
+          try {
+            MeshAdmission.Admitted a = door.admit(NodeBundle.decode(Files.readAllBytes(Paths.get(f))));
+            admitted.add(a);
+            out.println("ADMIT-NODE host=" + a.host + " mesh-public=" + a.meshPublic + " mesh-ip=" + a.meshIp + " vpc-ip=" + (a.vpcIp.isEmpty() ? "-" : a.vpcIp) + " " + a.note);
+          } catch (IOException e) {
+            if (!all) {
+              throw new IOException("REJECT-NODE " + name + ": " + e.getMessage());
+            }
+            refused++;
+            out.println("REJECT-NODE " + name + ": " + e.getMessage());
+          }
+        }
+        if (all) {
+          StringBuilder sb = new StringBuilder();
+          for (MeshAdmission.Admitted a : admitted.all()) {
+            sb.append(a.host).append('\t').append(a.meshPublic).append('\t').append(a.meshIp).append('\t').append(a.vpcIp.isEmpty() ? "-" : a.vpcIp).append('\n');
+          }
+          Files.write(Paths.get(tsv), sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+          out.println("NODES " + admitted.size() + " admitted, " + refused + " refused");
+          return refused == 0 ? 0 : 1;
         }
         return 0;
       }

@@ -89,24 +89,34 @@ final class QuoteAdmission implements BundleCheck {
     if (!b.hasQuote()) {
       throw new IOException("the key " + b.keyId + " has no quote, so it cannot be admitted");
     }
-    QuoteVerifier.Quote q = QuoteVerifier.parse(b.quote);
+    checkQuote(b.quote, b.host);
+  }
+
+  /** The same check for any quote of the host named: a genuine quote, and every enforced register allowed by the reference for that host. */
+  void checkQuote(byte[] quote, String host) throws IOException {
+    QuoteVerifier.Quote q = QuoteVerifier.parse(quote);
     QuoteVerifier.verify(q, roots, checkDates, clock.get());
     for (String reg : enforce) {
       String v = q.register(reg);
       if (!reference.hasRegister(reg)) {
         throw new IOException("the reference has no value for " + reg.toUpperCase(Locale.ROOT) + ", which is enforced");
       }
-      if (!reference.allows(reg, v, b.host)) {
-        throw new IOException(reg.toUpperCase(Locale.ROOT) + " of " + b.host + " is " + v.substring(0, 12) + "..., which the reference does not allow (allowed: "
-            + reference.allowedFor(reg, b.host) + ")");
+      if (!reference.allows(reg, v, host)) {
+        throw new IOException(reg.toUpperCase(Locale.ROOT) + " of " + host + " is " + v.substring(0, 12) + "..., which the reference does not allow (allowed: "
+            + reference.allowedFor(reg, host) + ")");
       }
     }
   }
 
   @Override
   public String note(KeyBundle b) {
+    return noteOf(b.quote);
+  }
+
+  /** The registers of a quote with the word enforced or shown only, for the audit. */
+  String noteOf(byte[] quote) {
     try {
-      QuoteVerifier.Quote q = QuoteVerifier.parse(b.quote);
+      QuoteVerifier.Quote q = QuoteVerifier.parse(quote);
       StringBuilder sb = new StringBuilder("admitted by quote:");
       for (String reg : QuoteVerifier.REGISTERS) {
         sb.append(' ').append(reg).append('=').append(q.register(reg), 0, 12).append(enforce.contains(reg) ? "(enforced)" : "(shown only)");
