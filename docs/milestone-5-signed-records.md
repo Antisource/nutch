@@ -448,3 +448,76 @@ Section 7 proved the admission on real quotes and real data, offline. This windo
 - A delivery script that cannot be run where it is made needs a faithful dry run: the gate's row without its `zip:` prefix could not be caught by counting braces (mistake log 121).
 - A tool that a step needs must be in the runbook as a command, not only in the mistake log: Cloud Shell forgets installs (mistake log 122).
 - A rehearsal's whole output must be read, not only its last line (mistake log 123), and every upload the runbook needs is its own item (mistake log 124).
+
+
+## 9. Step 5.2.2: the doorman of the mesh (17 October 2026)
+
+### 9.1 What it does
+
+In Milestone 2 the mesh authenticated its peers by static WireGuard keys that an operator script wrote into the configuration: nothing connected a node's mesh key to its hardware, so a copied key would have been let in. Step 5.2.2 puts a **doorman** in front of the mesh. A node is admitted only if a hardware quote, made just now, binds **its WireGuard public key and the mesh address it asks for** to the machine, the quote is a genuine Intel-signed TDX quote, its measurements are in the reference file of step 5.2.1, the host and the address are in a policy table, and the statement is fresh. Nothing on the network changes before the decision, and a refused node never becomes a peer.
+
+### 9.2 The design
+
+| Part | What it is |
+|---|---|
+| `node-attest.sh` (on a node) | reads the node's WireGuard public key (the folder `/etc/wireguard` is root only, so with sudo) and checks it against the key of the running interface; asks the TDX guest for a quote whose REPORTDATA is the SHA-512 of a statement (host, WireGuard public key, requested mesh address, time, random nonce); writes a node bundle (the statement and the quote) |
+| `NodeBundle` | the strict parser of that bundle and the check of the binding (the quote's REPORTDATA is the SHA-512 of the statement) |
+| `MeshPolicy` | the policy table, a plain text file with one line per host: `HOST MESH_IP [VPC_IP]`; the address is decided by the table, not by the node |
+| `MeshAdmission` | the doorman's decision, in this order: the binding, the policy table, freshness (900 s, clock skew 60 s), and then the genuine-quote and reference check of step 5.2.1; and a roster that admits a host or a mesh key once only |
+| The key tool | `node-admit` (one bundle) and `node-admit-all` (several; writes the table of admitted nodes) |
+| `mesh-admit.sh` (in Cloud Shell) | `admit` asks each host of the table for a fresh bundle and lets the doorman decide (optionally with a rogue node added), `build` brings the test mesh up with exactly the admitted peers and proves it, `down` takes it down |
+| `wg1-node-up.sh` and `wg1-node-down.sh` (on the nodes) | bring the test interface `wg1` up (the node's own attested key, its table address as /24, UDP port 51821) and down |
+
+### 9.3 The decisions, and how to change each one
+
+Each decision is a line of a file, an option or a variable, so that the mentor can ask for a change and it is one edit (ADR-053 to ADR-055).
+
+| Decision (default) | How to change it |
+|---|---|
+| Who may join, at which address | edit the policy table `ops/attested/mesh-peers-m522.txt` (one line per host) |
+| How old a statement may be (900 s) | set `MA_MAX_AGE` when running `mesh-admit.sh`, or `--max-age` with the key tool |
+| Allowed clock skew (60 s) | `--skew` through `MA_OPTS` |
+| What the quote must show | the same reference file, enforce list, root and date options as step 5.2.1 (`--enforce`, `--root`, `--no-dates` through `MA_OPTS`; the lines of the reference file) |
+| The test mesh's UDP port (51821) | the variable `PORT` at the top of `wg1-node-up.sh` |
+| The first proof on a test mesh, not on production | the same scripts with another interface name would adopt the doorman for the production mesh `wg0`; that is not done and is the mentor's decision |
+
+### 9.4 How it was built and tested
+
+1. **In the sandbox:** 62 node core checks with **two real node bundles as test vectors**: both are admitted; a swapped mesh key, a changed address, host or time, a flipped REPORTDATA bit, and a flipped MRTD bit are refused; the freshness boundaries are exact (900 s admitted, 901 s refused, skew); the policy table and its errors; the reference and root edits flip the decision; the parser is strict; a host or a mesh key is admitted once only; and **a rogue node with a fake quote is refused by the quote check alone** (it passes the binding, the policy and the freshness, and the test shows that it would be admitted if the quote check were removed). **25 planted faults in the new code were all caught.** The rehearsal of the scripts (29 checks, 15 faults, with fake nodes that can misbehave) shows that a rogue node never becomes a peer and that every proof of the build can fail; the capture script rehearses with 18 checks and 10 faults.
+2. **On the master, in a scratch clone** (the kit `m522-test`, 09:25:31): the fake-mode smoke test **239 of 239**, Hadoop's real committer **16 of 16**, the hash test **18 of 18**, **the real HDFS 237 of 237**, the signing core **73 of 73**, the key core **68 of 68**, the admission core **73 of 73**, the node core **62 of 62**.
+3. **The build** (`m522-build`, 09:27:01): the job `ff73a7c281ac5299…` (134,921,739 bytes, built in 33 s) differs from the job of step 5.2.1 in 2 changed and 6 new classes, none unexpected; the wrapper jar `77bbdda0a2b57028…` has 43 classes (37 before); and the built jar's doorman admits the two real node bundles.
+
+### 9.5 The runs on the real machines
+
+**The capture** (no change to the cluster): on each node the script read the real WireGuard public key (the key file equals the key of the running `wg0`) and asked the hardware for a quote that binds it. The statements are dated 08:14:27 (master, host `tdx-lab`, address 10.20.0.1) and 08:14:50 (worker, `tdx-lab-worker`, 10.20.0.2); each quote is 8,000 bytes and its REPORTDATA equals the SHA-512 of its statement; go-tdx-guest's `check` verified the Intel signature chain of both quotes on the laptop. These two bundles are the test vectors of the tests above, and their registers equal the reference file that was made from the run-15 quotes a day earlier.
+
+**The test mesh run** (not a window: no jar, daemon or setting changed): after the check that the measured stack was unchanged, `admit` at 10:01:17 made a fresh bundle on each node and the doorman **admitted both nodes and refused a rogue node** (`the quote is too short (632 bytes)`), and only it; `build` at 10:02:04 brought `wg1` up on both nodes with exactly the admitted peers on their own attested keys: **the key that `wg1` runs is the key that the quote attested**, the peers are exactly the admitted ones, each node reaches the other (3 of 3 packets), the peers have handshaken, and **`wg0` is untouched**; `down` at 10:05:05 removed `wg1`. Afterwards `wg0` still had its peer, `wg1` was gone, and the measured stack was `ALL-UNCHANGED` (9 components on the master, 6 on the worker). On the laptop go-tdx-guest's `check` verified the Intel signature chain of the two fresh quotes. The Google firewall already allows UDP between the two machines (`default-allow-internal`).
+
+**A false alarm that I caused:** before the run, my check of the measured stack said `SOMETHING-CHANGED` on the master. The check's default Nutch folder is `~/ccbot-work/nutch-cc`, while the baseline log of the master records the patched tree `~/m481/patched`, which every window passes as `NUTCH_DIR`; I had left that out of my command. With it, the master was `ALL-UNCHANGED` (9 components). Nothing had changed (mistake log 128).
+
+### 9.6 What it does not show
+
+- **The operator is the trust root:** `mesh-admit.sh` runs in Cloud Shell and applies the decision (limitations row 125).
+- **The WireGuard private key is on the node's disk**, in a root-only folder; the quote proves that a genuine measured machine presented the public key, not that the private key never left it (row 126).
+- **The decision is made once**, at the admission; there is no re-check and no automatic revocation (row 127).
+- **The production mesh `wg0` was not rebuilt through the doorman**; the run showed that the keys it trusts are the attested ones as of 17 October (row 128).
+- A genuine statement can be replayed within its 900 seconds, which only re-admits the same key (row 129).
+- A real machine with other measurements was not available, so that refusal is shown with an edited reference only (row 130).
+
+### 9.7 Evidence and commits
+
+| Item | Value |
+|---|---|
+| The patch that was tested | `de76947096641cc6…` (9 files, against branch head `7ff9a2d84`) |
+| The code commit | `feat(attested): the doorman of the mesh: a node bundle, a policy table and an admission by quote (step 5.2.2)` (9 files: 7 new, 2 modified; two of the new files are the real node bundles used as test vectors) |
+| The kits commit | `feat(ops): add the capture, test, build and window kits of the mesh doorman (step 5.2.2)` (`ops/kits/m522-capture`, `m522-test`, `m522-build`, `m522-window`) |
+| Evidence bundles (outside the repository) | `evidence-m522c` (`7c95bcb8…`, 13 files: the capture), `evidence-m522` (`a849b3f6…`, 7 files: the test and the build, with `SOURCE-IDENTICAL` for the nine source files), and `evidence-m522w` (`39694aff…`, 26 files: the test mesh run, the firewall rules, the checks of the measured stack, the quote check on the laptop) |
+| The files that ran | the scripts that ran are the files of the kit zips that were delivered: `m522c` `3568765a…`, `m522tb` `56268956…`, `m522w` `813e2c16…` |
+
+### 9.8 Lessons
+
+- A folder's mode matters even when the file inside is world-readable: `/etc/wireguard` is root only, and my first capture stopped on both nodes (mistake log 125).
+- `gcloud compute scp` cannot take sources from two machines in one command (mistake log 126).
+- `ssh` and `scp` read the standard input, so inside a loop they swallow its list; a stand-in that does not do this hides the bug, and making the stand-in reproduce it proved the fix (mistake log 127).
+- The command that I give for a check must set what the real script sets (mistake log 128).
+- A rehearsal that passes at once is checked for weak checks; this one had a mislabelled check, a planted fault outside the patch, a date clash with its fixed clock, and a full sandbox disk (mistake log 129).
