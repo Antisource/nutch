@@ -28,6 +28,7 @@ converted where cited. Where something was not observed, the text says so.
 | [milestone-2-wireguard-mesh.md](milestone-2-wireguard-mesh.md) | Milestone 2: the WireGuard mesh and a closed ordinary network |
 | [milestone-3-hdfs-wrapper.md](milestone-3-hdfs-wrapper.md) | Milestone 3: the `hdfs://` wrapper and the storage audit |
 | [milestone-4-storage-integrity.md](milestone-4-storage-integrity.md) | Milestone 4: storage integrity (hashing, records, verified reads, contract tests) and the steps still open |
+| [milestone-5-signed-records.md](milestone-5-signed-records.md) | Milestone 5: signed records, the real per-VM key, the admission of keys and of mesh nodes by their quote (steps 5.1.1 to 5.2.2 done; 5.3 open) |
 | [decisions.md](decisions.md) | The decision log, with the mentor's decisions |
 | [handoff-attested-hadoop-cluster.md](handoff-attested-hadoop-cluster.md) | The mentor's handoff, with the corrections of 7 October |
 
